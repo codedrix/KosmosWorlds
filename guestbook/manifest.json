@@ -1,0 +1,31 @@
+{
+  "kosmos_version": "1.0",
+  "world": {
+    "id": "guestbook",
+    "name": "Guestbook",
+    "author": "micknerks",
+    "description": "Press the plinth and a system sheet asks you to sign. The count above it is derived from every visitor's entry, and a wall hides it from half the floor. The door is a link with no program behind it; the panel beside it only pretends to be a prompt.",
+    "version": "1.0.0",
+    "spawn_point": {
+      "x": 2,
+      "y": 2.2,
+      "z": 1.1
+    },
+    "sky": "day"
+  },
+  "capabilities": [
+    "scene_read",
+    "transform",
+    "events",
+    "state",
+    "ui_basic",
+    "timer"
+  ],
+  "requires": {
+    "host_api": 2
+  },
+  "assets": {
+    "gltf": "world.glb",
+    "wasm": "world.wasm"
+  }
+}

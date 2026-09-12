@@ -1,0 +1,40 @@
+[package]
+name = "guestbook_script"
+version = "1.0.0"
+edition = "2021"
+description = "Guestbook — the Wave 2 device-checkpoint world: world text, the system prompt sheet, per-user state, a declarative link door, and a timer-driven animation."
+license = "MIT"
+# build.rs supplies --import-memory and --export-table. Deleting it produces a
+# world that builds and is dead on device; see its header.
+build = "build.rs"
+
+[lib]
+# cdylib is what produces a .wasm — a plain rlib produces nothing loadable.
+crate-type = ["cdylib"]
+
+[dependencies]
+# The SDK is not on crates.io yet. This path assumes `kosmos-creator-sdk` is
+# cloned as a SIBLING of `KosmosWorlds`:
+#
+#   <parent>/KosmosWorlds/guestbook
+#   <parent>/kosmos-creator-sdk
+#
+# Pinned for this world at kosmos-creator-sdk `edf6176` (NEW-12a: the level-2
+# externs behind the `level2` feature). Cargo path dependencies always use
+# forward slashes, even on Windows.
+#
+# `features = ["level2"]` is what makes `k_ui_prompt` exist at all. It is a
+# NON-DEFAULT feature on purpose: the SDK's default build is exactly the
+# DEPLOYED client surface, and level 2 does not ship until the Wave 2 cook
+# passes its device checkpoint. Enabling it here declares that this world
+# deliberately targets an unreleased host build — which is the entire reason
+# this world is published unlisted and validated with `--host-surface`.
+kosmos-sdk = { path = "../../kosmos-creator-sdk", features = ["level2"] }
+
+[profile.release]
+# The published module must fit inside the 256 KB WASM_002 budget.
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
