@@ -185,9 +185,29 @@ It has since been fixed, twice over, by other people:
   merges, a plain `kosmos-wp validate .` gives the same single WASM_007 warning,
   and **this package should delete `tools/` and drop the flag**.
 
-A real publish additionally needs the **registry** to deploy its re-vendored copy
-of the same levels table (registry PR #90, after #88); until then a publish 409s
-on the recomputed level whatever the publisher says.
+### The publish order, and what a correct publish looks like
+
+Three things must happen in this order before this world can be published at all:
+
+1. publisher **PR #88** merges — `k_ui_prompt` enters the canon capability map;
+2. registry **PR #90** *deploys* its re-vendored copy of the same levels table;
+3. only then does `kosmos-wp publish` stop failing with
+   `WORKERS_WORLDS_HOST_API_IMPORT_REJECTED` (a 409 on the level the registry
+   recomputes from the bundle bytes — the creator's stamp is advisory, the bytes
+   are binding).
+
+Step 2 is not optional and is not implied by step 1: the publisher and the
+registry vendor the table separately, and the registry is the one that answers at
+publish time.
+
+**Then read the result carefully.** The registry's `deployed` level stays at
+**1** through all of this, and it stays there until a headset passes the
+checkpoint. So a successful publish of this world looks like: it registers, and
+it is **withheld from every level-1 headset**. That is the compatibility promise
+working exactly as specified — a level-1 client is told the world is not
+available for its version rather than being handed one that traps on the first
+press — and it must not be logged as a failure. The `deployed` bump to 2 is the
+*last* step, after pixels, not a prerequisite for publishing.
 
 `tools/host-api-levels-level2.json` is a **local checkpoint table**, not canon.
 It is the publisher's vendored table with **four** changes, and the last three
