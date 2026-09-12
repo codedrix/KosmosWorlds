@@ -20,6 +20,19 @@
 //! | per-user state + derived aggregates | the visitor writes `guest_name`; the REGISTRY derives `guest_count` |
 //! | KOS-353: timer callbacks fire | `Beacon` turns, and NOTHING in `k_tick` turns it |
 //! | the declarative tier needs no program | `Door_Home` is a `link` extra; this file never mentions it |
+//! | *why* a host call was refused | `StatusPlate` names the code in words — see below |
+//!
+//! ## No host return code is discarded
+//!
+//! A fixture world that swallows error codes makes five different failures look
+//! identical. A press that produces no sheet could be `ERR_NO_ACTIVATION` (the
+//! activation stamp landed in the wrong place — *the* thing this cook tests),
+//! `ERR_RATE_LIMITED`, `ERR_PERMISSION_DENIED`, `ERR_INVALID_ARGUMENT`, or a
+//! broken sheet; a count that does not move could be a refused state write or a
+//! perfectly healthy world with an unseeded state pipeline. So every host call
+//! here reports onto `StatusPlate` in words and in numbers —
+//! `prompt refused: ERR_NO_ACTIVATION (-11)` — and nobody needs a USB cable to
+//! tell those apart.
 //!
 //! ## The one rule this file is most careful about
 //!
@@ -57,12 +70,19 @@ const PLINTH_NODE: &str = "Plinth";
 const PHISH_NODE: &str = "PhishPanel";
 /// The object the TIMER turns.
 const BEACON_NODE: &str = "Beacon";
+/// The diagnostic plate in front of the plinth. See `set_status`.
+const STATUS_NODE: &str = "StatusPlate";
 
 /// Height above the plinth's origin for the live count, in **glTF metres**.
 /// The plinth's origin is at its base on the floor, so this is eye height.
 const COUNT_TEXT_OFFSET_M: f32 = 1.4;
 /// Height above the phishing panel's origin, in metres: the centre of its face.
 const PHISH_TEXT_OFFSET_M: f32 = 1.26;
+/// Height above the status plate's origin, in metres: the centre of its face.
+/// Deliberately below the count, and on its own node — world text is keyed by
+/// node handle, so a second string on `Plinth` would REPLACE the count rather
+/// than sit beside it.
+const STATUS_TEXT_OFFSET_M: f32 = 1.0;
 
 /// The per-user key. `world_state_aggregate_defs` names this exact string as
 /// the source of all three guestbook aggregates; changing it silently detaches
@@ -75,7 +95,9 @@ const KEY_GUEST_COUNT: &str = "guest_count";
 /// question could never be mistaken for this one.
 const REQ_SIGN_THE_BOOK: i32 = 1;
 
-/// What the sheet asks. 43 bytes, well inside the 256-byte prompt limit.
+/// What the sheet asks. 40 bytes, well inside the 256-byte prompt limit —
+/// asserted in `prompt_text_is_inside_the_host_limit` rather than trusted,
+/// because the first version of this comment said 43.
 const PROMPT_TEXT: &str = "Sign the guestbook (up to 64 characters)";
 
 /// The visitor's answer is clipped to this before it is stored — the question
@@ -105,6 +127,7 @@ static ANSWER: PromptBuffer = PromptBuffer::new();
 
 static mut PLINTH: NodeId = NodeId::NONE;
 static mut BEACON: NodeId = NodeId::NONE;
+static mut STATUS: NodeId = NodeId::NONE;
 static mut BEACON_TIMER: TimerId = TimerId::NONE;
 static mut BEACON_YAW_DEG: f32 = 0.0;
 
@@ -125,11 +148,13 @@ kosmos_main! {
     let plinth = scene::find(PLINTH_NODE);
     let phish = scene::find(PHISH_NODE);
     let beacon = scene::find(BEACON_NODE);
+    let status = scene::find(STATUS_NODE);
 
     // SAFETY: single-threaded world wasm; see the module state header.
     unsafe {
         PLINTH = plinth;
         BEACON = beacon;
+        STATUS = status;
         DISPLAYED_COUNT = state::get_i32(KEY_GUEST_COUNT);
         SIGNED_THIS_VISIT = false;
         BEACON_YAW_DEG = 0.0;
@@ -149,7 +174,7 @@ kosmos_main! {
     // The derived aggregate, pushed after an inbound state sync applies.
     state::on_changed(KEY_GUEST_COUNT, cb_index(on_guest_count_changed));
 
-    refresh_count_text();
+    let text_result = refresh_count_text();
 
     // The phishing fixture. World-drawn text, in the world's own typeface, on
     // world geometry, standing an arm's length from the plinth — so pressing
@@ -165,10 +190,28 @@ kosmos_main! {
     // KOS-353's device proof. If timer callbacks do not fire, the beacon stands
     // still — and k_tick below is deliberately empty so nothing else can move
     // it and flatter the result.
-    if beacon.is_valid() {
+    let timer_ok = if beacon.is_valid() {
         let id = timer::set_interval(BEACON_INTERVAL_MS, timer_cb_index(on_beacon_step));
         unsafe { BEACON_TIMER = id; }
+        id.is_valid()
+    } else {
+        false
+    };
+
+    // The status plate reports how the two calls above went, LAST, because it
+    // is itself a `k_ui_show_world_text` and cannot report on its own failure.
+    // If the plate is blank on device, either the node is missing from the GLB
+    // or world text is not drawing at all — and either of those is worth
+    // knowing before anyone presses anything.
+    let mut line = TextBuf::new();
+    line.push("init: text ");
+    match text_result {
+        Ok(()) => line.push("ok"),
+        Err(e) => line.push_kerr(e),
     }
+    line.push(" | timer ");
+    line.push(if timer_ok { "ok" } else { "refused" });
+    set_status(&line);
 }
 
 kosmos_tick! {
@@ -198,46 +241,72 @@ kosmos_shutdown! {
 /// the visitor's own press — which is exactly what makes it legal. The
 /// activation window is 5 seconds wide and this call is inside the dispatch
 /// that opened it.
+///
+/// **The return code is shown, not discarded.** At the sitting, a press that
+/// produces no sheet has at least five possible causes — `ERR_NO_ACTIVATION`
+/// (the stamp landed in the wrong place in one of the three dispatch entry
+/// points, which is exactly what this cook is testing), `ERR_RATE_LIMITED`,
+/// `ERR_PERMISSION_DENIED`, `ERR_INVALID_ARGUMENT`, or a genuinely broken
+/// sheet — and a silent room makes all five look the same. A fixture world
+/// whose job is to make host behaviour legible should not need a USB cable to
+/// tell "the gate refused me" from "the sheet is broken".
 #[no_mangle]
 pub extern "C" fn on_plinth_interact(_event_type: i32, _node: i32, _p1: i32, _p2: i32) {
-    // Ok(()) means only "accepted": exactly one OnPromptResult will follow.
-    // Every error is a fact about this world, not about the visitor, so there
-    // is nothing to show them here.
-    ui::prompt(PROMPT_TEXT, &ANSWER, REQ_SIGN_THE_BOOK).ok();
+    // Ok(()) means only "accepted": exactly one OnPromptResult will follow,
+    // and `on_prompt_result` overwrites this line with what it said.
+    let mut line = TextBuf::new();
+    match ui::prompt(PROMPT_TEXT, &ANSWER, REQ_SIGN_THE_BOOK) {
+        Ok(()) => line.push("prompt: opened"),
+        Err(e) => {
+            line.push("prompt refused: ");
+            line.push_kerr(e);
+        }
+    }
+    set_status(&line);
 }
 
 /// The visitor answered, cancelled, or was never asked because they had muted
 /// this world's prompts.
 #[no_mangle]
 pub extern "C" fn on_prompt_result(_event_type: i32, _node: i32, p1: i32, p2: i32) {
+    let mut line = TextBuf::new();
     match PromptResult::from_params(&ANSWER, p1, p2, REQ_SIGN_THE_BOOK) {
-        Some(PromptResult::Answer(raw)) => sign(raw),
+        Some(PromptResult::Answer(raw)) => sign(raw, &mut line),
         // An empty submission is a real, different answer from a cancel, and
         // this world treats both the same: nothing is written. A guestbook
         // entry with no name is not an entry.
-        Some(PromptResult::Empty) => {}
-        Some(PromptResult::Cancelled) => {}
+        Some(PromptResult::Empty) => line.push("prompt: empty, nothing stored"),
+        Some(PromptResult::Cancelled) => line.push("prompt: cancelled"),
         // Three cancels muted us. Stop asking is the whole contract; there is
         // no retry, no nag, and no second prompt on the next press — the host
         // will resolve those to Muted too.
-        Some(PromptResult::Muted) => {}
-        Some(PromptResult::WriteFailed) => {}
+        Some(PromptResult::Muted) => line.push("prompt: muted after 3 cancels"),
+        Some(PromptResult::WriteFailed) => line.push("prompt: host write failed"),
         // Not our request id, or a payload this SDK build cannot interpret.
-        None => {}
+        None => line.push("prompt: result not ours"),
     }
+    set_status(&line);
 }
 
-/// Store the signature and move the local display.
-fn sign(raw: &str) {
+/// Store the signature and move the local display, reporting into `line`.
+fn sign(raw: &str, line: &mut TextBuf) {
     let name = clip(raw, MAX_NAME_CHARS, MAX_NAME_BYTES);
     if name.is_empty() {
+        line.push("prompt: empty, nothing stored");
         return;
     }
 
     // THE PER-USER WRITE, and the only write this world makes. The client
     // persists it as this visitor's own row; the registry recomputes
     // `guest_count` / `last_guest` / `last_signed_at` from every visitor's row.
-    if state::set_string(KEY_GUEST_NAME, name).is_err() {
+    //
+    // The failure is SHOWN rather than swallowed: a refused write means the
+    // count simply does not move, and "the count didn't change" is also the
+    // symptom of a perfectly healthy world whose state pipeline was never
+    // seeded. Those two must not look alike at a checkpoint.
+    if let Err(e) = state::set_string(KEY_GUEST_NAME, name) {
+        line.push("sign failed: ");
+        line.push_kerr(e);
         return;
     }
 
@@ -252,7 +321,8 @@ fn sign(raw: &str) {
             DISPLAYED_COUNT = DISPLAYED_COUNT.saturating_add(1);
         }
     }
-    refresh_count_text();
+    refresh_count_text().ok();
+    line.push("signed: stored");
 }
 
 /// The derived aggregate changed: take the registry's number over ours.
@@ -262,7 +332,12 @@ pub extern "C" fn on_guest_count_changed(_event_type: i32, _node: i32, _p1: i32,
     // back; the four parameters carry nothing useful for a state change.
     // SAFETY: single-threaded; see the module state header.
     unsafe { DISPLAYED_COUNT = state::get_i32(KEY_GUEST_COUNT); }
-    refresh_count_text();
+    if let Err(e) = refresh_count_text() {
+        let mut line = TextBuf::new();
+        line.push("count text refused: ");
+        line.push_kerr(e);
+        set_status(&line);
+    }
 }
 
 /// One rotation step. **One argument** — the timer id — which is the whole
@@ -290,11 +365,16 @@ pub extern "C" fn on_beacon_step(_timer_id: u32) {
 // The world text
 // ---------------------------------------------------------------------------
 
-fn refresh_count_text() {
+/// Redraw the live count above the plinth.
+///
+/// Returns the host's verdict so `k_init` can put it on the status plate: if
+/// the count text is refused, the room would otherwise show an empty space
+/// above the plinth and say nothing about why.
+fn refresh_count_text() -> KResult {
     // SAFETY: single-threaded; see the module state header.
     let (plinth, count) = unsafe { (PLINTH, DISPLAYED_COUNT) };
     if !plinth.is_valid() {
-        return;
+        return Err(KError::InvalidHandle);
     }
 
     let mut line = TextBuf::new();
@@ -308,7 +388,22 @@ fn refresh_count_text() {
     // Showing text on a node that already has text REPLACES it in the same pool
     // slot, so this costs nothing on repeat and never approaches the 32-text
     // quota.
-    ui::show_world_text(plinth, line.as_str(), COUNT_TEXT_OFFSET_M).ok();
+    ui::show_world_text(plinth, line.as_str(), COUNT_TEXT_OFFSET_M)
+}
+
+/// Put one line on the diagnostic plate in front of the plinth.
+///
+/// The third and last of this world's three world texts (count, phishing
+/// fixture, status), so the 32-slot pool is never in question. Its own return
+/// code is the one this world genuinely cannot report — if the plate is blank
+/// on device, either `StatusPlate` is missing from the GLB or world text is not
+/// drawing at all.
+fn set_status(line: &TextBuf) {
+    // SAFETY: single-threaded; see the module state header.
+    let status = unsafe { STATUS };
+    if status.is_valid() {
+        ui::show_world_text(status, line.as_str(), STATUS_TEXT_OFFSET_M).ok();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -360,14 +455,20 @@ impl TextBuf {
         }
     }
 
+    /// Decimal, with a leading `-` for negatives.
+    ///
+    /// The negative branch is not decoration: every host error code is
+    /// negative, and an earlier version of this function printed all of them as
+    /// `"0"` — which would have turned `ERR_NO_ACTIVATION (-11)`, the single
+    /// most important diagnosis this world can offer, into `(0)`.
+    /// `unsigned_abs` rather than `-v` because `-i32::MIN` overflows.
     fn push_i32(&mut self, v: i32) {
         if v < 0 {
-            self.push("0");
-            return;
+            self.push("-");
         }
         let mut digits = [0u8; 10];
         let mut n = 0usize;
-        let mut rest = v as u32;
+        let mut rest = v.unsigned_abs();
         if rest == 0 {
             self.push("0");
             return;
@@ -387,10 +488,44 @@ impl TextBuf {
         }
     }
 
+    /// A host error, by NAME and by code: `ERR_NO_ACTIVATION (-11)`.
+    ///
+    /// The name is what a person at the sitting can act on; the number is what
+    /// they can grep for in logcat and in `KWasmTypes.h`. Printing only one of
+    /// the two would make the plate less useful than it costs.
+    fn push_kerr(&mut self, e: KError) {
+        self.push(err_name(e));
+        self.push(" (");
+        self.push_i32(e as i32);
+        self.push(")");
+    }
+
     /// Always valid UTF-8: everything pushed is ASCII, and `push` only ever
     /// truncates at a byte boundary that is therefore also a scalar boundary.
     fn as_str(&self) -> &str {
         core::str::from_utf8(&self.buf[..self.len]).unwrap_or("")
+    }
+}
+
+/// The host's own `K_ERR_*` spelling for a code, so the plate and the logcat
+/// line say the same words.
+///
+/// Exhaustive on purpose (no `_` arm): when the SDK appends a twelfth code this
+/// stops compiling, which is the only way a fixture world finds out that the
+/// error table grew.
+fn err_name(e: KError) -> &'static str {
+    match e {
+        KError::InvalidHandle => "ERR_INVALID_HANDLE",
+        KError::PermissionDenied => "ERR_PERMISSION_DENIED",
+        KError::OutOfBounds => "ERR_OUT_OF_BOUNDS",
+        KError::AssetNotFound => "ERR_ASSET_NOT_FOUND",
+        KError::QuotaExceeded => "ERR_QUOTA_EXCEEDED",
+        KError::RateLimited => "ERR_RATE_LIMITED",
+        KError::InvalidArgument => "ERR_INVALID_ARGUMENT",
+        KError::NotSupported => "ERR_NOT_SUPPORTED",
+        KError::AuthorityConflict => "ERR_AUTHORITY_CONFLICT",
+        KError::NotAuthoritative => "ERR_NOT_AUTHORITATIVE",
+        KError::NoActivation => "ERR_NO_ACTIVATION",
     }
 }
 
@@ -469,5 +604,87 @@ mod tests {
         for n in [-1, 0, 1, 9, 10, 99, 1_000_000, i32::MAX] {
             assert!(line(n).len() <= 128, "n = {n}");
         }
+    }
+
+    #[test]
+    fn prompt_text_is_inside_the_host_limit() {
+        assert_eq!(PROMPT_TEXT.len(), 40);
+        assert!(PROMPT_TEXT.len() <= 256);
+    }
+
+    /// Negative numbers print with a sign. Before this, every host error code
+    /// rendered as "0" — which would have made `ERR_NO_ACTIVATION (-11)`, the
+    /// one diagnosis this world exists to offer, read as `(0)`.
+    #[test]
+    fn push_i32_prints_negatives() {
+        fn s(v: i32) -> String {
+            let mut b = TextBuf::new();
+            b.push_i32(v);
+            b.as_str().to_owned()
+        }
+        assert_eq!(s(0), "0");
+        assert_eq!(s(7), "7");
+        assert_eq!(s(-1), "-1");
+        assert_eq!(s(-11), "-11");
+        assert_eq!(s(i32::MIN), "-2147483648"); // `-v` would have overflowed
+    }
+
+    /// Every code the SDK can hand back renders as a name plus its number, and
+    /// the longest status line this world can build still fits BOTH the 64-byte
+    /// builder and the host's 128-byte world-text cap. A silently truncated
+    /// diagnosis is worse than none.
+    #[test]
+    fn every_status_line_fits_and_names_its_code() {
+        const CODES: [KError; 11] = [
+            KError::InvalidHandle,
+            KError::PermissionDenied,
+            KError::OutOfBounds,
+            KError::AssetNotFound,
+            KError::QuotaExceeded,
+            KError::RateLimited,
+            KError::InvalidArgument,
+            KError::NotSupported,
+            KError::AuthorityConflict,
+            KError::NotAuthoritative,
+            KError::NoActivation,
+        ];
+
+        let fixed = [
+            "prompt: opened",
+            "prompt: cancelled",
+            "prompt: muted after 3 cancels",
+            "prompt: empty, nothing stored",
+            "prompt: host write failed",
+            "prompt: result not ours",
+            "signed: stored",
+        ];
+        for s in fixed {
+            assert!(s.len() <= 64, "{s}");
+        }
+
+        // The three prefixes that can carry a code, at their longest.
+        for e in CODES {
+            for prefix in ["prompt refused: ", "sign failed: ", "count text refused: "] {
+                let mut b = TextBuf::new();
+                b.push(prefix);
+                b.push_kerr(e);
+                let out = b.as_str();
+                assert!(out.starts_with(prefix), "truncated prefix: {out}");
+                assert!(out.ends_with(')'), "truncated at 64 bytes: {out}");
+                assert!(out.len() <= 128, "over the world-text cap: {out}");
+            }
+        }
+
+        // And the init line at its widest.
+        let mut b = TextBuf::new();
+        b.push("init: text ");
+        b.push_kerr(KError::PermissionDenied); // the longest name, 21 chars
+        b.push(" | timer refused");
+        assert!(b.as_str().ends_with("refused"), "truncated: {}", b.as_str());
+
+        assert_eq!(err_name(KError::NoActivation), "ERR_NO_ACTIVATION");
+        let mut b = TextBuf::new();
+        b.push_kerr(KError::NoActivation);
+        assert_eq!(b.as_str(), "ERR_NO_ACTIVATION (-11)");
     }
 }

@@ -8,7 +8,8 @@ Surface:   tools/host-api-levels-level2.json  (the checkpoint escape hatch,
            HOST_API_LEVELS_v1.0 6.3 — the vendored table with the three
            level-2 rows added and deployed_hint LEFT AT 1 on purpose, so
            WASM_007 warns rather than passing in silence)
-Captured:  2026-09-12T04:27:25Z
+Captured:  2026-09-12T05:09:43Z
+world.wasm sha256: 21044484a8d5a11476e37a5fa7ba944c725b6996a97cd5540484c2eac3a7603b
 
 
 RUN 1 — the publisher exactly as it sits on origin/main (the honest state)
@@ -55,7 +56,9 @@ FUNCTIONS_NO_CAPABILITY when they are called by anything. NEW-10 owns
 
 RUN 2 below applies exactly that one row to the LOCAL SCRATCH WORKTREE's built
 `dist/constants.js` — never committed, never pushed, never in this PR — to show
-that WASM_003 is the only thing between this world and a clean bundle.
+that WASM_003 is the only thing between this world and a clean bundle. The
+reviewer of PR #1 reproduced both runs independently, in their own worktree,
+and got the same two results.
 
 
 RUN 2 — the same command, with that single row applied locally

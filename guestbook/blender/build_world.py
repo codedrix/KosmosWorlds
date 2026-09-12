@@ -10,8 +10,10 @@ Writes (relative to the guestbook/ package root, which is this file's parent's p
     world.glb            the exported scene, with the spawn_point / interactable / link extras
     review/spawn.png     the room as seen from the spawn point  (text VISIBLE)
     review/occluded.png  the room from the south-west floor     (text HIDDEN behind Partition)
-    review/above.png     a top-down plan of the room
+    review/status.png    the diagnostic plate, read from the pressing position
+    review/above.png     a labelled top-down plan of the room
     review/door.png      the link door, close enough to read its hover target
+    review/approach.png  plate, plinth, count and phishing fixture in one frame
 
 WHY THIS FILE EXISTS AT ALL
     Every scripted world gets a lit-render review before it ships: an agent's
@@ -39,6 +41,17 @@ RENDER-ONLY PROXIES
     objects at the exact positions the runtime text will occupy. They are never
     exported. Their sole job is to let a human (and this agent) SEE whether the
     wall covers that position.
+
+    They cast NO SHADOW (`visible_shadow = False`). The real thing does not -
+    world text is drawn by the client, not lit by the scene - and in the first
+    pass the door label's shadow landed on the door slab and read as a garbled
+    second address.
+
+THE THREE WORLD TEXTS, AND WHY THERE ARE THREE NODES
+    World text is keyed by NODE HANDLE, so one node can hold one string. The
+    count goes on `Plinth`, the phishing imitation on `PhishPanel`, and the
+    host-result readout on `StatusPlate` - a second string on `Plinth` would
+    REPLACE the count rather than sit beneath it.
 """
 
 import math
@@ -58,6 +71,8 @@ PLINTH_POS = (-1.5, 1.6, 0.0)     # origin at its base, on the floor
 TEXT_OFFSET_M = 1.4               # k_ui_show_world_text offset_y, in glTF METRES
 PHISH_POS = (-0.35, 1.55, 0.0)    # origin at its base
 PHISH_TEXT_OFFSET_M = 1.26        # centre of the panel face
+STATUS_POS = (-2.45, 1.6, 0.0)    # the diagnostic plate, beside the plinth
+STATUS_TEXT_OFFSET_M = 1.0        # centre of the plate face
 BEACON_POS = (1.6, 1.8, 1.15)     # centre; sits on BeaconStand's 1.0 m top
 DOOR_POS_XY = (2.2, 2.94)         # set into the north wall (inner face y = 3.0)
 SPAWN_POS = (2.0, -2.2, 0.0)      # floor-level marker; spawn-sync adds the 1.1 m capsule lift
@@ -169,6 +184,9 @@ def build_room():
         "panel": make_material("M_PhishPanel", (0.16, 0.17, 0.20), roughness=0.35),
         "post": make_material("M_Post", (0.22, 0.22, 0.24), roughness=0.7),
         "stand": make_material("M_BeaconStand", (0.50, 0.50, 0.52), roughness=0.8),
+        # Instrument grey-green: legibly a readout, and legibly NOT the chrome
+        # the phishing panel is imitating.
+        "status": make_material("M_StatusPlate", (0.20, 0.26, 0.24), roughness=0.6),
         "beacon": make_material("M_Beacon", (0.95, 0.68, 0.15), roughness=0.25),
     }
 
@@ -189,6 +207,23 @@ def build_room():
     cap = add_box("_PlinthCap", (PLINTH_POS[0], PLINTH_POS[1], 1.03), (0.52, 0.52, 0.06), mats["plinth"])
     plinth = join_into("Plinth", [base, col, cap], PLINTH_POS)
     plinth["interactable"] = True
+
+    # --- the diagnostic plate ----------------------------------------------
+    # Its own node, because world text is keyed by NODE HANDLE: a second string
+    # on `Plinth` would replace the count rather than sit under it. Instrument
+    # grey-green - it is a readout, not part of the exhibit.
+    #
+    # Placed BESIDE the plinth, not in front of it: the first pass put it at
+    # (-1.5, 0.95) where it stood between the visitor and the thing they are
+    # meant to press, and covered the plinth's column in the approach render.
+    #
+    # The plate is a BACKING, not a frame. World text size is fixed by the
+    # client and a world cannot set it, so the real string may well overhang
+    # these edges on device. That is expected; what the plate provides is a node
+    # to attach to and a place to look.
+    s_post = add_box("_StatusPost", (STATUS_POS[0], STATUS_POS[1], 0.425), (0.06, 0.06, 0.85), mats["post"])
+    s_face = add_box("_StatusFace", (STATUS_POS[0], STATUS_POS[1], 1.00), (1.00, 0.05, 0.34), mats["status"])
+    join_into("StatusPlate", [s_post, s_face], STATUS_POS)
 
     # --- the phishing fixture (world-drawn, deliberately NOT a system sheet)
     post = add_box("_PhishPost", (PHISH_POS[0], PHISH_POS[1], 0.475), (0.08, 0.08, 0.95), mats["post"])
@@ -319,6 +354,14 @@ def add_text_proxy(name, body, location, size=0.10, color=(0.05, 0.05, 0.05)):
     obj.rotation_euler = (math.radians(90.0), 0.0, 0.0)
     mat = make_material("M_" + name, color, roughness=0.5)
     obj.data.materials.append(mat)
+    # NO SHADOW. The real thing does not cast one: world text is drawn by the
+    # client, not lit by the scene. Without this the ReviewSun threw each
+    # proxy's glyphs onto the surface behind it, and in the first pass the door
+    # label's shadow landed on the door slab and read as a garbled SECOND
+    # address — a reviewer had to crop the image and check the sun angle to tell
+    # it from a duplicate object. Evidence that smears the string under test is
+    # weaker than it should be.
+    obj.visible_shadow = False
     return obj
 
 
@@ -350,7 +393,11 @@ def add_plan_annotations():
     disc.data.materials.append(disc_mat)
 
     add_plan_label("SPAWN", (SPAWN_POS[0], SPAWN_POS[1] - 0.62), size=0.22, color=(0.70, 0.15, 0.12))
-    add_plan_label("Plinth (interactable)", (PLINTH_POS[0], PLINTH_POS[1] - 0.60))
+    # Plinth's label goes SOUTH of it and StatusPlate's NORTH: they are 0.95 m
+    # apart in x and the two label strings are ~2 m wide, so side by side on the
+    # same row they overprinted each other.
+    add_plan_label("Plinth (interactable)", (PLINTH_POS[0] + 0.10, PLINTH_POS[1] - 0.58))
+    add_plan_label("StatusPlate (host results)", (STATUS_POS[0] - 0.10, STATUS_POS[1] + 0.62), size=0.17)
     add_plan_label("PhishPanel", (PHISH_POS[0] + 0.55, PHISH_POS[1] - 0.55), size=0.17)
     add_plan_label("Beacon (timer)", (BEACON_POS[0] + 0.10, BEACON_POS[1] - 0.62), size=0.17)
     add_plan_label("Door_Home  link -> world://home.micknerks",
@@ -358,7 +405,8 @@ def add_plan_annotations():
     add_plan_label("Partition (the occluder)", (-2.4, -0.45), size=0.19)
 
 
-def render_from(name, location, look_at, lens=24.0, ortho_scale=None, resolution=(1280, 720)):
+def render_from(name, location, look_at, lens=24.0, ortho_scale=None, resolution=(1280, 720),
+                exposure=None):
     cam_data = bpy.data.cameras.new(name + "Cam")
     if ortho_scale is not None:
         cam_data.type = "ORTHO"
@@ -384,7 +432,12 @@ def render_from(name, location, look_at, lens=24.0, ortho_scale=None, resolution
     scene.render.image_settings.color_depth = "8"
     scene.render.image_settings.compression = 100
     scene.render.filepath = os.path.join(REVIEW, name + ".png")
+
+    previous_exposure = scene.view_settings.exposure
+    if exposure is not None:
+        scene.view_settings.exposure = exposure
     bpy.ops.render.render(write_still=True)
+    scene.view_settings.exposure = previous_exposure
     print("[guestbook] rendered %s" % scene.render.filepath)
 
 
@@ -409,7 +462,17 @@ def build_review_renders():
     text_pos = (PLINTH_POS[0], PLINTH_POS[1], TEXT_OFFSET_M)
     phish_pos = (PHISH_POS[0], PHISH_POS[1], PHISH_TEXT_OFFSET_M)
 
+    status_pos = (STATUS_POS[0], STATUS_POS[1] - 0.04, STATUS_TEXT_OFFSET_M)
+
     add_text_proxy("ProxyCount", "12 visitors signed", text_pos, size=0.13)
+    # The status plate, showing the line that matters most at the sitting.
+    add_text_proxy(
+        "ProxyStatus",
+        "prompt refused:\nERR_NO_ACTIVATION (-11)",
+        status_pos,
+        size=0.050,
+        color=(0.80, 0.92, 0.86),
+    )
     add_text_proxy(
         "ProxyPhish",
         "Enter your password\nto continue",
@@ -440,19 +503,31 @@ def build_review_renders():
     #    that the hover-label proxy is inside the frame.
     render_from("door", (2.6, -0.9, EYE_M), (DOOR_POS_XY[0], DOOR_POS_XY[1], 1.45), lens=26.0)
 
-    # 4. The approach: plinth, phishing fixture and beacon in one frame, the way
-    #    a visitor sees them after walking past the Partition's east end.
-    render_from("approach", (0.6, -0.4, EYE_M), (-0.9, 1.8, 1.2), lens=20.0)
+    # 4. The approach: status plate, plinth, count and phishing fixture in one
+    #    frame, the way a visitor sees them after walking past the Partition's
+    #    east end. This is also the position §2.5's 2 m legibility target is
+    #    actually met from - the spawn is 5.2 m out and is a SIGHT-LINE test.
+    render_from("approach", (0.4, -0.2, EYE_M), (-1.6, 1.7, 1.2), lens=20.0)
 
-    # 5. Plan view, LAST - nothing floats, the door is reachable, the partition
+    # 5. The status plate, read from where a visitor stands to press the plinth.
+    #    Its own shot because the whole point of the plate is that a person can
+    #    READ the host's refusal code, and a wide approach frame shrinks a
+    #    23-character line to nothing.
+    render_from("status", (-1.05, 0.50, EYE_M), (STATUS_POS[0], STATUS_POS[1], STATUS_TEXT_OFFSET_M),
+                lens=34.0)
+
+    # 6. Plan view, LAST - nothing floats, the door is reachable, the partition
     #    really does split the room. Square frame: a 16:9 ortho at this scale
     #    cropped the north and south walls out of the first pass. Labelled,
     #    because an unlabelled top-down of a white room says nothing - and the
     #    labels are added last precisely so they cannot appear in the four
     #    eye-level shots above.
+    #    Rendered a stop darker than the eye-level shots: seen from straight
+    #    above, the floor takes the sun flat and washed the Partition out to
+    #    nearly the floor's own value in the first pass.
     add_plan_annotations()
     render_from("above", (0.0, 0.0, 12.0), (0.0, 0.0, 0.0), ortho_scale=9.2,
-                resolution=(1024, 1024))
+                resolution=(1024, 1024), exposure=-1.6)
 
 
 # ---------------------------------------------------------------------------
