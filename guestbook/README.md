@@ -143,10 +143,19 @@ honest, and is exactly what a checkpoint failure should look like.
 ## The level-2 problem, stated plainly
 
 `k_ui_prompt` is a **level-2** host function. The deployed fleet is level 1.
-Two separate things follow, and only one of them is handled:
 
-**1. WASM_007 warns — working as designed.** `validate` with
-`--host-surface tools/host-api-levels-level2.json`:
+**How to validate this world today** — on the publisher as it ships, with no
+patch of any kind:
+
+```
+kosmos-wp validate . --host-surface tools/host-api-levels-level2.json
+```
+
+One WASM_007 warning, nothing else. The committed `guestbook.worldbundle` is
+that command's output. `review/validate.txt` carries the run verbatim, plus the
+same command without the flag so you can see why the flag is still needed.
+
+**WASM_007 warns — working as designed.**
 
 > `[WASM_007] This world requires host API level 2 (it imports
 > kosmos.k_ui_prompt, introduced at level 2), but the deployed client is at
@@ -159,17 +168,26 @@ Two separate things follow, and only one of them is handled:
 That is a WARN, not a REJECT, precisely so the Wave 2 guestbook is publishable
 before its own cook (HOST_API_LEVELS_v1.0 §6.3).
 
-**2. WASM_003 rejects — a publisher gap, not a world defect.** The capability
-cross-check reads a *hardcoded* map (`HOST_FUNCTION_CAPABILITIES`,
-`packages/core/src/constants.ts`), which stops at the 72 level-1 functions and
-has no `k_ui_prompt` row. `--host-surface` does not reach it. On
-`kosmos-worldpublisher` `origin/main` `e66ccfd` **no level-2 world can validate,
-whatever surface is passed**; this world is just the first to prove it.
+### When the flag stops being needed
 
-The fix is one row in the publisher, in the level-2 lane (NEW-06b), not here —
-`review/validate.txt` shows the same command with and without it, and shows that
-it is the only thing standing between this world and a clean bundle. NEW-10 owns
-`guestbook/**` in KosmosWorlds and deliberately changes nothing else.
+This world was built against publisher `e66ccfd`, where the escape hatch did not
+work at all: `WASM_003` read a hardcoded capability map the `--host-surface`
+flag never reached, so **no** level-2 world could validate whatever surface was
+passed. This package was the first to prove that, and reported it as a finding
+for the publisher lane.
+
+It has since been fixed, twice over, by other people:
+
+- **publisher PR #86** (`fb9b801`) made `WASM_003` resolve through
+  `resolveImportCapability` — canon first, the levels table second — so the flag
+  now reaches the check. That is what makes the command above work unpatched.
+- **publisher PR #88** puts `k_ui_prompt` into the canon map itself. Once it
+  merges, a plain `kosmos-wp validate .` gives the same single WASM_007 warning,
+  and **this package should delete `tools/` and drop the flag**.
+
+A real publish additionally needs the **registry** to deploy its re-vendored copy
+of the same levels table (registry PR #90, after #88); until then a publish 409s
+on the recomputed level whatever the publisher says.
 
 `tools/host-api-levels-level2.json` is a **local checkpoint table**, not canon.
 It is the publisher's vendored table with **four** changes, and the last three
@@ -230,8 +248,9 @@ CARGO_TARGET_DIR=../../.build/guestbook cargo build --release --target wasm32-un
 cp ../../.build/guestbook/wasm32-unknown-unknown/release/guestbook_script.wasm world.wasm
 ```
 
-`cargo test` runs the two host-side unit tests (string clipping and the count
-line) against the SDK's mock-host stubs.
+`cargo test` runs the six host-side unit tests (string clipping, the count line,
+negative-number printing, and every error code fitting the status plate) against
+the SDK's mock-host stubs.
 
 **3. Validate and bundle.** From a built checkout of
 `kosmos-worldpublisher` `origin/main` (`npm ci && npm run build`), with
@@ -244,8 +263,12 @@ node $CLI validate . --host-surface tools/host-api-levels-level2.json
 node $CLI bundle   . --host-surface tools/host-api-levels-level2.json
 ```
 
-`doctor` has no `--host-surface` flag, so it reports the same WASM_003 finding
-as RUN 1 of `review/validate.txt`; every other doctor check is green.
+`doctor` has no `--host-surface` flag, so until publisher PR #88 merges it
+reports the one WASM_003 finding on `k_ui_prompt` (16 ✅ · 0 ⚠️ · 1 ❌); every
+other check is green, and `validate`/`bundle` with the flag are clean.
+
+The committed bundle was produced exactly this way, on `origin/main` `71de5ef`
+(core 0.4.2 / CLI 0.3.1), unpatched.
 
 **4. Publishing is not part of this PR.** `guestbook.worldbundle` is committed
 here; the orchestrator publishes it **unlisted** under the CEO's key. Do not
@@ -267,7 +290,7 @@ a headset — an agent's green assertion is not pixels.
 | `blender/build_world.py` | geometry, glTF export, and the six review renders — one script |
 | `tools/host-api-levels-level2.json` | the local checkpoint levels table (see above) |
 | `review/*.png` | the lit-render review — six renders |
-| `review/validate.txt` | the validator output, both runs |
+| `review/validate.txt` | the validator output, with and without the flag, plus the history |
 
 ## Known limitations
 

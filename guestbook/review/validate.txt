@@ -1,68 +1,36 @@
 kosmos-wp validate — guestbook.micknerks 1.0.0
 ==============================================
 
-Tool:      kosmos-worldpublisher origin/main e66ccfd, built from source
-           (packages/cli/dist/index.js; `kosmos-wp --version` ->
-           0.3.0 (rules 50, extensions 10, poly limit 1,000,000))
 Surface:   tools/host-api-levels-level2.json  (the checkpoint escape hatch,
            HOST_API_LEVELS_v1.0 6.3 — the vendored table with the three
            level-2 rows added and deployed_hint LEFT AT 1 on purpose, so
            WASM_007 warns rather than passing in silence)
-Captured:  2026-09-12T05:09:43Z
-world.wasm sha256: 21044484a8d5a11476e37a5fa7ba944c725b6996a97cd5540484c2eac3a7603b
+world.wasm sha256:21044484a8d5a11476e37a5fa7ba944c725b6996a97cd5540484c2eac3a7603b
+
+THE SHORT VERSION
+-----------------
+On the publisher as it ships TODAY, this world validates clean with the escape
+hatch and NO local patch of any kind. RUN A below is that command, and the
+committed guestbook.worldbundle is its output.
+
+The flag is still required today, and RUN B shows why. It stops being required
+when kosmos-worldpublisher PR #88 merges, which puts k_ui_prompt into the canon
+capability map; after that a plain `kosmos-wp validate .` gives the same single
+WASM_007 warning, and this world should delete tools/ and drop the flag.
+
+A publish additionally needs the REGISTRY to deploy its re-vendored copy of the
+same levels table (kosmos-registry PR #90, which merges after #88); until then a
+publish 409s on the recomputed level regardless of what the publisher says.
 
 
-RUN 1 — the publisher exactly as it sits on origin/main (the honest state)
--------------------------------------------------------------------------
+===============================================================================
+RUN A — publisher origin/main, UNPATCHED, with the escape hatch
+===============================================================================
+Tool:      kosmos-worldpublisher origin/main 71de5ef (PR #87), built from source
+           kosmos-wp --version -> 0.3.1 (rules 50, extensions 10, poly limit 1,000,000)
+Captured:  2026-09-12T16:09:10Z
 
-warning: gating against host API level 1 from C:\Users\coded\AppData\Local\Temp\claude\C--Users-coded-Documents-Kosmos-Project\4cc5c088-56dd-4eee-8829-f98d0acc59ca\scratchpad\worktrees\KosmosWorlds\guestbook\tools\host-api-levels-level2.json (external-table).
-  This is NOT the level confirmed deployed to headsets. A world validated against it may import functions no installed client registers — and an unresolved import does not fail at load: the module instantiates, then TRAPS the first time that function is called, taking the whole world with it. Publish against the default unless you are deliberately targeting an unreleased host build.
-Checked against host API level 1 as of 2026-08-01, cook C-20260801-22eaea0 — the vendored value, not the registry's live one.
-Validating world package: C:\Users\coded\AppData\Local\Temp\claude\C--Users-coded-Documents-Kosmos-Project\4cc5c088-56dd-4eee-8829-f98d0acc59ca\scratchpad\worktrees\KosmosWorlds\guestbook
-
-FAILED — 1 error(s):
-
-  [WASM_003] Wasm imports unknown host function "kosmos.k_ui_prompt" — not a recognized Kosmos DOM API function
-    File: world.wasm
-
-1 warning(s):
-
-  [WASM_007] This world requires host API level 2 (it imports kosmos.k_ui_prompt, introduced at level 2), but the deployed client is at level 1. Once the registry negotiates host API levels it will be served only to clients at level 2 or higher — headsets below it are told the world is not available for their version, rather than being handed one that dies on the first call. Publish it when the level-2 client ships, or drop the level-2 imports to reach today's fleet.
-
-Validation FAILED — bundle cannot be published.
-
-
-THE ONE ERROR, AND WHY IT IS NOT THIS WORLD'S
----------------------------------------------
-WASM_003 is the capability cross-check. It does NOT read the levels table: it
-reads a hardcoded map, HOST_FUNCTION_CAPABILITIES in
-packages/core/src/constants.ts, built from Content Spec v1.0 section 5, and that
-map stops at the 72 level-1 functions (k_ui_show_world_text / k_ui_hide_world_text
-/ k_ui_show_notification are there at constants.ts:682-684; k_ui_prompt is not
-anywhere in the file). An unmapped kosmos.* name is rejected as unverifiable.
-
-`--host-surface` cannot reach it. The flag selects the levels table, which drives
-WASM_007 (and the required-level arithmetic); it is not consulted by WASM_003.
-So on origin/main e66ccfd NO level-2 world can validate, whatever surface is
-passed — this world is simply the first one to prove it.
-
-The fix is one row in the publisher, in the NEW-06b/level-2 lane, not here:
-
-    k_ui_prompt: "ui_basic",     // beside k_ui_show_notification
-
-plus the two capability-free level-2 names (k_api_version, k_has_fn) in
-FUNCTIONS_NO_CAPABILITY when they are called by anything. NEW-10 owns
-`guestbook/**` in KosmosWorlds and does not touch the publisher.
-
-RUN 2 below applies exactly that one row to the LOCAL SCRATCH WORKTREE's built
-`dist/constants.js` — never committed, never pushed, never in this PR — to show
-that WASM_003 is the only thing between this world and a clean bundle. The
-reviewer of PR #1 reproduced both runs independently, in their own worktree,
-and got the same two results.
-
-
-RUN 2 — the same command, with that single row applied locally
---------------------------------------------------------------
+$ kosmos-wp validate . --host-surface tools/host-api-levels-level2.json
 
 warning: gating against host API level 1 from C:\Users\coded\AppData\Local\Temp\claude\C--Users-coded-Documents-Kosmos-Project\4cc5c088-56dd-4eee-8829-f98d0acc59ca\scratchpad\worktrees\KosmosWorlds\guestbook\tools\host-api-levels-level2.json (external-table).
   This is NOT the level confirmed deployed to headsets. A world validated against it may import functions no installed client registers — and an unresolved import does not fail at load: the module instantiates, then TRAPS the first time that function is called, taking the whole world with it. Publish against the default unless you are deliberately targeting an unreleased host build.
@@ -76,27 +44,61 @@ Validating world package: C:\Users\coded\AppData\Local\Temp\claude\C--Users-code
 
 Validation PASSED
 
+===============================================================================
+RUN B — the same publisher, the same world, NO flag
+===============================================================================
 
-WHAT RUN 2 SHOWS
-----------------
-  * WASM_007 WARNS. It does not reject. That is the acceptance criterion: the
-    world declares level 2, the deployed fleet is level 1, and the publisher
-    says so out loud instead of blocking a checkpoint world (HOST_API_LEVELS
-    6.3, "a REJECT here would make the Wave 2 guestbook unpublishable before
-    its cook").
-  * Every other rule passes, including the two that are new this wave:
-      GLTF_017  the `link` extra on Door_Home parses and lifts
-      WASM_008  the module exports __indirect_function_table, so no WARN
-  * `bundle` then runs validate -> optimize -> re-validate -> bundle with the
-    same warning in both validate passes, and writes the manifest the registry
-    will store:
-        "requires": { "host_api": 2 }
-        "links": [ { "node": "Door_Home", "url": "world://home.micknerks",
-                     "label": "Home" } ]
-        "validation": { "host_api_table": { "source": "external",
-                        "path": "host-api-levels-level2.json",
-                        "deployed_source": "external-table",
-                        "deployed_level": 1 } }
-    — the hatch records itself in the artifact, which is the whole point of
-    that field: the registry recomputes the level from the bytes and can see
-    the publisher was answering a different question.
+Why this is here: it is the one thing a reader is most likely to try, and its
+failure is not a defect in this world. Until PR #88 lands, k_ui_prompt is not in
+the publisher's canon capability map, and WASM_003 and WASM_007 both refuse a
+name no shipped host registers. That refusal is correct — it is the guard that
+keeps a level-2 world out of the registry before a level-2 client exists — and
+the flag is the sanctioned way past it for a checkpoint world.
+
+$ kosmos-wp validate .
+
+Checked against host API level 1 as of 2026-08-01, cook C-20260801-22eaea0 — the vendored value, not the registry's live one.
+Validating world package: C:\Users\coded\AppData\Local\Temp\claude\C--Users-coded-Documents-Kosmos-Project\4cc5c088-56dd-4eee-8829-f98d0acc59ca\scratchpad\worktrees\KosmosWorlds\guestbook
+
+FAILED — 2 error(s):
+
+  [WASM_003] Wasm imports unknown host function "kosmos.k_ui_prompt" — not a recognized Kosmos DOM API function. If you are deliberately building against an unreleased host build, re-run with --host-surface <levels.json>.
+    File: world.wasm
+  [WASM_007] This module imports "kosmos.k_ui_prompt", which is not a host function at any level of the kosmos-quest host API (levels 0-1). A name no host registers can never link: the module still instantiates — WAMR links imports lazily — and then TRAPS the first time that function is called, taking the whole world down with no error a visitor can see. Check the spelling, or if you are deliberately targeting an unreleased host build, re-run with --host-surface <levels.json>.
+    File: world.wasm
+
+Validation FAILED — bundle cannot be published.
+
+===============================================================================
+HISTORY — the finding this world filed, and how it was closed elsewhere
+===============================================================================
+
+This world was built against publisher origin/main e66ccfd. There, the escape
+hatch did NOT work: WASM_003 rejected k_ui_prompt whatever surface was passed,
+because it read a hardcoded map (HOST_FUNCTION_CAPABILITIES, constants.ts) that
+the --host-surface flag never reached, and that map stopped at the 72 level-1
+functions. No level-2 world could validate at all; this one was the first to
+prove it. It was reported from this package as a finding for the publisher lane.
+
+That was fixed by kosmos-worldpublisher PR #86 (fb9b801, merged after e66ccfd),
+which made WASM_003 resolve through `resolveImportCapability` — canon first,
+the levels table second for anything canon does not list. Hence RUN A: the flag
+now reaches the check, and the same bytes that once needed a hand-patched
+validator now pass an unmodified released one.
+
+Two other fixes landed in the same window and both touch this package:
+
+  9348261  the bundled manifest reports a real wasm size. The NEW-10 reviewer
+           flagged `wasm_size_kb: 0` for a 3,878-byte module as a publisher
+           arithmetic bug worth a ticket. The rebundled artifact here reads
+           `wasm_size_kb: 5.4`, so that observation is closed, by someone else.
+
+  8c8e18b  WASM_004 checks export SIGNATURES, not only names. This world exports
+           k_init () and k_shutdown () with no result and k_tick (param f32),
+           which the reviewer had verified by hand against the client's actual
+           call shapes. RUN A passing under the stricter rule is independent
+           confirmation of that reading.
+
+Earlier revisions of this file carried the e66ccfd runs, including one made
+against a locally patched dist/constants.js. That patch is gone and is no longer
+needed by anything: every run above is an unmodified published build.
