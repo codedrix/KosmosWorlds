@@ -8,7 +8,7 @@ for test-Worker deploys (`NETWORK_BUILD_PLAN.md`, lead addendum), on
 | | Worker | URL | Opted in? |
 |---|---|---|---|
 | **A** | `kosmos-net-test-a` | `https://kosmos-net-test-a.micknerks.workers.dev` | yes: `/.well-known/world-network.json` lists `world://net-check.micknerks` and `world://net-required.micknerks` |
-| **B** | `kosmos-net-test-b` | `https://kosmos-net-test-b.micknerks.workers.dev` | **no**: it must record zero hits for the whole session |
+| **B** | `kosmos-net-test-b` | `https://kosmos-net-test-b.micknerks.workers.dev` | **no**: it must record zero **world** requests for the whole session |
 
 Each keeps its log in one SQLite-backed Durable Object, so a write is visible on
 the next read. KV was not used, because its list is eventually consistent:
@@ -36,11 +36,25 @@ of 8 MiB of ASCII `0`, 8,176 bytes.
 
 ## Server B
 
-Every request on any path and method is counted, except `GET /hits`, which
-reports the count and the 50 newest hits. **Do not open any other B URL**:
-that is a real hit and fails the test. The counter was proven locally with
-`wrangler dev` (two requests, count 2) rather than against the deployed Worker,
-so the deployed B has never been hit.
+Every request on any path and method is logged, except `GET /hits`. `/hits`
+splits the log in two:
+
+- **`world_count`**: requests carrying `X-World-Address` or a `Kosmos/` user
+  agent. The headset sends both on every network call, so a headset that
+  reached B matches either way. **This must be 0** (`"pass": true`).
+- **`background_count`**: everything else, logged and never the verdict.
+  Measured 2026-10-10: within seconds of B's URL appearing on a public GitHub
+  PR, VirusTotal, python-requests and browser link-preview fetches hit `/` and
+  `/favicon.ico` (15 by the time the split shipped). A witness that counted
+  those would fail every session for a reason that has nothing to do with the
+  headset.
+
+The split was proven locally with `wrangler dev` (a plain request is
+background; one with `X-World-Address` and one with a `Kosmos/` user agent are
+both world requests), never by sending a world-shaped request to the deployed
+B, so the deployed `world_count` has only ever been 0. It is computed from the stored
+`X-World-Address` and user agent at read time, so rows logged
+before the split are classified the same way.
 
 ## Deploy
 

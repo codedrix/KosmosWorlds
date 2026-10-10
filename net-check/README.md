@@ -18,11 +18,15 @@ answer, what was expected, and `PASS` or `CHECK`. It goes with
 | | Address | Opted in? | Job |
 |---|---|---|---|
 | **A** | `https://kosmos-net-test-a.micknerks.workers.dev` | yes | every route the buttons call |
-| **B** | `https://kosmos-net-test-b.micknerks.workers.dev` | **no** | the witness: it must record **zero** hits all session |
+| **B** | `https://kosmos-net-test-b.micknerks.workers.dev` | **no** | the witness: it must record **zero world requests** all session |
 
-Read B's count at `https://kosmos-net-test-b.micknerks.workers.dev/hits`. That
-read is not counted. **Do not open any other B address in a browser**: every
-other request to B counts as a failure, which is the point. A's request log is
+Read B's verdict at `https://kosmos-net-test-b.micknerks.workers.dev/hits`: the
+check is `"world_count": 0` (`"pass": true`). A world request is one carrying
+`X-World-Address` or a `Kosmos/` user agent, which the headset sends on every
+call. Anything else, such as crawlers, link previews or you opening a B address
+in a browser, is logged as `background_count` and never fails the test. B's
+URL drew VirusTotal and python-requests fetches within seconds of appearing on
+a public PR, which is why the verdict is not the raw count. A's request log is
 at `https://kosmos-net-test-a.micknerks.workers.dev/hits` (method, path,
 `X-World-Address`, and whether a Cookie, Authorization, Referer or Origin header
 arrived).
@@ -42,10 +46,10 @@ pressed; the result line; four lines of the response body; the counters.
 | **BIG 300K** | GET A `/big` (300 KiB) | `-5 too large (expect -5) PASS` | 4 |
 | **SLOW 12s** | GET A `/slow` (answers after 12 s) | `0 no answer` after about 10 s | 5, 14 |
 | **REDIR A** | GET A `/same-redirect` (302 to A `/echo`) | `HTTP 200` | 6 |
-| **REDIR to B** | GET A `/cross-redirect` (307 to B) | `-2 refused in flight`, and B's `/hits` still reads 0 | 6 |
+| **REDIR to B** | GET A `/cross-redirect` (307 to B) | `-2 refused in flight`, and B's `/hits` still reads `world_count: 0` | 6 |
 | **GZIP** | GET A `/gzip` (`Content-Encoding: x-gzip`, 8 MiB of zeros compressed to 8 KB) | `0 no answer`, with no memory spike in logcat | 7 |
 | **GZIP via CF** | GET A `/gzip-std` (the same bomb labelled `gzip`) | `-5 too large`. See "Measured on Cloudflare" | 7 (variant) |
-| **SERVER B** | GET B `/echo` (B is not in `network.connect`) | `fetch refused: ERR_PERMISSION_DENIED (-2) (expect fetch -2) PASS`, at once, and B's `/hits` still reads 0 | 6 |
+| **SERVER B** | GET B `/echo` (B is not in `network.connect`) | `fetch refused: ERR_PERMISSION_DENIED (-2) (expect fetch -2) PASS`, at once, and B's `/hits` still reads `world_count: 0` | 6 |
 
 For the rate limit (check 8), press **ECHO** 15 times fast: after the burst the
 result line reads `fetch refused: ERR_RATE_LIMITED (-6)`, and the counters line

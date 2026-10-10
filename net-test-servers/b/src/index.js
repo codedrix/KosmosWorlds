@@ -9,16 +9,25 @@
  * a `network.connect` list, so the registry never probes it either.
  *
  * Its whole job is to be a witness. It records EVERY request it receives, and
- * the device test passes only if it records ZERO for the whole session:
+ * the device test passes only if it records ZERO WORLD REQUESTS for the whole session:
  *   - `net-check` calls B directly       -> the headset must refuse it (-2) before connecting;
  *   - Server A's `/cross-redirect` -> B  -> the headset must refuse the redirect (-2) and not follow it.
- * A non-zero count means a headset (or something else) reached a server that
- * never opted in -- the exact failure the opt-in exists to prevent.
+ * A non-zero world count means a headset reached a server that never opted
+ * in -- the exact failure the opt-in exists to prevent.
+ *
+ * A "world request" is one carrying `X-World-Address` OR a `Kosmos/` user agent:
+ * the headset sends both on every network call (RESOLVE_SPEC 10.9.5), so a
+ * headset request matches even if one of the two were lost. Everything else is
+ * BACKGROUND (still logged, never the verdict). Measured 2026-10-10: within
+ * seconds of B's URL appearing on a public GitHub PR, VirusTotal, python-requests
+ * and browser link-preview fetches hit `/` and `/favicon.ico`. A witness that
+ * counted them would fail every session for a reason unrelated to the headset.
  *
  * Routes:
- *   GET /hits    -> the hit log and the count. Reading it is NOT itself counted,
- *                   so checking the witness cannot spoil the evidence. Every
- *                   other request, on any path and any method, is counted.
+ *   GET /hits    -> the verdict, both counts and the newest hits of each kind.
+ *                   Reading it is NOT itself logged, so checking the witness
+ *                   cannot spoil the evidence. Every other request, on any path
+ *                   and any method, is logged.
  *
  * Integration points:
  *   - RESOLVE_SPEC_v1.0.md section 10.9.2 (the opt-in file B deliberately lacks)
@@ -26,6 +35,12 @@
  */
 
 import { DurableObject } from "cloudflare:workers";
+
+/**
+ * A world request: the headset's X-World-Address, or its `Kosmos/<version>`
+ * user agent (SQLite LIKE is ASCII case-insensitive, which is the safe side here).
+ */
+const WORLD_HIT_SQL = "(world_address IS NOT NULL OR user_agent LIKE 'Kosmos/%')";
 
 /**
  * HitLog -- one strongly consistent log (a single SQLite-backed Durable Object).
@@ -51,13 +66,22 @@ export class HitLog extends DurableObject {
     );
   }
 
-  /** Returns { count, recent: up to 50 newest hits }. Read-only. */
+  /**
+   * Returns { world_count, background_count, world_recent, background_recent }
+   * (up to 25 newest of each). Read-only. The classification is computed here,
+   * not stored, so rows logged before it existed are classified the same way.
+   */
   summary() {
-    const count = this.ctx.storage.sql.exec("SELECT COUNT(*) AS n FROM hits").one().n;
-    const recent = this.ctx.storage.sql
-      .exec("SELECT ts, method, path, world_address, user_agent, ip_country FROM hits ORDER BY id DESC LIMIT 50")
-      .toArray();
-    return { count, recent };
+    const sql = this.ctx.storage.sql;
+    const cols = "ts, method, path, world_address, user_agent, ip_country";
+    const count = (where) => sql.exec(`SELECT COUNT(*) AS n FROM hits WHERE ${where}`).one().n;
+    const recent = (where) => sql.exec(`SELECT ${cols} FROM hits WHERE ${where} ORDER BY id DESC LIMIT 25`).toArray();
+    return {
+      world_count: count(WORLD_HIT_SQL),
+      background_count: count(`NOT (${WORLD_HIT_SQL})`),
+      world_recent: recent(WORLD_HIT_SQL),
+      background_recent: recent(`NOT (${WORLD_HIT_SQL})`),
+    };
   }
 }
 
@@ -75,8 +99,8 @@ function json(body, status = 200) {
 
 export default {
   /**
-   * Every request: count it (unless it is the GET /hits read), log it, answer.
-   * Side effects: one Durable Object write per counted request; one console line.
+   * Every request: log it (unless it is the GET /hits read), answer 404.
+   * Side effects: one Durable Object write per logged request; one console line.
    */
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -87,11 +111,16 @@ export default {
       return json({
         server: "kosmos-net-test-b",
         opted_in: false,
-        expected_count: 0,
-        pass: s.count === 0,
-        count: s.count,
-        note: "Reading /hits is not counted. Any other request to this server is a test failure.",
-        recent: s.recent,
+        pass: s.world_count === 0,
+        world_count: s.world_count,
+        expected_world_count: 0,
+        background_count: s.background_count,
+        note:
+          "A world request carries X-World-Address or a Kosmos/ user agent; any one of them fails the test. " +
+          "Background requests (crawlers, link previews, people opening this URL) are logged but never the verdict. " +
+          "Reading /hits is not logged.",
+        world_recent: s.world_recent,
+        background_recent: s.background_recent,
       });
     }
 
@@ -104,7 +133,8 @@ export default {
       ip_country: request.cf && request.cf.country ? String(request.cf.country) : null,
     };
     // Path only: never the query, never a body.
-    console.log(JSON.stringify({ server: "b", event: "UNEXPECTED_HIT", ...hit }));
+    const isWorld = hit.world_address !== null || (hit.user_agent || "").toLowerCase().startsWith("kosmos/");
+    console.log(JSON.stringify({ server: "b", event: isWorld ? "WORLD_HIT_TEST_FAILURE" : "background_hit", ...hit }));
     await log.record(hit);
 
     return json({ server: "kosmos-net-test-b", opted_in: false, error: "this server never opted in" }, 404);
