@@ -1,0 +1,36 @@
+{
+  "kosmos_version": "1.0",
+  "world": {
+    "id": "net-required",
+    "name": "Network Required",
+    "author": "micknerks",
+    "description": "A test world that cannot load without network. Visitors who cannot have network are told so at the door instead of being let in.",
+    "version": "1.0.0",
+    "spawn_point": {
+      "x": 0,
+      "y": 0,
+      "z": 1.1
+    },
+    "sky": "day"
+  },
+  "capabilities": [
+    "scene_read",
+    "ui_basic",
+    "network"
+  ],
+  "requires": {
+    "host_api": 4
+  },
+  "network": {
+    "connect": [
+      "https://kosmos-net-test-a.micknerks.workers.dev"
+    ],
+    "purpose": "This test world needs the internet to load. It makes no requests.",
+    "privacy_url": "https://kosmos-net-test-a.micknerks.workers.dev/privacy",
+    "required": true
+  },
+  "assets": {
+    "gltf": "world.glb",
+    "wasm": "world.wasm"
+  }
+}
