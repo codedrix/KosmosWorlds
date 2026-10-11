@@ -11,7 +11,7 @@ answer, what was expected, and `PASS` or `CHECK`. It goes with
 - **Capabilities:** `scene_read`, `events`, `ui_basic`, `network`. None of
   `player_read`, `scene_query` or `spatial_anchor` (NET_005, NET_006)
 - **Publish as:** **unlisted**, under `micknerks`
-- **Size:** 396 triangles, 33 mesh nodes, no textures, a 7.6 KB wasm module, a 23 KB bundle
+- **Size:** 396 triangles, 33 mesh nodes, no textures, a 7.6 KB wasm module, a 22.8 KB bundle
 
 ## The servers
 
@@ -80,40 +80,38 @@ Three things the Workers platform does that change what the device test can see:
 
 ## Publishing
 
-**Not published yet.** On publisher `main` (`2b0487c`, core 0.11.0 / CLI 0.7.2,
-with P1 merged) a plain `kosmos-wp validate` REJECTs both worlds: `WASM_003` and
-`WASM_007` do not know `k_net_*`, because the level-4 levels table and the three
-`k_net_* → network` capability rows are lane P1b's re-vendor, which has not
-merged.
+**Published unlisted as `micknerks`, 2026-10-11 00:39 UTC**, from publisher
+`main` `64c76b1` (P1b merged, so no `--host-surface`), against registry
+version `18290b01` (level-4 table; `deployed` stays 2).
 
-With the client's own level-4 table both worlds pass, with the one expected
-WARN (`WASM_007`: level 4 is above the deployed level). That table is
-`../net-test-tools/host-api-levels-client-a47d33b.json`, copied byte for byte
-from kosmos-client `a47d33b` `Plugins/KosmosWasm/Resources/host-api-levels.json`
-(not edited):
+| World | Version | content_hash |
+|---|---|---|
+| `world://net-check.micknerks` | 1.0.0 | `sha256:525b50f23bb8e6e6fb32b26d21634f1dadb4f02ec8487537e5da6bbc44047edd` |
+| `world://net-required.micknerks` | 1.0.0 | `sha256:6b9cf65aacb22a6bc09bbb054d39bf9c19969b57b7d21a02548dd77674b6295c` |
 
-```
-kosmos-wp validate net-check --host-surface net-test-tools/host-api-levels-client-a47d33b.json
-kosmos-wp bundle   net-check --host-surface net-test-tools/host-api-levels-client-a47d33b.json --output net-check/net-check.worldbundle
-```
+`validate`, `bundle` and `publish` all passed with the one expected WARN
+(`WASM_007`: level 4 is above the deployed level 2). Both opt-in probes hit
+server A: `WorldPublisher-OriginCheck/1` at validate and publish, and
+`Kosmos-Registry-OriginCheck/1` at register.
 
-`NET_007` (the opt-in probe) passed against server A: A's log shows
-`GET /.well-known/world-network.json` from `WorldPublisher-OriginCheck/1`.
-`doctor` has no `--host-surface` flag, so until P1b merges it reports the
-`k_net_*` imports as unknown; every other check is green.
+**Resolve** (`GET https://api.kosmosvr.com/api/v1/worlds/micknerks/<slug>`):
 
-**The publish order:**
-1. P1b merges (publisher level-4 table and the capability rows).
-2. The registry deploys R1a/R1b with its level-4 table (otherwise publish fails
-   with the registry's 409 on the level it recomputes from the bundle bytes).
-3. Rebuild the bundles on that publisher **without** `--host-surface`, then:
-   `kosmos-wp publish net-check/net-check.worldbundle --status unlisted` (and the
-   same for `net-required`), signed in as `micknerks`.
+| Query | Both worlds |
+|---|---|
+| `?host_api=4` | 200, `host_api_level: 4`, `status: unlisted`, `world.network_origins: ["https://kosmos-net-test-a.micknerks.workers.dev"]` |
+| no `host_api` | 404 `{"found":false,"code":"CLIENT_TOO_OLD","host_api_level":4}` |
+| `?host_api=2` | 404 `{"found":false,"code":"CLIENT_TOO_OLD","host_api_level":4}` |
 
-A successful publish registers the world and **withholds it from every headset
-below level 4**. That is the compatibility promise working, not a failure. Do
-not bump the registry's `deployed` level until the network cook passes its
-device checkpoint.
+So every headset below level 4 is told the world is not for its version. That
+is the compatibility promise working, not a failure. Do not bump the registry's
+`deployed` level until the network cook passes its device checkpoint.
+
+To republish after a change: rebuild (below), `kosmos-wp bundle <world> --output
+<world>/<world>.worldbundle`, bump `world.version`, then `kosmos-wp publish
+<world>/<world>.worldbundle --status unlisted`, signed in as `micknerks`.
+`net-test-tools/host-api-levels-client-a47d33b.json` is no longer needed for
+publishing; it stays as the record of the table the first bundles were checked
+against.
 
 ## Rebuilding
 
@@ -144,7 +142,7 @@ The servers deploy with `npx wrangler deploy` from `net-test-servers/a` and
 | `manifest.json` | the manifest: four capabilities, `requires.host_api: 4`, the `network` block naming server A |
 | `world.glb` | the room: floor, back wall, 11 buttons on stands, the board and its 8 text anchors, the `spawn_point` marker |
 | `world.wasm` | the compiled script, 7.6 KB; imports 8 `kosmos.*` functions |
-| `net-check.worldbundle` | the bundle, built with `--host-surface` as above |
+| `net-check.worldbundle` | the published 1.0.0 bundle (publisher `64c76b1`, no `--host-surface`) |
 | `src/lib.rs` | the world script |
 | `Cargo.toml`, `build.rs` | no dependencies; `--import-memory` and `--export-table` |
 

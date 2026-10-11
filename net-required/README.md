@@ -12,7 +12,7 @@ loaded when it should have been refused.
 - **Host API level 4** (it imports `k_net_status`; it never calls a server)
 - **Capabilities:** `scene_read`, `ui_basic`, `network`
 - **`network.connect`:** server A (`https://kosmos-net-test-a.micknerks.workers.dev`), which opts this world in
-- **Publish as:** unlisted, under `micknerks`, after the same steps as `net-check` (see `../net-check/README.md`, "Publishing")
+- **Published:** unlisted, under `micknerks`, 1.0.0, 2026-10-11 (resolve results in `../net-check/README.md`, "Publishing")
 - **Size:** 48 triangles, 4 mesh nodes, a 681-byte wasm module, a 7 KB bundle
 
 Rebuild: see `../net-check/README.md`, "Rebuilding" (one script builds both worlds).
@@ -22,5 +22,5 @@ Rebuild: see `../net-check/README.md`, "Rebuilding" (one script builds both worl
 | `manifest.json` | three capabilities, `requires.host_api: 4`, `network.required: true` |
 | `world.glb` | floor, back wall, the board and its `StatusLine` anchor, the `spawn_point` marker |
 | `world.wasm` | the script: `k_net_status` onto `StatusLine` at `k_init`; imports 3 `kosmos.*` functions |
-| `net-required.worldbundle` | the bundle, built with `--host-surface` (P1b has not merged) |
+| `net-required.worldbundle` | the published 1.0.0 bundle (publisher `64c76b1`) |
 | `src/lib.rs`, `Cargo.toml`, `build.rs` | the script and its build |
