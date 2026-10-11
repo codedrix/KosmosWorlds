@@ -5,13 +5,13 @@
     "name": "Network Check",
     "author": "micknerks",
     "description": "A test world for worlds that call servers. Each button makes one request to a test server and the board shows the answer, what was expected, and whether it matched.",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "spawn_point": {
       "x": 0,
       "y": 0,
       "z": 1.1
     },
-    "sky": "day"
+    "sky": "night"
   },
   "capabilities": [
     "scene_read",

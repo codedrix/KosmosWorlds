@@ -48,13 +48,16 @@ mod host {
 /// The text anchor on the board (net-test-tools/build_glb.mjs).
 const STATUS_NODE: &str = "StatusLine";
 
-/// The line for each `k_net_status` value.
+/// The text for each `k_net_status` value: up to 4 short lines (the host keeps
+/// 4 and refuses more than 128 bytes). Short lines on purpose: world text turns
+/// to face the camera, and 1.0.0's single 90-character line was wide enough to
+/// swing into the scenery behind it.
 fn status_line(s: i32) -> &'static str {
     match s {
-        1 => "net-required: k_net_status 1 (available) -- expected",
-        0 => "net-required: k_net_status 0 (NOT available) -- this world should have been refused at load",
-        -2 => "net-required: k_net_status -2 (capability undeclared) -- packaging error",
-        _ => "net-required: k_net_status returned an unknown value",
+        1 => "NETWORK REQUIRED 1.0.1\nnetwork: AVAILABLE (k_net_status 1)\nPASS: expected 1",
+        0 => "NETWORK REQUIRED 1.0.1\nnetwork: NOT AVAILABLE (k_net_status 0)\nCHECK: this world should have\nbeen refused at load",
+        -2 => "NETWORK REQUIRED 1.0.1\nk_net_status -2: capability undeclared\nCHECK: packaging error",
+        _ => "NETWORK REQUIRED 1.0.1\nk_net_status: unknown value\nCHECK",
     }
 }
 
@@ -80,7 +83,12 @@ mod tests {
     #[test]
     fn every_line_fits_the_world_text_limit() {
         for s in [-2, -1, 0, 1, 2] {
-            assert!(status_line(s).len() <= 256);
+            let t = status_line(s);
+            assert!(t.len() <= 128, "{t:?}");
+            assert!(t.matches('\n').count() <= 3, "{t:?}");
+            for part in t.split('\n') {
+                assert!(part.chars().count() <= 40, "{part:?}");
+            }
         }
     }
 }

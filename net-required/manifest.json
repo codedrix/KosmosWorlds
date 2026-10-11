@@ -5,13 +5,13 @@
     "name": "Network Required",
     "author": "micknerks",
     "description": "A test world that cannot load without network. Visitors who cannot have network are told so at the door instead of being let in.",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "spawn_point": {
       "x": 0,
       "y": 0,
       "z": 1.1
     },
-    "sky": "day"
+    "sky": "night"
   },
   "capabilities": [
     "scene_read",

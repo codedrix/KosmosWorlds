@@ -4,30 +4,52 @@
 //! @kosmos-owner   TW (KOS-983)
 //! @kosmos-level   host API level 4 (`k_net_fetch`, `k_net_read`, `k_net_status`, `OnNetResult`)
 //!
-//! One button per case in `NETWORK_BUILD_PLAN.md` §3. Each press issues ONE
-//! call and the board shows what came back, with what was expected and a
-//! PASS/CHECK verdict, so a sitting needs no USB cable to read a result.
+//! One numbered button per case in `NETWORK_BUILD_PLAN.md` §3. Each press makes
+//! ONE call, and the board in front of the visitor answers four questions in
+//! order, each on its own line:
 //!
-//! | Button       | Call                                    | Expected |
-//! |--------------|-----------------------------------------|----------|
-//! | `BtnEcho`    | GET  A/echo                             | 200, header audit with no cookie/auth/referer/origin |
-//! | `BtnScore`   | POST A/score (JSON)                     | 200 |
-//! | `BtnScores`  | GET  A/scores                           | 200, the entries just posted |
-//! | `BtnName`    | `k_ui_prompt`, then POST A/score with the answer | the sheet's footer names A; then 200 |
-//! | `BtnBig`     | GET  A/big (300 KiB)                    | -5 too large |
-//! | `BtnSlow`    | GET  A/slow (12 s)                      | 0 no answer, at about 10 s |
-//! | `BtnRedirA`  | GET  A/same-redirect (302 → A/echo)     | 200 |
-//! | `BtnRedirB`  | GET  A/cross-redirect (307 → B)         | -2 refused in flight; B records no hit |
-//! | `BtnGzip`    | GET  A/gzip (`Content-Encoding: x-gzip`)| 0 no answer (refused at the header) |
-//! | `BtnGzipStd` | GET  A/gzip-std (`gzip`; Cloudflare inflates it) | -5 too large |
-//! | `BtnServerB` | GET  B/echo (B is not in `connect`)     | `k_net_fetch` returns -2 at once; B records no hit |
+//! 1. **pressed:** which button (or, for the prompt, what the visitor typed);
+//! 2. **fetch:** what `k_net_fetch` returned AT ONCE — `queued`, or a refusal in
+//!    words and numbers (`REFUSED -2: network off or not allowed`);
+//! 3. **answer:** what `OnNetResult` said later (HTTP status, `0` no answer,
+//!    `-2` refused in flight, `-5` too large), or that none will come;
+//! 4. **verdict:** `PASS` or `CHECK` against what that button expects.
+//!
+//! | # | Button       | Request                                 | Expected |
+//! |---|--------------|-----------------------------------------|----------|
+//! | 1 | `BtnEcho`    | GET  A/echo                             | 200, header audit with no cookie/auth/referer/origin |
+//! | 2 | `BtnScore`   | POST A/score (JSON)                     | 200 |
+//! | 3 | `BtnScores`  | GET  A/scores                           | 200, the entries just posted |
+//! | 4 | `BtnName`    | `k_ui_prompt`, then POST A/score with the answer | the answer on the board; then 200 |
+//! | 5 | `BtnBig`     | GET  A/big (300 KiB)                    | answer -5 too large |
+//! | 6 | `BtnSlow`    | GET  A/slow (12 s)                      | answer 0 no answer, at about 10 s |
+//! | 7 | `BtnRedirA`  | GET  A/same-redirect (302 → A/echo)     | 200 |
+//! | 8 | `BtnRedirB`  | GET  A/cross-redirect (307 → B)         | answer -2 refused in flight; B records no world hit |
+//! | 9 | `BtnGzip`    | GET  A/gzip (`Content-Encoding: x-gzip`)| answer 0 no answer (refused at the header) |
+//! | 10| `BtnGzipStd` | GET  A/gzip-std (`gzip`; Cloudflare inflates it) | answer -5 too large |
+//! | 11| `BtnServerB` | GET  B/echo (B is not in `network.connect`) | fetch REFUSED -2 at once; B records no world hit |
+//!
+//! ## 1.0.1 (after the CEO's first sitting, 2026-10-11)
+//!
+//! "I could not tell what pressing the boxes was triggering" and, after the
+//! prompt, "nothing showed". Fixed here and in `net-test-tools/build_glb.mjs`:
+//! - every button carries a numbered two-line label saying what it tests and
+//!   what it should do; labels alternate between two heights so neighbours never
+//!   overlap;
+//! - the IMMEDIATE `k_net_fetch` return code has its own line, so a denial reads
+//!   as a denial instead of as silence;
+//! - the prompt's answer is shown on the board the moment it comes back;
+//! - board lines are at most `MAX_LINE_CHARS` and float with nothing solid
+//!   behind them (1.0.0's long lines were buried in their own backboard: world
+//!   text turns to face the camera and is depth-tested);
+//! - every line stays inside the host's 128-byte world-text limit
+//!   (`KWasm::MAX_WORLD_TEXT_BYTES`), asserted in the tests;
+//! - `k_tick` re-reads `k_net_status` once a second, so a switch flip, a Ghost
+//!   toggle or airplane mode shows up without pressing anything.
 //!
 //! The host functions are declared here (`mod host`) rather than through the
 //! SDK, because the SDK's `net` module (lane SDK-1) has not merged. Every
 //! signature is the client's levels table at `a47d33b`.
-//!
-//! **Nothing here discards a return code.** A press that shows nothing would
-//! have half a dozen causes that look alike in a headset.
 
 #![cfg_attr(target_arch = "wasm32", no_std, no_main)]
 
@@ -50,7 +72,7 @@ mod host {
     extern "C" {
         /// `(ii)i` scene_read, level 0. Returns a node handle, 0 = not found.
         pub fn k_node_find(name_ptr: i32, name_len: i32) -> i32;
-        /// `(iiif)i` ui_basic, level 0 (real since 2). Text is 1..=256 bytes.
+        /// `(iiif)i` ui_basic, level 0 (real since 2). Text is 1..=128 bytes, up to 4 lines.
         pub fn k_ui_show_world_text(node: i32, text_ptr: i32, text_len: i32, offset_y: f32) -> i32;
         /// `(iiiii)i` ui_basic, level 2. Activation-gated; the answer arrives as `OnPromptResult`.
         pub fn k_ui_prompt(prompt_ptr: i32, prompt_len: i32, out_ptr: i32, out_cap: i32, request_id: i32) -> i32;
@@ -83,8 +105,8 @@ mod host {
 }
 
 // ---------------------------------------------------------------------------
-// Contract constants — node names mirror net-test-tools/build_glb.mjs; URLs mirror the
-// deployed test Workers and manifest.json's `network.connect`.
+// Contract constants — node names mirror net-test-tools/build_glb.mjs; URLs
+// mirror the deployed test Workers and manifest.json's `network.connect`.
 // ---------------------------------------------------------------------------
 
 const A: &str = "https://kosmos-net-test-a.micknerks.workers.dev";
@@ -95,12 +117,18 @@ const METHOD_POST: i32 = 1;
 /// `flags` bit 1: the body is JSON (`application/json`).
 const FLAG_JSON: i32 = 1 << 1;
 
-/// What a case expects back. `Sync(code)`: `k_net_fetch` itself returns `code`.
-/// `Event(status)`: the call queues and `OnNetResult` carries `status`.
+/// The host refuses world text over this many bytes (`KWasm::MAX_WORLD_TEXT_BYTES`).
+const HOST_TEXT_MAX_BYTES: usize = 128;
+/// A board line is at most this many characters: about 2.0 m of 8 cm text,
+/// which the 1.4 m clearance behind the column keeps clear of the back wall.
+const MAX_LINE_CHARS: usize = 56;
+
+/// What a case expects back. `Refused(code)`: `k_net_fetch` itself returns `code`.
+/// `Answer(status)`: the call queues and `OnNetResult` carries `status`.
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Expect {
-    Sync(i32),
-    Event(i32),
+    Refused(i32),
+    Answer(i32),
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -120,40 +148,46 @@ enum Kind {
 
 struct Case {
     node: &'static str,
+    /// The board's name for it, e.g. "1 ECHO A".
+    short: &'static str,
+    /// The two-line label above the button (the host keeps up to 4 lines).
     label: &'static str,
     kind: Kind,
     expect: Expect,
 }
 
-/// In arc order, left to right. 11 labels + 8 board lines = 19 of the 32 world texts.
+/// In arc order, left to right. 11 labels + 10 board lines = 21 of the 32 world texts.
 const CASES: [Case; 11] = [
-    Case { node: "BtnEcho", label: "ECHO", kind: Kind::Echo, expect: Expect::Event(200) },
-    Case { node: "BtnScore", label: "SCORE +", kind: Kind::Score, expect: Expect::Event(200) },
-    Case { node: "BtnScores", label: "SCORES", kind: Kind::Scores, expect: Expect::Event(200) },
-    Case { node: "BtnName", label: "NAME (prompt)", kind: Kind::Name, expect: Expect::Event(200) },
-    Case { node: "BtnBig", label: "BIG 300K", kind: Kind::Big, expect: Expect::Event(-5) },
-    Case { node: "BtnSlow", label: "SLOW 12s", kind: Kind::Slow, expect: Expect::Event(0) },
-    Case { node: "BtnRedirA", label: "REDIR A", kind: Kind::RedirA, expect: Expect::Event(200) },
-    Case { node: "BtnRedirB", label: "REDIR to B", kind: Kind::RedirB, expect: Expect::Event(-2) },
-    Case { node: "BtnGzip", label: "GZIP", kind: Kind::Gzip, expect: Expect::Event(0) },
-    Case { node: "BtnGzipStd", label: "GZIP via CF", kind: Kind::GzipStd, expect: Expect::Event(-5) },
-    Case { node: "BtnServerB", label: "SERVER B", kind: Kind::ServerB, expect: Expect::Sync(-2) },
+    Case { node: "BtnEcho", short: "1 ECHO A", label: "1 ECHO A\nexpect 200", kind: Kind::Echo, expect: Expect::Answer(200) },
+    Case { node: "BtnScore", short: "2 POST SCORE", label: "2 POST SCORE\nexpect 200", kind: Kind::Score, expect: Expect::Answer(200) },
+    Case { node: "BtnScores", short: "3 READ SCORES", label: "3 READ SCORES\nexpect 200", kind: Kind::Scores, expect: Expect::Answer(200) },
+    Case { node: "BtnName", short: "4 TYPE NAME", label: "4 TYPE NAME\nprompt, then post", kind: Kind::Name, expect: Expect::Answer(200) },
+    Case { node: "BtnBig", short: "5 BIG 300 KB", label: "5 BIG 300 KB\nmust fail: -5", kind: Kind::Big, expect: Expect::Answer(-5) },
+    Case { node: "BtnSlow", short: "6 SLOW 12 s", label: "6 SLOW 12 s\nmust fail: 0", kind: Kind::Slow, expect: Expect::Answer(0) },
+    Case { node: "BtnRedirA", short: "7 REDIRECT A>A", label: "7 REDIRECT A>A\nexpect 200", kind: Kind::RedirA, expect: Expect::Answer(200) },
+    Case { node: "BtnRedirB", short: "8 REDIRECT A>B", label: "8 REDIRECT A>B\nmust fail: -2", kind: Kind::RedirB, expect: Expect::Answer(-2) },
+    Case { node: "BtnGzip", short: "9 GZIP", label: "9 GZIP\nmust fail: 0", kind: Kind::Gzip, expect: Expect::Answer(0) },
+    Case { node: "BtnGzipStd", short: "10 GZIP via CF", label: "10 GZIP via CF\nmust fail: -5", kind: Kind::GzipStd, expect: Expect::Answer(-5) },
+    Case { node: "BtnServerB", short: "11 SERVER B", label: "11 SERVER B\nmust fail: -2", kind: Kind::ServerB, expect: Expect::Refused(-2) },
 ];
 
-/// Board lines, top to bottom (anchors in the GLB).
-const LINES: [&str; 8] = ["LineA", "LineB", "LineC", "LineD", "LineE", "LineF", "LineG", "LineH"];
-const LINE_TITLE: usize = 0;
-const LINE_STATUS: usize = 1;
-const LINE_RESULT: usize = 2;
-const LINE_BODY_FIRST: usize = 3; // LineD..LineG carry the body excerpt
-const BODY_LINES: usize = 4;
-const LINE_COUNTERS: usize = 7;
+/// Label heights above a button's centre, alternating so same-height labels are
+/// two buttons (0.74 m) apart. Text is bottom-aligned and grows upward.
+const LABEL_OFFSET_LOW_M: f32 = 0.10;
+const LABEL_OFFSET_HIGH_M: f32 = 0.36;
+const LINE_OFFSET_M: f32 = 0.0;
 
-/// Characters per board line (the board is 3.6 m; world text is ~3.6 cm a character).
-const BODY_CHARS_PER_LINE: usize = 64;
-/// Label text sits this far above a button's centre; board text this far above its anchor.
-const LABEL_OFFSET_M: f32 = 0.12;
-const LINE_OFFSET_M: f32 = 0.01;
+/// Board lines, top to bottom (anchors in the GLB).
+const LINES: [&str; 10] = ["LineA", "LineB", "LineC", "LineD", "LineE", "LineF", "LineG", "LineH", "LineI", "LineJ"];
+const L_TITLE: usize = 0;
+const L_NETWORK: usize = 1;
+const L_PRESSED: usize = 2;
+const L_FETCH: usize = 3;
+const L_ANSWER: usize = 4;
+const L_VERDICT: usize = 5;
+const L_BODY: usize = 6; // LineG..LineI carry the body excerpt
+const BODY_LINES: usize = 3;
+const L_FOOTER: usize = 9;
 
 const PROMPT_TEXT: &str = "Your name for the score board (sent to the test server)";
 const REQ_PROMPT_NAME: i32 = 7001;
@@ -162,20 +196,24 @@ const REQ_PROMPT_NAME: i32 = 7001;
 const READ_BUF_BYTES: usize = 8192;
 /// The score board name is kept to this many bytes of [A-Za-z0-9 ._-].
 const MAX_NAME_BYTES: usize = 24;
+/// `k_tick` re-reads `k_net_status` this often.
+const STATUS_POLL_S: f32 = 1.0;
 
 // ---------------------------------------------------------------------------
 // Module state (single-threaded world wasm; `static mut` by value only)
 // ---------------------------------------------------------------------------
 
 static mut BUTTONS: [i32; 11] = [0; 11];
-static mut LINE_NODES: [i32; 8] = [0; 8];
+static mut LINE_NODES: [i32; 10] = [0; 10];
 static mut NEXT_REQUEST_ID: i32 = 1;
-/// The kind of each in-flight request, keyed by request id modulo 64.
+/// The case index (+1) of each in-flight request, keyed by request id modulo 64.
 static mut IN_FLIGHT: [(i32, u8); 64] = [(0, 0); 64];
-static mut SENT: i32 = 0;
+static mut QUEUED: i32 = 0;
 static mut REFUSED: i32 = 0;
 static mut ANSWERED: i32 = 0;
 static mut SCORE_SEQ: i32 = 0;
+static mut LAST_NET_STATUS: i32 = i32::MIN;
+static mut POLL_ACCUM_S: f32 = 0.0;
 static mut READ_BUF: [u8; READ_BUF_BYTES] = [0; READ_BUF_BYTES];
 /// The host writes the prompt answer here LATER; it must outlive the call.
 static mut PROMPT_ANSWER: [u8; 256] = [0; 256];
@@ -200,7 +238,7 @@ pub extern "C" fn k_init() {
         unsafe { BUTTONS[i] = node; }
         if node != 0 {
             found += 1;
-            show(node, case.label, LABEL_OFFSET_M);
+            show(node, case.label, label_offset(i));
             let ev = "OnInteract";
             unsafe {
                 host::k_event_subscribe(ev.as_ptr() as i32, ev.len() as i32, node, on_button as usize as i32);
@@ -212,25 +250,40 @@ pub extern "C" fn k_init() {
     let ev = "OnPromptResult";
     let prompt_sub = unsafe { host::k_event_subscribe_global(ev.as_ptr() as i32, ev.len() as i32, on_prompt_result as usize as i32) };
 
-    line(LINE_TITLE, "net-check.micknerks : press a button, read the answer here");
+    line(L_TITLE, "NETWORK CHECK 1.0.1 - press a numbered button");
+    refresh_network_line(true);
 
     let mut t = TextBuf::new();
-    t.push("init: buttons ");
+    t.push("ready: ");
     t.push_i32(found);
-    t.push("/11 | OnNetResult ");
-    t.push(if net_sub != 0 { "ok" } else { "REFUSED" });
+    t.push("/11 buttons | results ");
+    t.push(if net_sub != 0 { "ok" } else { "FAILED" });
     t.push(" | prompt ");
-    t.push(if prompt_sub != 0 { "ok" } else { "REFUSED" });
-    t.push(" | ");
-    push_net_status(&mut t);
-    line(LINE_STATUS, t.as_str());
-
-    line(LINE_RESULT, "last: (nothing yet)");
-    refresh_counters();
+    t.push(if prompt_sub != 0 { "ok" } else { "FAILED" });
+    line(L_PRESSED, t.as_str());
+    line(L_FETCH, "fetch: -");
+    line(L_ANSWER, "answer: -");
+    line(L_VERDICT, "verdict: -");
+    clear_body();
+    refresh_footer();
 }
 
 #[no_mangle]
-pub extern "C" fn k_tick(_delta: f32) {}
+pub extern "C" fn k_tick(delta: f32) {
+    // Re-read k_net_status once a second, and redraw only when it changes.
+    let due = unsafe {
+        POLL_ACCUM_S += if delta.is_finite() && delta > 0.0 { delta } else { 0.0 };
+        if POLL_ACCUM_S >= STATUS_POLL_S {
+            POLL_ACCUM_S = 0.0;
+            true
+        } else {
+            false
+        }
+    };
+    if due {
+        refresh_network_line(false);
+    }
+}
 
 #[no_mangle]
 pub extern "C" fn k_shutdown() {}
@@ -242,19 +295,20 @@ pub extern "C" fn k_shutdown() {}
 /// A button was pressed: issue that button's one call.
 #[no_mangle]
 pub extern "C" fn on_button(_event_type: i32, node: i32, _p1: i32, _p2: i32) {
-    let Some(i) = (0..CASES.len()).find(|&i| unsafe { BUTTONS[i] } == node && node != 0) else {
+    if node == 0 {
+        return;
+    }
+    let Some(i) = (0..CASES.len()).find(|&i| unsafe { BUTTONS[i] } == node) else {
         return;
     };
     let case = &CASES[i];
+    refresh_network_line(true);
 
-    // The status line is refreshed on every press, so a switch flip, a Ghost
-    // toggle or airplane mode shows up as `k_net_status` 0 before the result.
-    let mut s = TextBuf::new();
-    s.push("press ");
-    s.push(case.label);
-    s.push(" | ");
-    push_net_status(&mut s);
-    line(LINE_STATUS, s.as_str());
+    let mut t = TextBuf::new();
+    t.push("pressed: ");
+    t.push(case.short);
+    line(L_PRESSED, t.as_str());
+    clear_body();
 
     match case.kind {
         Kind::Name => {
@@ -262,27 +316,29 @@ pub extern "C" fn on_button(_event_type: i32, node: i32, _p1: i32, _p2: i32) {
             let rc = unsafe {
                 host::k_ui_prompt(PROMPT_TEXT.as_ptr() as i32, PROMPT_TEXT.len() as i32, answer_ptr, 256, REQ_PROMPT_NAME)
             };
-            let mut t = TextBuf::new();
-            t.push("NAME -> prompt ");
+            let mut f = TextBuf::new();
             if rc == 0 {
-                t.push("opened (check the footer names net-check-a)");
+                f.push("prompt: opened - type a name and press OK");
             } else {
-                t.push("refused: ");
-                t.push_code(rc);
+                f.push("prompt: REFUSED ");
+                f.push_i32(rc);
+                f.push(" ");
+                f.push(code_meaning(rc));
             }
-            line(LINE_RESULT, t.as_str());
-            clear_body();
+            line(L_FETCH, f.as_str());
+            line(L_ANSWER, "answer: waiting for the prompt");
+            line(L_VERDICT, "verdict: -");
         }
         Kind::Score => {
             let seq = unsafe { SCORE_SEQ = SCORE_SEQ.wrapping_add(1); SCORE_SEQ };
-            post_score(case, seq);
+            post_score(i, seq);
         }
         _ => {
-            let url = url_for(case.kind);
+            let (origin, path) = url_for(case.kind);
             let mut u = TextBuf::new();
-            u.push(url.0);
-            u.push(url.1);
-            fetch(case, METHOD_GET, u.as_str(), &[], 0);
+            u.push(origin);
+            u.push(path);
+            fetch(i, METHOD_GET, u.as_str(), &[], 0);
         }
     }
 }
@@ -291,35 +347,32 @@ pub extern "C" fn on_button(_event_type: i32, node: i32, _p1: i32, _p2: i32) {
 #[no_mangle]
 pub extern "C" fn on_net_result(_event_type: i32, _node: i32, request_id: i32, status: i32) {
     unsafe { ANSWERED = ANSWERED.wrapping_add(1); }
-    let kind = take_in_flight(request_id);
-    let case = kind.and_then(|k| CASES.iter().find(|c| c.kind as u8 == k));
-
-    let mut t = TextBuf::new();
-    match case {
-        Some(c) => t.push(c.label),
-        None => t.push("?"),
-    }
-    t.push(" #");
-    t.push_i32(request_id);
-    t.push(" -> ");
-    push_status(&mut t, status);
+    let case_index = take_in_flight(request_id);
 
     // The length, by the peek (out_cap 0 consumes nothing).
     let len = unsafe { host::k_net_read(request_id, 0, 0) };
-    if status >= 100 {
-        t.push(", ");
-        if len >= 0 {
-            t.push_i32(len);
-            t.push(" B");
-        } else {
-            t.push("read ");
-            t.push_code(len);
+
+    let mut a = TextBuf::new();
+    a.push("answer to ");
+    match case_index {
+        Some(i) => a.push(CASES[i].short),
+        None => {
+            a.push("request ");
+            a.push_i32(request_id);
         }
     }
-    if let Some(c) = case {
-        push_verdict(&mut t, c.expect, Expect::Event(status));
+    a.push(": ");
+    push_status(&mut a, status);
+    if status >= 100 && len >= 0 {
+        a.push(", ");
+        a.push_i32(len);
+        a.push(" bytes");
     }
-    line(LINE_RESULT, t.as_str());
+    line(L_ANSWER, a.as_str());
+
+    if let Some(i) = case_index {
+        verdict(i, Expect::Answer(status));
+    }
 
     if status >= 100 && len > 0 && (len as usize) <= READ_BUF_BYTES {
         let buf_ptr = core::ptr::addr_of_mut!(READ_BUF) as *mut u8;
@@ -329,16 +382,17 @@ pub extern "C" fn on_net_result(_event_type: i32, _node: i32, request_id: i32, s
             show_body(body);
         } else {
             let mut b = TextBuf::new();
-            b.push("body read refused: ");
-            b.push_code(got);
+            b.push("(body read refused ");
+            b.push_i32(got);
+            b.push(")");
             show_body(b.as_str().as_bytes());
         }
     } else if status >= 100 && len > READ_BUF_BYTES as i32 {
-        show_body(b"(body larger than this world shows)");
+        show_body(b"(body larger than this board shows)");
     } else {
         clear_body();
     }
-    refresh_counters();
+    refresh_footer();
 }
 
 /// `OnPromptResult`: param1 = our request id, param2 = bytes written | -1 cancelled | -2 muted | -3 write failed.
@@ -347,25 +401,34 @@ pub extern "C" fn on_prompt_result(_event_type: i32, _node: i32, request_id: i32
     if request_id != REQ_PROMPT_NAME {
         return;
     }
-    let mut t = TextBuf::new();
     if result <= 0 {
-        t.push("NAME -> ");
-        t.push(match result {
-            0 => "empty answer, nothing sent",
-            -1 => "cancelled",
-            -2 => "muted after 3 cancels",
-            -3 => "host write failed",
-            _ => "unknown prompt result",
-        });
-        line(LINE_RESULT, t.as_str());
+        let mut t = TextBuf::new();
+        t.push("prompt answer: ");
+        t.push(prompt_result_meaning(result));
+        line(L_PRESSED, t.as_str());
+        line(L_FETCH, "fetch: none (nothing to send)");
+        line(L_ANSWER, "answer: -");
+        line(L_VERDICT, "verdict: -");
         return;
     }
     let n = (result as usize).min(256);
     let raw = unsafe { core::slice::from_raw_parts(core::ptr::addr_of!(PROMPT_ANSWER) as *const u8, n) };
     let len = sanitize_name(raw, unsafe { &mut *core::ptr::addr_of_mut!(NAME) });
     unsafe { NAME_LEN = len; }
+
+    // Show the answer FIRST, before any network call, so it appears even when
+    // the network refuses everything.
+    let mut t = TextBuf::new();
+    t.push("prompt answer: \"");
+    push_name(&mut t);
+    t.push("\" (");
+    t.push_i32(result);
+    t.push(" B)");
+    line(L_PRESSED, t.as_str());
+    refresh_footer();
+
     let seq = unsafe { SCORE_SEQ = SCORE_SEQ.wrapping_add(1); SCORE_SEQ };
-    let name_case = CASES.iter().find(|c| c.kind == Kind::Name).unwrap_or(&CASES[3]);
+    let name_case = CASES.iter().position(|c| c.kind == Kind::Name).unwrap_or(3);
     post_score(name_case, seq);
 }
 
@@ -389,71 +452,65 @@ fn url_for(kind: Kind) -> (&'static str, &'static str) {
 }
 
 /// POST {"name": .., "score": 100 + seq} to A/score.
-fn post_score(case: &Case, seq: i32) {
+fn post_score(case_index: usize, seq: i32) {
     let mut body = TextBuf::new();
     body.push("{\"name\":\"");
-    let name_len = unsafe { NAME_LEN };
-    if name_len == 0 {
-        body.push("quest");
-    } else {
-        let name = unsafe { core::slice::from_raw_parts(core::ptr::addr_of!(NAME) as *const u8, name_len) };
-        body.push(core::str::from_utf8(name).unwrap_or("quest"));
-    }
+    push_name(&mut body);
     body.push("\",\"score\":");
     body.push_i32(100 + seq);
     body.push("}");
     let mut u = TextBuf::new();
     u.push(A);
     u.push("/score");
-    fetch(case, METHOD_POST, u.as_str(), body.as_str().as_bytes(), FLAG_JSON);
+    fetch(case_index, METHOD_POST, u.as_str(), body.as_str().as_bytes(), FLAG_JSON);
 }
 
-/// Issue one `k_net_fetch` and report a synchronous refusal on the board.
-fn fetch(case: &Case, method: i32, url: &str, body: &[u8], flags: i32) {
+/// Issue one `k_net_fetch` and put its IMMEDIATE return code on the board.
+fn fetch(case_index: usize, method: i32, url: &str, body: &[u8], flags: i32) {
+    let case = &CASES[case_index];
     let id = unsafe {
         let id = NEXT_REQUEST_ID;
-        NEXT_REQUEST_ID = if NEXT_REQUEST_ID >= 1_000_000 { 1 } else { NEXT_REQUEST_ID + 1 };
+        NEXT_REQUEST_ID = if NEXT_REQUEST_ID >= 999_999 { 1 } else { NEXT_REQUEST_ID + 1 };
         id
     };
     let body_ptr = if body.is_empty() { 0 } else { body.as_ptr() as i32 };
     let rc = unsafe {
         host::k_net_fetch(method, url.as_ptr() as i32, url.len() as i32, body_ptr, body.len() as i32, flags, id)
     };
+
+    let mut f = TextBuf::new();
+    f.push("fetch: ");
     if rc == 0 {
-        unsafe { SENT = SENT.wrapping_add(1); }
-        put_in_flight(id, case.kind as u8);
-        let mut t = TextBuf::new();
-        t.push(case.label);
-        t.push(" #");
-        t.push_i32(id);
-        t.push(" -> queued, waiting for OnNetResult");
-        if let Expect::Sync(code) = case.expect {
-            t.push(" (expected ");
-            t.push_i32(code);
-            t.push(" at once: CHECK)");
+        unsafe { QUEUED = QUEUED.wrapping_add(1); }
+        put_in_flight(id, case_index);
+        f.push("0 queued as request ");
+        f.push_i32(id);
+        line(L_FETCH, f.as_str());
+        line(L_ANSWER, "answer: waiting...");
+        match case.expect {
+            // A queued call where a refusal was expected is already wrong.
+            Expect::Refused(_) => verdict(case_index, Expect::Answer(i32::MIN)),
+            Expect::Answer(_) => line(L_VERDICT, "verdict: waiting for the answer"),
         }
-        line(LINE_RESULT, t.as_str());
     } else {
         unsafe { REFUSED = REFUSED.wrapping_add(1); }
-        let mut t = TextBuf::new();
-        t.push(case.label);
-        t.push(" #");
-        t.push_i32(id);
-        t.push(" -> fetch refused: ");
-        t.push_code(rc);
-        push_verdict(&mut t, case.expect, Expect::Sync(rc));
-        line(LINE_RESULT, t.as_str());
+        f.push("REFUSED ");
+        f.push_i32(rc);
+        f.push(" ");
+        f.push(code_meaning(rc));
+        line(L_FETCH, f.as_str());
+        line(L_ANSWER, "answer: none - refused before sending");
+        verdict(case_index, Expect::Refused(rc));
     }
-    clear_body();
-    refresh_counters();
+    refresh_footer();
 }
 
-fn put_in_flight(id: i32, kind: u8) {
-    unsafe { IN_FLIGHT[(id as usize) % 64] = (id, kind + 1); }
+fn put_in_flight(id: i32, case_index: usize) {
+    unsafe { IN_FLIGHT[(id as usize) % 64] = (id, case_index as u8 + 1); }
 }
 
-/// Returns the request's kind (as `Kind as u8`) and forgets it.
-fn take_in_flight(id: i32) -> Option<u8> {
+/// Returns the request's case index and forgets it.
+fn take_in_flight(id: i32) -> Option<usize> {
     if id <= 0 {
         return None;
     }
@@ -461,7 +518,7 @@ fn take_in_flight(id: i32) -> Option<u8> {
     let (sid, k) = unsafe { IN_FLIGHT[slot] };
     if sid == id && k != 0 {
         unsafe { IN_FLIGHT[slot] = (0, 0); }
-        Some(k - 1)
+        Some(k as usize - 1)
     } else {
         None
     }
@@ -471,6 +528,10 @@ fn take_in_flight(id: i32) -> Option<u8> {
 // The board
 // ---------------------------------------------------------------------------
 
+fn label_offset(i: usize) -> f32 {
+    if i % 2 == 0 { LABEL_OFFSET_LOW_M } else { LABEL_OFFSET_HIGH_M }
+}
+
 fn find(name: &str) -> i32 {
     unsafe { host::k_node_find(name.as_ptr() as i32, name.len() as i32) }
 }
@@ -479,6 +540,14 @@ fn show(node: i32, text: &str, offset: f32) -> i32 {
     if node == 0 || text.is_empty() {
         return -1;
     }
+    // The host REFUSES (never truncates) text over its byte limit, which would
+    // leave the old line standing and look like "nothing happened". Clip here
+    // instead, on a character boundary. Every fixed line already fits (tests).
+    let mut end = text.len().min(HOST_TEXT_MAX_BYTES);
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    let text = &text[..end];
     unsafe { host::k_ui_show_world_text(node, text.as_ptr() as i32, text.len() as i32, offset) }
 }
 
@@ -490,50 +559,96 @@ fn line(i: usize, text: &str) {
 
 fn clear_body() {
     for k in 0..BODY_LINES {
-        line(LINE_BODY_FIRST + k, " ");
+        line(L_BODY + k, " ");
     }
 }
 
-/// Show up to four lines of the body, printable ASCII only (others become '.').
+/// Show up to three lines of the body, printable ASCII only (others become '.').
 fn show_body(body: &[u8]) {
     for k in 0..BODY_LINES {
-        let start = k * BODY_CHARS_PER_LINE;
+        let start = k * MAX_LINE_CHARS;
         let mut t = TextBuf::new();
         if start < body.len() {
-            let end = (start + BODY_CHARS_PER_LINE).min(body.len());
+            let end = (start + MAX_LINE_CHARS).min(body.len());
             for &b in &body[start..end] {
                 t.push_byte(if (0x20..=0x7e).contains(&b) { b } else { b'.' });
             }
         }
-        line(LINE_BODY_FIRST + k, t.as_str());
+        line(L_BODY + k, t.as_str());
     }
 }
 
-fn refresh_counters() {
+/// "verdict for 1: PASS (expected 200)" / "verdict for 1: CHECK (expected 200)".
+fn verdict(case_index: usize, got: Expect) {
+    let case = &CASES[case_index];
+    let mut v = TextBuf::new();
+    v.push("verdict for ");
+    v.push(case_number(case.short));
+    v.push(": ");
+    push_verdict(&mut v, case.expect, got);
+    line(L_VERDICT, v.as_str());
+}
+
+/// The leading number of a short name ("10 GZIP via CF" -> "10").
+fn case_number(short: &str) -> &str {
+    short.split(' ').next().unwrap_or(short)
+}
+
+/// "PASS (expected 200)", "CHECK (expected 200)", "PASS (expected refusal -2)".
+fn push_verdict(t: &mut TextBuf, expect: Expect, got: Expect) {
+    t.push(if expect == got { "PASS" } else { "CHECK" });
+    t.push(" (expected ");
+    match expect {
+        Expect::Refused(c) => {
+            t.push("refusal ");
+            t.push_i32(c);
+        }
+        Expect::Answer(c) => {
+            t.push("answer ");
+            t.push_i32(c);
+        }
+    }
+    t.push(")");
+}
+
+fn refresh_footer() {
     let mut t = TextBuf::new();
     unsafe {
-        t.push("queued ");
-        t.push_i32(SENT);
-        t.push(" | refused at once ");
+        t.push("name \"");
+        push_name(&mut t);
+        t.push("\" | queued ");
+        t.push_i32(QUEUED);
+        t.push(" | refused ");
         t.push_i32(REFUSED);
         t.push(" | answered ");
         t.push_i32(ANSWERED);
-        t.push(" | next id ");
-        t.push_i32(NEXT_REQUEST_ID);
     }
-    line(LINE_COUNTERS, t.as_str());
+    line(L_FOOTER, t.as_str());
 }
 
-fn push_net_status(t: &mut TextBuf) {
+/// Redraw the network line; `force` redraws even when the value is unchanged.
+fn refresh_network_line(force: bool) {
     let s = unsafe { host::k_net_status() };
-    t.push("k_net_status ");
-    t.push_i32(s);
+    let changed = unsafe {
+        let changed = s != LAST_NET_STATUS;
+        LAST_NET_STATUS = s;
+        changed
+    };
+    if !(changed || force) {
+        return;
+    }
+    let mut t = TextBuf::new();
+    t.push("network: ");
     t.push(match s {
-        1 => " available",
-        0 => " NOT available",
-        -2 => " capability undeclared",
-        _ => " ?",
+        1 => "AVAILABLE",
+        0 => "NOT AVAILABLE",
+        -2 => "capability undeclared",
+        _ => "unknown",
     });
+    t.push(" (k_net_status ");
+    t.push_i32(s);
+    t.push(")");
+    line(L_NETWORK, t.as_str());
 }
 
 /// An `OnNetResult` status in words.
@@ -553,17 +668,39 @@ fn push_status(t: &mut TextBuf, status: i32) {
     }
 }
 
-/// " (expect X) PASS" or " (expect X) CHECK".
-fn push_verdict(t: &mut TextBuf, expect: Expect, got: Expect) {
-    t.push(" (expect ");
-    match expect {
-        Expect::Sync(c) => {
-            t.push("fetch ");
-            t.push_i32(c);
-        }
-        Expect::Event(c) => t.push_i32(c),
+/// What an immediate `k_net_fetch` / `k_ui_prompt` refusal means, in words.
+fn code_meaning(rc: i32) -> &'static str {
+    match rc {
+        -2 => "network off or not allowed",
+        -3 => "out of bounds",
+        -5 => "request body too big",
+        -6 => "rate limited, slow down",
+        -7 => "invalid request",
+        -8 => "switched off remotely",
+        -11 => "no recent press",
+        _ => "unknown code",
     }
-    t.push(if expect == got { ") PASS" } else { ") CHECK" });
+}
+
+fn prompt_result_meaning(result: i32) -> &'static str {
+    match result {
+        0 => "empty, nothing sent",
+        -1 => "cancelled",
+        -2 => "muted after 3 cancels",
+        -3 => "host write failed",
+        _ => "unknown result",
+    }
+}
+
+/// The stored score-board name, or "quest" before the prompt is answered.
+fn push_name(t: &mut TextBuf) {
+    let n = unsafe { NAME_LEN };
+    if n == 0 {
+        t.push("quest");
+    } else {
+        let name = unsafe { core::slice::from_raw_parts(core::ptr::addr_of!(NAME) as *const u8, n) };
+        t.push(core::str::from_utf8(name).unwrap_or("quest"));
+    }
 }
 
 /// Keep [A-Za-z0-9 ._-] only, at most `out.len()` bytes. Returns the kept length.
@@ -630,25 +767,6 @@ impl TextBuf {
         }
     }
 
-    /// A host return code in words and numbers: "ERR_RATE_LIMITED (-6)".
-    fn push_code(&mut self, rc: i32) {
-        self.push(match rc {
-            -1 => "ERR_INVALID_HANDLE",
-            -2 => "ERR_PERMISSION_DENIED",
-            -3 => "ERR_OUT_OF_BOUNDS",
-            -4 => "ERR_ASSET_NOT_FOUND",
-            -5 => "ERR_QUOTA_EXCEEDED",
-            -6 => "ERR_RATE_LIMITED",
-            -7 => "ERR_INVALID_ARGUMENT",
-            -8 => "ERR_NOT_SUPPORTED",
-            -11 => "ERR_NO_ACTIVATION",
-            _ => "code",
-        });
-        self.push(" (");
-        self.push_i32(rc);
-        self.push(")");
-    }
-
     fn as_str(&self) -> &str {
         core::str::from_utf8(&self.buf[..self.len]).unwrap_or("")
     }
@@ -657,6 +775,11 @@ impl TextBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn fits_board(s: &str) {
+        assert!(s.len() <= HOST_TEXT_MAX_BYTES, "over the host's 128 bytes: {s:?}");
+        assert!(s.chars().count() <= MAX_LINE_CHARS, "over {MAX_LINE_CHARS} chars: {s:?} ({})", s.len());
+    }
 
     #[test]
     fn node_names_never_end_in_a_digit() {
@@ -673,31 +796,115 @@ mod tests {
         for c in CASES.iter() {
             let (origin, path) = url_for(c.kind);
             assert!(path.starts_with('/'));
-            if c.kind == Kind::ServerB {
-                assert_eq!(origin, B);
-            } else {
-                assert_eq!(origin, A);
-            }
+            assert_eq!(origin, if c.kind == Kind::ServerB { B } else { A });
         }
     }
 
     #[test]
-    fn the_longest_result_line_fits_the_host_limit() {
+    fn labels_are_numbered_two_lines_and_fit() {
+        for (i, c) in CASES.iter().enumerate() {
+            assert!(c.label.starts_with(&format!("{} ", i + 1)), "{}", c.label);
+            assert!(c.short.starts_with(&format!("{} ", i + 1)), "{}", c.short);
+            assert_eq!(c.label.matches('\n').count(), 1, "{}", c.label);
+            for part in c.label.split('\n') {
+                // Same-height labels are 0.74 m apart: about 20 characters of 8 cm text.
+                assert!(part.chars().count() <= 18, "{part:?}");
+            }
+            assert!(c.label.len() <= HOST_TEXT_MAX_BYTES);
+        }
+    }
+
+    #[test]
+    fn the_worst_case_board_lines_fit() {
+        // The longest form of every dynamic line, built the way the world builds it.
+        let mut longest_short = "";
+        for c in CASES.iter() {
+            if c.short.len() > longest_short.len() {
+                longest_short = c.short;
+            }
+        }
         let mut t = TextBuf::new();
-        t.push("NAME (prompt) #1000000 -> fetch refused: ERR_PERMISSION_DENIED (-2)");
-        push_verdict(&mut t, Expect::Sync(-2), Expect::Sync(-2));
-        assert!(t.as_str().len() <= 256);
+        t.push("answer to ");
+        t.push(longest_short);
+        t.push(": -2 refused in flight");
+        fits_board(t.as_str());
+
+        let mut t = TextBuf::new();
+        t.push("answer to ");
+        t.push(longest_short);
+        t.push(": HTTP 200, 262144 bytes");
+        fits_board(t.as_str());
+
+        for rc in [-2, -3, -5, -6, -7, -8, -11, -99] {
+            let mut t = TextBuf::new();
+            t.push("fetch: REFUSED ");
+            t.push_i32(rc);
+            t.push(" ");
+            t.push(code_meaning(rc));
+            fits_board(t.as_str());
+            let mut t = TextBuf::new();
+            t.push("prompt: REFUSED ");
+            t.push_i32(rc);
+            t.push(" ");
+            t.push(code_meaning(rc));
+            fits_board(t.as_str());
+        }
+
+        let mut t = TextBuf::new();
+        t.push("fetch: 0 queued as request 999999");
+        fits_board(t.as_str());
+
+        let mut t = TextBuf::new();
+        t.push("verdict for 10: ");
+        push_verdict(&mut t, Expect::Refused(-2), Expect::Answer(i32::MIN));
+        fits_board(t.as_str());
+
+        let name = "a".repeat(MAX_NAME_BYTES);
+        let mut t = TextBuf::new();
+        t.push("prompt answer: \"");
+        t.push(&name);
+        t.push("\" (256 B)");
+        fits_board(t.as_str());
+
+        let mut t = TextBuf::new();
+        t.push("name \"");
+        t.push(&name);
+        t.push("\" | queued 99999 | refused 99999 | answered 99999");
+        assert!(t.as_str().len() <= HOST_TEXT_MAX_BYTES);
+
+        for r in [0, -1, -2, -3, -9] {
+            let mut t = TextBuf::new();
+            t.push("prompt answer: ");
+            t.push(prompt_result_meaning(r));
+            fits_board(t.as_str());
+        }
+
+        for s in [
+            "NETWORK CHECK 1.0.1 - press a numbered button",
+            "network: capability undeclared (k_net_status -2)",
+            "ready: 11/11 buttons | results FAILED | prompt FAILED",
+            "prompt: opened - type a name and press OK",
+            "answer: none - refused before sending",
+            "verdict: waiting for the answer",
+            "(body larger than this board shows)",
+        ] {
+            fits_board(s);
+        }
         assert!(PROMPT_TEXT.len() <= 256);
     }
 
     #[test]
     fn verdicts() {
         let mut t = TextBuf::new();
-        push_verdict(&mut t, Expect::Event(-5), Expect::Event(-5));
-        assert_eq!(t.as_str(), " (expect -5) PASS");
+        push_verdict(&mut t, Expect::Answer(-5), Expect::Answer(-5));
+        assert_eq!(t.as_str(), "PASS (expected answer -5)");
         let mut t = TextBuf::new();
-        push_verdict(&mut t, Expect::Sync(-2), Expect::Sync(-6));
-        assert_eq!(t.as_str(), " (expect fetch -2) CHECK");
+        push_verdict(&mut t, Expect::Refused(-2), Expect::Refused(-2));
+        assert_eq!(t.as_str(), "PASS (expected refusal -2)");
+        let mut t = TextBuf::new();
+        push_verdict(&mut t, Expect::Answer(200), Expect::Refused(-2));
+        assert_eq!(t.as_str(), "CHECK (expected answer 200)");
+        assert_eq!(case_number("10 GZIP via CF"), "10");
     }
 
     #[test]
@@ -711,8 +918,8 @@ mod tests {
 
     #[test]
     fn in_flight_round_trip() {
-        put_in_flight(65, Kind::Slow as u8);
-        assert_eq!(take_in_flight(65), Some(Kind::Slow as u8));
+        put_in_flight(65, 5);
+        assert_eq!(take_in_flight(65), Some(5));
         assert_eq!(take_in_flight(65), None);
         assert_eq!(take_in_flight(0), None);
     }

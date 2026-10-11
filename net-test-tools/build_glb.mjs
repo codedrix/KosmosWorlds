@@ -14,13 +14,14 @@
  * test worlds (unlisted), so the look is plain on purpose.
  *
  * Coordinates are glTF: metres, Y up. The spawn is the origin; the console faces
- * it along +X (UE forward at yaw 0) on an arc 1.6 m out.
+ * it along +X (UE forward at yaw 0) on an arc 1.6 m out, and the text column
+ * floats 3.0 m out with nothing solid behind it for 1.4 m.
  *
  * Three device traps this file is careful about (memory notes, 2026-10-06/08):
  *   1. The client strips a trailing `_<digit>` from node names, so no name here
  *      ends in a digit (`LineA`, never `Line_1`).
  *   2. `k_node_find` sees only nodes WITH A MESH, so every text anchor is a mesh
- *      (a small stud on the board), never an empty.
+ *      (a 1 cm floating stud), never an empty.
  *   3. The publisher's merge stage bakes childless, non-interactable, extras-less
  *      meshes into anonymous geometry, so every node the script finds carries an
  *      extra (`interactable` for buttons, `script_node` for the rest).
@@ -53,7 +54,7 @@ export const BUTTONS = [
 ];
 
 /** The board's text lines, top to bottom. Mirrored in net-check/src/lib.rs. */
-export const LINES = ["LineA", "LineB", "LineC", "LineD", "LineE", "LineF", "LineG", "LineH"];
+export const LINES = ["LineA", "LineB", "LineC", "LineD", "LineE", "LineF", "LineG", "LineH", "LineI", "LineJ"];
 
 // ---------------------------------------------------------------------------
 // A minimal glTF writer
@@ -190,56 +191,69 @@ class Gltf {
 // ---------------------------------------------------------------------------
 
 function room(g) {
-  const floor = g.material("Floor", [0.62, 0.64, 0.68]);
-  const wall = g.material("Wall", [0.86, 0.87, 0.9]);
-  // A 9 x 9 m floor slab, top face at y = 0, plus a low back wall so the space reads as a room.
+  // DARK on purpose (1.0.1, after the CEO's first sitting): world text is always
+  // WHITE (KWorldTextPool.cpp SetTextRenderColor), and 1.0.0's light grey floor and
+  // wall left the button labels close to invisible.
+  const floor = g.material("Floor", [0.1, 0.1, 0.12]);
+  const wall = g.material("Wall", [0.04, 0.04, 0.05]);
+  // A 9 x 9 m floor slab, top face at y = 0, and a 4 m back wall far behind the text.
   g.box("Floor", [0, -0.05, 0], [9, 0.1, 9], floor);
-  g.box("BackWall", [4.4, 1.5, 0], [0.2, 3, 9], wall);
+  g.box("BackWall", [4.4, 2, 0], [0.2, 4, 9], wall);
   // The spawn: the publisher's spawn-sync turns this into manifest.world.spawn_point.
   g.empty("spawn_point", [0, 0, 0], { spawn_point: true });
 }
 
-/** A board with a column of text anchors on its face. Returns nothing. */
-function board(g, centreX, names, topY, pitch) {
-  const boardMat = g.material("Board", [0.1, 0.11, 0.14]);
-  const studMat = g.material("Stud", [0.12, 0.13, 0.16]);
-  const height = names.length * pitch + 0.25;
-  const midY = topY - (names.length - 1) * pitch / 2;
-  g.box("Board", [centreX, midY, 0], [0.06, height, 3.6], boardMat, { script_node: "board" });
-  // World text is bottom-aligned on its anchor and yaw-faces the camera, so each
-  // anchor is a tiny stud just in front of the board at that line's baseline.
+/**
+ * A column of FLOATING text anchors, one per line, with nothing solid near them.
+ *
+ * World text yaw-faces the camera and is depth-tested. 1.0.0 put 2.3 m-wide lines
+ * 2 cm in front of a solid board, so a few degrees off-axis half of every line
+ * swung INTO the board and vanished -- the "nothing showed" at the first sitting.
+ * The nearest surface behind these anchors is now the back wall, 1.4 m away, which
+ * clears a 2 m line turned up to about 90 degrees.
+ */
+function textColumn(g, x, names, topY, pitch) {
+  const studMat = g.material("Stud", [0.05, 0.05, 0.06]);
   names.forEach((name, i) => {
-    g.box(name, [centreX - 0.05, topY - i * pitch, 0], [0.01, 0.01, 0.01], studMat, { script_node: "text_line" });
+    g.box(name, [x, topY - i * pitch, 0], [0.01, 0.01, 0.01], studMat, { script_node: "text_line" });
   });
 }
+
+/** Button colours: green = expected to succeed, red = expected to be refused, blue = the prompt. */
+const EXPECTS_FAILURE = new Set(["BtnBig", "BtnSlow", "BtnRedirB", "BtnGzip", "BtnGzipStd", "BtnServerB"]);
 
 function netCheck() {
   const g = new Gltf();
   room(g);
-  const btnMat = g.material("Button", [0.95, 0.55, 0.12]);
-  const btnBMat = g.material("ButtonServerB", [0.75, 0.16, 0.16]);
+  const okMat = g.material("ButtonExpectOk", [0.15, 0.75, 0.3]);
+  const failMat = g.material("ButtonExpectRefused", [0.85, 0.18, 0.15]);
+  const promptMat = g.material("ButtonPrompt", [0.2, 0.45, 0.95]);
   const standMat = g.material("Stand", [0.3, 0.32, 0.36]);
-  // The arc: radius 1.6 m about the spawn, from -60 to +60 degrees; button tops at 1.04 m.
+  // The arc: radius 1.6 m about the spawn, from -66 to +66 degrees (0.37 m apart);
+  // button tops at 1.02 m. Labels alternate between two heights (src/lib.rs), so
+  // labels at the same height are 0.74 m apart and never overlap.
   const n = BUTTONS.length;
   BUTTONS.forEach((name, i) => {
-    const deg = -60 + (120 * i) / (n - 1);
+    const deg = -66 + (132 * i) / (n - 1);
     const rad = (deg * Math.PI) / 180;
-    // Facing +X with +Y up, the visitor's right is +Z (forward x up), so -60 degrees
+    // Facing +X with +Y up, the visitor's right is +Z (forward x up), so -66 degrees
     // (negative Z) is the left end. Each button is yawed to face the spawn.
     const x = 1.6 * Math.cos(rad);
     const z = 1.6 * Math.sin(rad);
     const yaw = -deg;
-    g.box(`${name}Stand`, [x, 0.45, z], [0.12, 0.9, 0.12], standMat, undefined, yaw);
-    g.box(name, [x, 0.97, z], [0.26, 0.14, 0.26], name === "BtnServerB" ? btnBMat : btnMat, { interactable: true }, yaw);
+    const mat = name === "BtnName" ? promptMat : EXPECTS_FAILURE.has(name) ? failMat : okMat;
+    g.box(`${name}Stand`, [x, 0.44, z], [0.12, 0.88, 0.12], standMat, undefined, yaw);
+    g.box(name, [x, 0.95, z], [0.26, 0.14, 0.26], mat, { interactable: true }, yaw);
   });
-  board(g, 2.6, LINES, 2.45, 0.14);
+  // Ten lines, 2.75 m down to 1.67 m, 3.0 m in front of the spawn.
+  textColumn(g, 3.0, LINES, 2.75, 0.12);
   return g;
 }
 
 function netRequired() {
   const g = new Gltf();
   room(g);
-  board(g, 2.4, ["StatusLine"], 1.7, 0.14);
+  textColumn(g, 2.4, ["StatusLine"], 1.6, 0.12);
   return g;
 }
 
