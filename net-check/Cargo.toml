@@ -1,0 +1,22 @@
+[package]
+name = "net_check_script"
+version = "1.0.0"
+edition = "2021"
+description = "net-check: the network device-test world (KOS-983). One button per k_net_fetch case; the board shows each answer."
+license = "MIT"
+# build.rs supplies --import-memory and --export-table (see its header).
+build = "build.rs"
+
+[lib]
+crate-type = ["cdylib"]
+
+# No dependencies. The SDK's `net` module (lane SDK-1) has not merged, so this
+# world declares its few host imports itself (src/lib.rs, `mod host`). Every
+# signature there is copied from the client's levels table at a47d33b.
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
