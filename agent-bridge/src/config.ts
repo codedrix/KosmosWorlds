@@ -54,6 +54,8 @@ export interface BridgeConfig {
    * Worker's RELAY_SECRET; never commit it.
    */
   relaySecret?: string;
+  /** Tool rules that always ask in a headset job (DB-043 Q3). Unset = ["Bash","PowerShell"]; [] = the CEO's own rules. */
+  alwaysAsk?: string[];
   passphrase?: PassphraseHash;
 }
 
@@ -107,6 +109,7 @@ export function normalizeConfig(raw: unknown): BridgeConfig {
   if (typeof r.claudeExecutable === "string" && r.claudeExecutable) c.claudeExecutable = r.claudeExecutable;
   if (typeof r.textScale === "number") c.textScale = r.textScale;
   if (typeof r.relaySecret === "string" && r.relaySecret.length >= 24) c.relaySecret = r.relaySecret;
+  if (Array.isArray(r.alwaysAsk)) c.alwaysAsk = r.alwaysAsk.filter((x): x is string => typeof x === "string");
   if (r.passphrase && typeof r.passphrase === "object") c.passphrase = r.passphrase as PassphraseHash;
   return c;
 }

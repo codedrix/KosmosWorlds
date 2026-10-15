@@ -52,6 +52,8 @@ test("Claude runs with the CEO's settings, 'default' permissions, and every prom
   const opts = seen[0] as Record<string, unknown>;
   assert.equal(opts.permissionMode, "default");
   assert.deepEqual(opts.settingSources, ["user", "project", "local"]);
+  // The headset policy: shell commands always ask, whatever the CEO's allow rules say.
+  assert.deepEqual(opts.managedSettings, { permissions: { ask: ["Bash", "PowerShell"] } });
   assert.equal(opts.cwd, "C:/p");
   assert.equal(job.sessionId, "sess-123");
   assert.equal(job.status, "idle", "a conversation waits for the CEO after its turn");
@@ -65,6 +67,16 @@ test("Claude runs with the CEO's settings, 'default' permissions, and every prom
   assert.equal(agentEvents.length, 1, "streamed text is not repeated by the final message");
   assert.equal(agentEvents[0]?.text, "Running the tests.");
   assert.ok(job.events.some((e) => e.text === "Ran tests: 9 passed"));
+});
+
+test("alwaysAsk [] runs a job under the CEO's own rules exactly as at the desk", async () => {
+  const { fn, seen } = fakeQuery(async function* () {
+    yield { type: "result", subtype: "success" };
+  });
+  const store = new JobStore();
+  const job = store.createJob({ agent: "claude", project: "p", cwd: "C:/p", title: "t" });
+  await new ClaudeAdapter({ queryFn: fn, alwaysAsk: [] }).start(store.sink(job.id), { prompt: "go" });
+  assert.equal((seen[0] as Record<string, unknown>).managedSettings, undefined);
 });
 
 test("a preset ends after its first turn", async () => {

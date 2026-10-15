@@ -38,6 +38,13 @@ const HEADSET_REFUSES: Record<string, string> = {
   ExitPlanMode: "The user is in a VR headset. Write the plan in your reply and wait for them to say go.",
 };
 
+/**
+ * The CEO's project settings allow many commands with no prompt (Bash(powershell:*) and
+ * Bash(curl:*) among them, 2026-10-14), which at the desk he can watch. In the headset he
+ * can't, and a file or page Claude reads could ask for one, so shell commands always ask.
+ */
+export const DEFAULT_ALWAYS_ASK = ["Bash", "PowerShell"];
+
 const WHY_MESSAGE =
   "The user asked why, from the headset. Before running it, explain in two short sentences why you need this, then request it again.";
 const DENY_MESSAGE = "The user denied this from the headset. Do not try it another way; say what you would need instead.";
@@ -85,6 +92,13 @@ interface Live {
 export interface ClaudeAdapterOptions {
   model?: string;
   executable?: string;
+  /**
+   * The headset policy: tool rules that must prompt in a headset job even when the CEO's
+   * settings allow them (`permissions.ask` in managed settings; ask beats allow). Default
+   * ["Bash", "PowerShell"]: every shell command is approved on the wall. [] = the CEO's own
+   * rules exactly as at the desk (DB-043 Q3).
+   */
+  alwaysAsk?: string[];
   /** For tests: replace the SDK's query(). */
   queryFn?: typeof query;
 }
@@ -93,7 +107,11 @@ export class ClaudeAdapter implements AgentAdapter {
   readonly name = "claude";
   private live = new Map<string, Live>();
 
-  constructor(private readonly opts: ClaudeAdapterOptions = {}) {}
+  private readonly alwaysAsk: string[];
+
+  constructor(private readonly opts: ClaudeAdapterOptions = {}) {
+    this.alwaysAsk = opts.alwaysAsk ?? DEFAULT_ALWAYS_ASK;
+  }
 
   async start(sink: JobSink, o: StartOptions): Promise<void> {
     const input = new InputQueue();
@@ -117,6 +135,7 @@ export class ClaudeAdapter implements AgentAdapter {
         settingSources: ["user", "project", "local"],
         canUseTool,
         includePartialMessages: true,
+        ...(this.alwaysAsk.length > 0 ? { managedSettings: { permissions: { ask: this.alwaysAsk } } } : {}),
         ...(o.resume ? { resume: o.resume } : {}),
         ...(this.opts.model ? { model: this.opts.model } : {}),
         ...(this.opts.executable ? { pathToClaudeCodeExecutable: this.opts.executable } : {}),

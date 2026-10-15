@@ -142,7 +142,7 @@ async function main(): Promise<void> {
       const port = Number(arg("--port") ?? config.port);
       config.port = port;
       const adapterName = arg("--adapter") ?? "claude";
-      const adapter = adapterName === "fake" ? new FakeAdapter(1000) : new ClaudeAdapter({ model: config.model, executable: config.claudeExecutable });
+      const adapter = adapterName === "fake" ? new FakeAdapter(1000) : new ClaudeAdapter({ model: config.model, executable: config.claudeExecutable, alwaysAsk: config.alwaysAsk });
       if (adapterName === "fake" && config.projects.length === 0) config.projects = [{ name: "demo-project", path: os.tmpdir() }];
       if (!config.passphrase) console.warn("WARNING: no passphrase is set, so nobody can sign in. Run: npm run set-passphrase");
       if (config.projects.length === 0) console.warn("WARNING: no project folders are allowed. Run: npm run init");
