@@ -1,7 +1,7 @@
 """
 build_door.py -- the Lobby's door to Mission Control: an amber portal with "Mission Control" above it.
 
-@kosmos-system  Content (KosmosWorlds) -- Mission Control (DB-043)
+@kosmos-system  Content (KosmosWorlds) -- Mission Control (DB-044)
 @kosmos-owner   Content lane
 
     blender -b --factory-startup -P build_door.py -- --out <door.glb>

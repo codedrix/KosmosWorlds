@@ -1,7 +1,7 @@
 """
 build_world.py -- builds world://mission-control.micknerks and renders its lit review.
 
-@kosmos-system  Content (KosmosWorlds) -- Mission Control (DB-043)
+@kosmos-system  Content (KosmosWorlds) -- Mission Control (DB-044)
 @kosmos-owner   Content lane
 
 Run headless (no window, no editor):

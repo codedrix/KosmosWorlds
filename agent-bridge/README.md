@@ -3,13 +3,13 @@
 A small service on the CEO's PC that lets Kosmos worlds start and steer **Claude Code** jobs in the
 CEO's real project folders, with the CEO's own login, settings, CLAUDE.md, memory, skills and MCP servers.
 Mission Control (`../mission-control/`) is its first room; More Room (a separate brief) plugs in
-beside it without editing Mission Control's files. Brief: **DB-043** (kosmos-project).
+beside it without editing Mission Control's files. Brief: **DB-044** (kosmos-project).
 
 **It listens on 127.0.0.1 only.** The headset refuses home-network addresses, so the world reaches
-it through a tunnel **the CEO sets up** (DB-043, "Your steps"). Nothing here creates a tunnel, an
+it through a tunnel **the CEO sets up** (DB-044, "Your steps"). Nothing here creates a tunnel, an
 account or a key.
 
-**The recommended front door (DB-043 option A)** is `relay-worker/`: a ~90-line Cloudflare Worker on
+**The recommended front door (DB-044 option A)** is `relay-worker/`: a ~90-line Cloudflare Worker on
 `kosmos-agent-bridge.micknerks.workers.dev` that serves the opt-in file and `/privacy` itself (so
 they stay up when the PC sleeps; the registry drops an origin whose weekly check fails twice) and
 relays `POST /v1/*` to the PC's tunnel with a shared secret (`npm run make-relay-secret`). With the
@@ -104,7 +104,7 @@ loads every face folder; nothing else changes. The server does auth, limits, the
 Host/Origin checks before a face runs, and passes `ctx.authed`; a face acts only through
 `ctx.bridge.actions`.
 
-## Security (DB-043 has the reasoning)
+## Security (DB-044 has the reasoning)
 
 | Threat | What v1 does |
 |---|---|

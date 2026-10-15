@@ -1,4 +1,4 @@
-# The bridge's always-on front door (DB-043). The CEO deploys it: `npx wrangler deploy` from
+# The bridge's always-on front door (DB-044). The CEO deploys it: `npx wrangler deploy` from
 # this folder, after `npx wrangler secret put BRIDGE_ORIGIN` and `npx wrangler secret put RELAY_SECRET`.
 # No account id here: wrangler uses the signed-in account. Never put a secret in this file.
 name = "kosmos-agent-bridge"

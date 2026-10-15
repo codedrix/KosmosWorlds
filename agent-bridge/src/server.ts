@@ -1,7 +1,7 @@
 /**
  * server.ts -- the HTTP surface. Loopback only; the tunnel is the only way in.
  *
- * @kosmos-system  Agent bridge (Mission Control, DB-043)
+ * @kosmos-system  Agent bridge (Mission Control, DB-044)
  * @kosmos-owner   Platform
  *
  * What every request goes through, in order (a face can't skip any of it):
@@ -163,7 +163,7 @@ export function createServer(bridge: Bridge, faces: Map<string, Face>, opts: Ser
       json(res, 405, { error: "post_only" });
       return 405;
     }
-    // Behind the relay Worker (DB-043 option A), only the Worker knows this key.
+    // Behind the relay Worker (DB-044 option A), only the Worker knows this key.
     const relaySecret = bridge.config.relaySecret;
     if (relaySecret) {
       const got = Buffer.from(String(req.headers["x-relay-key"] ?? ""));

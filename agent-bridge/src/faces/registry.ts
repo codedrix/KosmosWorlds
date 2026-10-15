@@ -1,7 +1,7 @@
 /**
  * faces/registry.ts -- finds faces by folder.
  *
- * @kosmos-system  Agent bridge (Mission Control, DB-043)
+ * @kosmos-system  Agent bridge (Mission Control, DB-044)
  * @kosmos-owner   Platform
  *
  * Every subfolder of `faces/` with an `index.js` whose default export is a Face

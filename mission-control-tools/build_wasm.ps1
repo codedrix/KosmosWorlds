@@ -1,4 +1,4 @@
-# build_wasm.ps1 -- host tests + device-safe world.wasm for Mission Control (DB-043).
+# build_wasm.ps1 -- host tests + device-safe world.wasm for Mission Control (DB-044).
 #
 # @kosmos-system Content (KosmosWorlds) -- Mission Control
 # @kosmos-owner  Content lane

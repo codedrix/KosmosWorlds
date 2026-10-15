@@ -1,7 +1,7 @@
 /**
- * relay-worker -- the bridge's always-on front door (DB-043, option A).
+ * relay-worker -- the bridge's always-on front door (DB-044, option A).
  *
- * @kosmos-system  Agent bridge (Mission Control, DB-043)
+ * @kosmos-system  Agent bridge (Mission Control, DB-044)
  * @kosmos-owner   Platform
  *
  * Why it exists:

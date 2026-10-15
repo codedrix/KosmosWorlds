@@ -1,7 +1,7 @@
 /**
  * faces/mission-control/layout.ts -- the node names and sizes of the Mission Control wall.
  *
- * @kosmos-system  Agent bridge (Mission Control, DB-043)
+ * @kosmos-system  Agent bridge (Mission Control, DB-044)
  * @kosmos-owner   Platform
  *
  * These names are the contract with the world: `KosmosWorlds/mission-control/nodes.json`

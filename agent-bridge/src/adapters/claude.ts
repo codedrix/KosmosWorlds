@@ -1,7 +1,7 @@
 /**
  * adapters/claude.ts -- Claude Code through the Claude Agent SDK.
  *
- * @kosmos-system  Agent bridge (Mission Control, DB-043)
+ * @kosmos-system  Agent bridge (Mission Control, DB-044)
  * @kosmos-owner   Platform
  *
  * Each job is one Claude Code session in one of the CEO's project folders,
@@ -96,7 +96,7 @@ export interface ClaudeAdapterOptions {
    * The headset policy: tool rules that must prompt in a headset job even when the CEO's
    * settings allow them (`permissions.ask` in managed settings; ask beats allow). Default
    * ["Bash", "PowerShell"]: every shell command is approved on the wall. [] = the CEO's own
-   * rules exactly as at the desk (DB-043 Q3).
+   * rules exactly as at the desk (DB-044 Q3).
    */
   alwaysAsk?: string[];
   /** For tests: replace the SDK's query(). */

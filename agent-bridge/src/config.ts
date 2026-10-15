@@ -1,7 +1,7 @@
 /**
  * config.ts -- where the bridge keeps its settings and secrets on the PC.
  *
- * @kosmos-system  Agent bridge (Mission Control, DB-043)
+ * @kosmos-system  Agent bridge (Mission Control, DB-044)
  * @kosmos-owner   Platform
  *
  * Everything secret lives OUTSIDE the repository, in the bridge's home folder:
@@ -54,7 +54,7 @@ export interface BridgeConfig {
    * Worker's RELAY_SECRET; never commit it.
    */
   relaySecret?: string;
-  /** Tool rules that always ask in a headset job (DB-043 Q3). Unset = ["Bash","PowerShell"]; [] = the CEO's own rules. */
+  /** Tool rules that always ask in a headset job (DB-044 Q3). Unset = ["Bash","PowerShell"]; [] = the CEO's own rules. */
   alwaysAsk?: string[];
   passphrase?: PassphraseHash;
 }

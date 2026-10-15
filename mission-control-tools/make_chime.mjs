@@ -1,6 +1,6 @@
 // make_chime.mjs -- writes audio/chime.wav: the soft two-note chime for a new approval.
 //
-// @kosmos-system Content (KosmosWorlds) -- Mission Control (DB-043)
+// @kosmos-system Content (KosmosWorlds) -- Mission Control (DB-044)
 // @kosmos-owner  Content lane
 //
 // Two bell-like notes (C6 then E6, 140 ms apart), each a fundamental plus a quiet

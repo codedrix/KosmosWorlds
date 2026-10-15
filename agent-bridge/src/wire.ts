@@ -1,7 +1,7 @@
 /**
  * wire.ts -- the small text format worlds speak to the bridge.
  *
- * @kosmos-system  Agent bridge (Mission Control, DB-043)
+ * @kosmos-system  Agent bridge (Mission Control, DB-044)
  * @kosmos-owner   Platform
  *
  * A world script is no_std Rust with no allocator and no JSON parser, so the

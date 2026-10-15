@@ -2,7 +2,7 @@
 name = "mission_control_script"
 version = "0.1.0"
 edition = "2021"
-description = "Mission Control (DB-043): applies the agent bridge's wall snapshots and reports presses."
+description = "Mission Control (DB-044): applies the agent bridge's wall snapshots and reports presses."
 license = "MIT"
 # build.rs supplies --import-memory and --export-table (see its header).
 build = "build.rs"

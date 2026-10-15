@@ -1,7 +1,7 @@
 /**
  * faces/types.ts -- what a face is.
  *
- * @kosmos-system  Agent bridge (Mission Control, DB-043)
+ * @kosmos-system  Agent bridge (Mission Control, DB-044)
  * @kosmos-owner   Platform
  *
  * A FACE turns the bridge's jobs into one room's wall, and that room's presses

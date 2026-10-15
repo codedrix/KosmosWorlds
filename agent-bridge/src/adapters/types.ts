@@ -1,7 +1,7 @@
 /**
  * adapters/types.ts -- what an agent adapter is.
  *
- * @kosmos-system  Agent bridge (Mission Control, DB-043)
+ * @kosmos-system  Agent bridge (Mission Control, DB-044)
  * @kosmos-owner   Platform
  *
  * One adapter per agent product. Claude Code is first (claude.ts); Codex is a

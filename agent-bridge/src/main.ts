@@ -2,7 +2,7 @@
 /**
  * main.ts -- the agent bridge's command line.
  *
- * @kosmos-system  Agent bridge (Mission Control, DB-043)
+ * @kosmos-system  Agent bridge (Mission Control, DB-044)
  * @kosmos-owner   Platform
  *
  *   agent-bridge init                       write a config with the Kosmos project folders that exist
@@ -13,7 +13,7 @@
  *   agent-bridge unkill                     lift the stop (restart `serve` afterwards to be sure)
  *   agent-bridge unlock                     clear the lock left by too many wrong passphrases
  *   agent-bridge status                     what is set, without printing any secret
- *   agent-bridge make-relay-secret          the shared secret for the relay Worker (DB-043 option A)
+ *   agent-bridge make-relay-secret          the shared secret for the relay Worker (DB-044 option A)
  */
 
 import crypto from "node:crypto";
@@ -107,7 +107,7 @@ async function main(): Promise<void> {
       return;
     }
     case "make-relay-secret": {
-      // The shared secret between the relay Worker and this bridge (DB-043 option A).
+      // The shared secret between the relay Worker and this bridge (DB-044 option A).
       const secret = crypto.randomBytes(32).toString("base64url");
       config.relaySecret = secret;
       saveConfig(config);

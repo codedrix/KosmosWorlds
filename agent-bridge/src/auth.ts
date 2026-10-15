@@ -1,7 +1,7 @@
 /**
  * auth.ts -- passphrase sign-in, short-lived tokens and the lockout.
  *
- * @kosmos-system  Agent bridge (Mission Control, DB-043)
+ * @kosmos-system  Agent bridge (Mission Control, DB-044)
  * @kosmos-owner   Platform
  *
  * The headset sends no identity, and `X-World-Address` is a header anyone can
@@ -15,7 +15,7 @@
  *     After 10 inside 24 hours, the bridge writes LOCKED and refuses sign-in
  *     until the PC runs `npm run unlock`. There is no identity to lock out
  *     per person, so the lock is global: a stranger can lock the CEO out, but
- *     never in. That trade is stated in DB-043.
+ *     never in. That trade is stated in DB-044.
  *   - At most one attempt every 2 seconds, so guessing is slow even before the lock.
  */
 

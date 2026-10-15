@@ -2,10 +2,10 @@
 
 The CEO's own Claude Code jobs, running on the CEO's PC, on a wall in Kosmos. Start a job, read the
 conversation, approve what Claude asks to run, without taking the headset off.
-Brief: **DB-043** (kosmos-project). The PC side is `../agent-bridge/`.
+Brief: **DB-044** (kosmos-project). The PC side is `../agent-bridge/`.
 
 - **Status:** built and validated; **not published**. Publishing is Class C (the CEO's), after
-  the tunnel exists. See "Publishing" below and DB-043's step list.
+  the tunnel exists. See "Publishing" below and DB-044's step list.
 - **Host API level:** **4** (`k_net_*`, `OnNetResult`); also level 3 (`k_haptic_pulse`,
   `k_node_clone`, `k_node_destroy`, `k_log`).
 - **Capabilities:** `scene_read`, `scene_write`, `transform`, `events`, `ui_basic`, `audio`,
@@ -126,7 +126,7 @@ What the review caught and what changed:
 
 ## Publishing (Class C, the CEO's)
 
-Only after the tunnel serves `/.well-known/world-network.json` (DB-043's steps):
+Only after the tunnel serves `/.well-known/world-network.json` (DB-044's steps):
 `set-bridge-host.mjs <host>`, rebuild the wasm, `kosmos-wp validate mission-control` **without**
 `--offline`, bundle with the version bumped, `kosmos-wp publish <bundle> --status unlisted` signed in
 as `micknerks`. Then the Lobby 1.1.2 candidate with the door, never before.

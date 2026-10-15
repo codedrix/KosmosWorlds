@@ -1,11 +1,11 @@
 /**
  * jobs.ts -- the jobs, their conversations and their approvals.
  *
- * @kosmos-system  Agent bridge (Mission Control, DB-043)
+ * @kosmos-system  Agent bridge (Mission Control, DB-044)
  * @kosmos-owner   Platform
  *
  * The JobStore is the one thing every face reads and every adapter writes. It
- * holds SUMMARIES only (DB-043 "only summaries leave the PC"):
+ * holds SUMMARIES only (DB-044 "only summaries leave the PC"):
  *
  *   - the CEO's own messages;
  *   - the agent's reply text, cleaned (sanitize.ts);

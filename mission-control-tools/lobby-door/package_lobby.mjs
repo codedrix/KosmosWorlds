@@ -1,6 +1,6 @@
 // package_lobby.mjs -- builds the Lobby 1.1.2 CANDIDATE package with the Mission Control door.
 //
-// @kosmos-system Content (KosmosWorlds) -- Mission Control (DB-043)
+// @kosmos-system Content (KosmosWorlds) -- Mission Control (DB-044)
 // @kosmos-owner  Content lane
 //
 //   node package_lobby.mjs <live 1.1.1 package dir> <scene_with_door.glb> <out package dir>

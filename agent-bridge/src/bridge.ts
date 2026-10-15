@@ -1,11 +1,11 @@
 /**
  * bridge.ts -- the core: jobs, adapters, sign-in and the kill switch, wired together.
  *
- * @kosmos-system  Agent bridge (Mission Control, DB-043)
+ * @kosmos-system  Agent bridge (Mission Control, DB-044)
  * @kosmos-owner   Platform
  *
  * Faces act ONLY through `Actions`, a fixed list of verbs. That list is the
- * allowlist DB-043 promises: start a preset, start a typed task, send a
+ * allowlist DB-044 promises: start a preset, start a typed task, send a
  * message, use a quick reply, decide an approval, stop a job. There is no verb
  * that runs text as a command.
  */
