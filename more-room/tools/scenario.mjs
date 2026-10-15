@@ -5,10 +5,11 @@
  * @kosmos-system  Content (KosmosWorlds) -- More Room
  * @kosmos-owner   More Room v1 (design session 2026-10-14)
  *
- * Usage:  node more-room/tools/scenario.mjs [--snapshots]
+ * Usage:  node --experimental-strip-types more-room/tools/scenario.mjs [--snapshots] [--packaged]
  *
  * Runs the built world-vr/world.wasm and world-mr/world.wasm in mock-host.mjs
- * against the mock bridge (bridge-day-face/day-face.mjs, in process), presses
+ * against the mock bridge (bridge-day-face/mock-bridge.mjs, in process, running the
+ * real face logic agent-bridge/src/faces/more-room/day-core.ts), presses
  * through all four modes, and fails on the first broken promise. With
  * --snapshots it writes renders/state-<vr|mr>-<mode>.json, which
  * render_modes.py turns into the lit renders.
@@ -18,7 +19,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Host, LIMITS } from "./mock-host.mjs";
-import { createDayFace, LIMITS as BRIDGE } from "../bridge-day-face/day-face.mjs";
+import { createMockBridge, LIMITS as BRIDGE } from "../bridge-day-face/mock-bridge.mjs";
 import { LAYOUT } from "./build_glb.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -59,12 +60,16 @@ function runVariant(variant) {
   const dir = path.join(ROOT, `world-${variant}`);
   const manifest = JSON.parse(fs.readFileSync(path.join(dir, "manifest.json"), "utf8"));
   let clock = 10 * 60 + 5; // 10:05, before the counsel call
-  const face = createDayFace({ passphrase: "sample-day", nowMin: () => clock, dev: true });
-  const host = new Host({
+  let host = null;
+  const bridge = createMockBridge({ passphrase: "sample-day", nowMin: () => clock, nowMs: () => 1.7e12 + (host ? host.time * 1000 : 0), dev: true });
+  const face = { store: bridge.store, log: bridge.core.log };
+  const addr = { "x-world-address": `${manifest.world.id}.${manifest.world.author}` };
+  const arrive = () => bridge.handle("POST", "/v1/faces/more-room/arrive", Buffer.from("{}"), addr);
+  host = new Host({
     wasmPath: path.join(dir, "world.wasm"),
     glbPath: PACKAGED ? path.join(ROOT, "dist", `scene-${variant}.glb`) : path.join(dir, "world.glb"),
     manifest,
-    net: (method, p, body) => face.handle(method, p, body),
+    net: (method, p, body, headers) => bridge.handle(method, p, body, headers),
   });
   const snap = (mode) => {
     if (!SNAP) return;
@@ -95,15 +100,22 @@ function runVariant(variant) {
   host.answerPrompt("wrong");
   host.run(0.3);
   ok(/Wrong passphrase/.test(host.textOf("TxtStage") ?? ""), `wrong passphrase is said (${host.textOf("TxtStage")})`);
-  ok(host.requests.at(-1).url.endsWith("/day/v1/session"), "sign-in goes to /session");
+  ok(host.requests.at(-1).url.endsWith("/v1/faces/more-room/signin"), "sign-in goes to the face's signin op (the bridge's one session)");
+  // Too soon: the bridge allows one try every 2 seconds, and the room says so.
+  host.press("BtnSignIn");
+  host.answerPrompt("sample-day");
+  host.run(0.3);
+  ok(/every 2 seconds/.test(host.textOf("TxtStage") ?? ""), `too fast is said (${host.textOf("TxtStage")})`);
+  host.run(2.0);
   // The passphrase never appears in any later request.
   host.press("BtnSignIn");
   host.answerPrompt("sample-day");
   host.run(1.0);
   ok(host.textOf("BtnSignIn") === undefined, "signed in: the sign-in label is gone");
-  const firstSnapshot = host.requests.find((r) => r.url.endsWith("/day/v1/changes"));
+  const firstSnapshot = host.requests.find((r) => r.url.endsWith("/v1/faces/more-room/changes"));
   ok(firstSnapshot && JSON.parse(firstSnapshot.body).since === 0, "the first poll asks for everything (since 0)");
-  ok(!host.requests.slice(2).some((r) => r.body.includes("sample-day")), "the passphrase is sent once, to /session only");
+  ok(host.requests.filter((r) => r.body.includes("sample-day")).every((r) => r.url.endsWith("/signin")), "the passphrase goes only to signin");
+  ok(host.requests.filter((r) => !r.url.endsWith("/signin")).every((r) => typeof JSON.parse(r.body).tok === "string"), "every other call carries tok in the body");
 
   // --- Morning.
   host.run(0.5);
@@ -147,7 +159,7 @@ function runVariant(variant) {
   ok(/24:5[67] +focus/.test(host.textOf("TxtStageLow") ?? ""), `focus: the timer runs (${host.textOf("TxtStageLow")})`);
   // A normal message lands: silent, face-down, in its slot, from the inbox tray.
   const soundsBefore = host.sounds.length;
-  face.handle("POST", "/day/v1/_mock/arrive", Buffer.from("{}"));
+  arrive();
   host.run(0.3);
   let fresh = cardsAt(() => true).find((n) => !cards.includes(n));
   host.run(4.5); // the next poll, then the slide
@@ -156,7 +168,7 @@ function runVariant(variant) {
   ok(onDesk(fresh[0]) && fresh[0].source !== "TplMsgRead", "focus: it lies face-down on the desk");
   ok(host.sounds.length === soundsBefore, "focus: a normal message makes no sound");
   // A VIP message lands: one tick, from the tray, and the VIP line.
-  face.handle("POST", "/day/v1/_mock/arrive", Buffer.from("{}"));
+  arrive();
   host.run(4.6);
   ok(host.sounds.length === soundsBefore + 1 && host.sounds.at(-1).at === "InboxTray", `focus: a VIP ticks once, from the tray (${JSON.stringify(host.sounds)})`);
   ok(/VIP: Counsel/.test(host.textOf("TxtVip") ?? ""), "focus: the VIP line names the sender");
@@ -225,7 +237,7 @@ function runVariant(variant) {
   snap("triage-after");
 
   // --- Wrap-up.
-  face.handle("POST", "/day/v1/act", Buffer.from(JSON.stringify({ token: [...faceTokens(host)][0], op: "complete", id: "t-a" })));
+  bridge.handle("POST", "/v1/faces/more-room/act", Buffer.from(JSON.stringify({ tok: faceTokens(host)[0], op: "complete", id: "t-a" })), addr);
   clock = 18 * 60 + 40;
   host.press("BtnModeWrap");
   host.run(4.6);
@@ -240,7 +252,7 @@ function runVariant(variant) {
   snap("wrap");
 
   // --- The bridge signs the room out: it says so and stops polling.
-  face.handle("POST", "/day/v1/session/end", Buffer.from(JSON.stringify({ token: [...faceTokens(host)][0] })));
+  bridge.handle("POST", "/v1/session/end", Buffer.from(JSON.stringify({ tok: faceTokens(host)[0] })), addr);
   host.run(4.6);
   ok(/Sign\sin again/.test(host.textOf("TxtStage") ?? ""), `a 401 signs the room out, out loud (${host.textOf("TxtStage")})`);
   const n0 = host.requests.length;
@@ -274,7 +286,7 @@ function faceTokens(host) {
   for (const r of host.requests) {
     try {
       const b = JSON.parse(r.body);
-      if (b.token) tokens.add(b.token);
+      if (b.tok) tokens.add(b.tok);
     } catch {}
   }
   return [...tokens].reverse();

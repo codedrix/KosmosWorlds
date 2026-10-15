@@ -6,25 +6,25 @@
 
 | # | Step | Whose | Check |
 |---|---|---|---|
-| 0.1 | Mission Control settles the bridge's origin, sign-in route and approval route. Put the origin in `script/src/lib.rs` `ORIGIN` and in both manifests' `network.connect` and `privacy_url`, and adjust `/day/v1/session` if the sign-in differs. Rebuild (§1) | Agent, with Mission Control | `grep -rn more-room-bridge more-room/` shows only the new origin |
+| 0.1 | Settled 2026-10-14: the shared agent bridge's relay Worker, `https://kosmos-agent-bridge.micknerks.workers.dev`, is the origin (in `script/src/lib.rs` `ORIGIN` and both manifests). More Room is the face `more-room` on that bridge (`agent-bridge/src/faces/more-room/`). PR #5 (the bridge) merges before or with PR #4 (this) | Mission Control lane, then the CEO (Class C merges) | the bridge's `npm test` passes with the face folder in it (52 of 52 on 2026-10-14) |
 | 0.2 | **The origin must not be a Kosmos host:** not `*.kosmosvr.com` and not `*.theworldpublishing.com` (NET_003 refuses both). A `workers.dev` name or the CEO's own domain works | — | `validate` passes NET_003 |
-| 0.3 | **An always-on front for the opt-in file.** The registry fetches `/.well-known/world-network.json` at register and again weekly. If a weekly check fails, and the confirming check 1–24 h later also fails, the origin is dropped until the next weekly pass, which can take up to a week. So a small Worker should answer that file itself and forward `/day/*` through the tunnel to the PC. Then a sleeping PC means "The bridge did not answer", not a week offline | **CEO** to deploy (it is a public endpoint). The code is `bridge-day-face/worker.mjs`, a sketch to adapt to Mission Control's tunnel | `curl -s https://<origin>/.well-known/world-network.json` returns `{"world_network":1,"worlds":["world://more-room.micknerks","world://more-room-mr.micknerks"]}` with status 200 and no redirect |
+| 0.3 | **The always-on front for the opt-in file is Mission Control's relay Worker** (`agent-bridge/relay-worker/`; one front door, one secret, one kill switch; More Room deploys no Worker). It answers the opt-in file while the PC sleeps, which matters: the registry drops an origin whose weekly check and its confirm 1–24 h later both fail, for up to a week. **Its `WORLDS` var must list `world://more-room.micknerks` and `world://more-room-mr.micknerks`** (on 2026-10-14 it lists only Mission Control's world) | Mission Control lane edits `WORLDS`; the **CEO** deploys the Worker (a public endpoint) | `curl -s https://kosmos-agent-bridge.micknerks.workers.dev/.well-known/world-network.json` lists both More Room worlds, status 200, no redirect (on 2026-10-14 the Worker was not deployed yet: Cloudflare error 1042) |
 | 0.4 | `micknerks` is on the registry's `network_registrants` allowlist (it was for net-check on 2026-10-11) | Agent, read-only | `registry_settings.network_registrants` contains `micknerks` |
-| 0.5 | The bridge serves the day face with the **CEO's real connectors** (Gmail, Calendar, Linear) | **CEO** (connecting accounts is Class C) | `POST /day/v1/changes` after sign-in returns his day, not the sample |
+| 0.5 | The bridge serves the day face with the **CEO's real connectors** (Gmail, Calendar, Linear) | **CEO** (connecting accounts is Class C) | `POST /v1/faces/more-room/changes` after sign-in returns his day, not the sample (needs the "today" verb, DESIGN.md §5) |
 
 ## 1. Build and check (agent)
 
 ```
 node more-room/tools/build_glb.mjs both
 powershell -NoProfile -ExecutionPolicy Bypass -File more-room\tools\build_wasm.ps1
-node more-room/tools/scenario.mjs --snapshots
-node more-room/tools/stress.mjs
+node --experimental-strip-types more-room/tools/scenario.mjs --snapshots
+node --experimental-strip-types more-room/tools/stress.mjs
 kosmos-wp validate more-room/world-vr
 kosmos-wp validate more-room/world-mr
 kosmos-wp bundle more-room/world-vr --output more-room/dist/more-room-vr.worldbundle
 kosmos-wp bundle more-room/world-mr --output more-room/dist/more-room-mr.worldbundle
 node more-room/tools/extract_scene.mjs
-node more-room/tools/scenario.mjs --packaged
+node --experimental-strip-types more-room/tools/scenario.mjs --packaged
 ```
 
 - Use a publisher at main `fced9cf` or later (CLI 0.8.1). The globally installed `kosmos-wp` on this PC is 0.3.0 and too old.

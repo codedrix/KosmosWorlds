@@ -8,14 +8,15 @@
  * @kosmos-system  Content (KosmosWorlds) -- More Room
  * @kosmos-owner   More Room v1
  *
- * Usage: node more-room/tools/stress.mjs
+ * Usage: node --experimental-strip-types more-room/tools/stress.mjs
  */
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Host, LIMITS } from "./mock-host.mjs";
-import { createDayFace, createSampleStore } from "../bridge-day-face/day-face.mjs";
-import { SAMPLE_DAY } from "../bridge-day-face/sample-day.mjs";
+import { createMockBridge } from "../bridge-day-face/mock-bridge.mjs";
+import { createStore } from "../../agent-bridge/src/faces/more-room/day-core.ts";
+import { SAMPLE_DAY } from "../../agent-bridge/src/faces/more-room/sample-day.ts";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const fail = (m) => {
@@ -34,7 +35,7 @@ day.messages = Array.from({ length: 40 }, (_, i) => ({
   preview: "A long preview ".repeat(12),
 }));
 day.events = Array.from({ length: 8 }, (_, i) => ({ id: `e-${i}`, start: 7 * 60 + i * 90, end: 7 * 60 + i * 90 + 60, title: `Event title ${i} long`, prep: ["a", "b"] }));
-const store = createSampleStore(day);
+const store = createStore(day);
 store.messages.forEach((m, i) => {
   m.pile = i < 14 ? "in" : i < 22 ? "later" : i < 32 ? "done" : "quiet";
   m.read = i % 2 === 1;
@@ -44,8 +45,8 @@ store.drafts.push({ id: "d-x", msg: "s-0", state: "pending", to: "Sender number 
 for (const v of ["vr", "mr"]) {
   const dir = path.join(ROOT, `world-${v}`);
   const manifest = JSON.parse(fs.readFileSync(path.join(dir, "manifest.json"), "utf8"));
-  const face = createDayFace({ store, nowMin: () => 11 * 60 });
-  const host = new Host({ wasmPath: path.join(dir, "world.wasm"), glbPath: path.join(dir, "world.glb"), manifest, net: (a, b, c) => face.handle(a, b, c) });
+  const bridge = createMockBridge({ store, nowMin: () => 11 * 60 });
+  const host = new Host({ wasmPath: path.join(dir, "world.wasm"), glbPath: path.join(dir, "world.glb"), manifest, net: (a, b, c, h) => bridge.handle(a, b, c, h) });
   host.init();
   host.run(0.2);
   host.press("BtnSignIn");

@@ -26,7 +26,8 @@
 //!
 //! The brain is the bridge on the CEO's PC (Mission Control's): Claude reads
 //! mail, calendar and Linear there. This world only draws what the bridge's
-//! "day" face says (../../bridge-day-face/day-face.mjs) and sends the presses.
+//! face says (agent-bridge/src/faces/more-room/day-core.ts, on the shared
+//! agent bridge) and sends the presses.
 //! It polls "what changed since N" every `POLL_S` seconds.
 //!
 //! Host limits this file is built around (each checked by tests or by
@@ -113,16 +114,17 @@ mod host {
 // Contract constants
 // ---------------------------------------------------------------------------
 
-/// The one origin this world calls: the bridge's front door. Mirrors
-/// manifest.json `network.connect`. PROPOSED, to be settled with Mission
-/// Control (../../DESIGN.md §6): a small always-on Worker that answers the
-/// opt-in file itself and forwards /day/* through the tunnel to the PC, so the
-/// registry's weekly check passes while the PC sleeps.
-pub const ORIGIN: &str = "https://more-room-bridge.micknerks.workers.dev";
-const PATH_SESSION: &str = "/day/v1/session";
-const PATH_CHANGES: &str = "/day/v1/changes";
-const PATH_ACT: &str = "/day/v1/act";
-const PATH_PREP: &str = "/day/v1/prep";
+/// The one origin this world calls: the shared agent bridge's front door, the
+/// relay Worker Mission Control runs (KosmosWorlds agent-bridge/API.md §1). It
+/// answers the opt-in file itself, so the registry's weekly check passes while
+/// the PC sleeps, and relays POST /v1/* to the PC. Mirrors manifest.json
+/// `network.connect`.
+pub const ORIGIN: &str = "https://kosmos-agent-bridge.micknerks.workers.dev";
+/// More Room's face on that bridge (agent-bridge/src/faces/more-room/).
+const PATH_SESSION: &str = "/v1/faces/more-room/signin";
+const PATH_CHANGES: &str = "/v1/faces/more-room/changes";
+const PATH_ACT: &str = "/v1/faces/more-room/act";
+const PATH_PREP: &str = "/v1/faces/more-room/prep";
 
 const METHOD_POST: i32 = 1;
 /// `flags` bit 1: the body is JSON.
@@ -895,7 +897,7 @@ fn body_start() -> &'static mut Buf<1024> {
 
 fn body_token(body: &mut Buf<1024>) {
     let a = app();
-    body.push("{\"token\":");
+    body.push("{\"tok\":");
     body.json_str(a.token.bytes());
 }
 
@@ -951,7 +953,7 @@ pub extern "C" fn on_prompt_result(_event_type: i32, _node: i32, request_id: i32
     if result > 0 {
         let len = (result as usize).min(answer.len());
         let body = body_start();
-        body.push("{\"passphrase\":");
+        body.push("{\"pass\":");
         body.json_str(&answer[..len]);
         body.push("}");
         for c in answer.iter_mut() {
@@ -997,6 +999,10 @@ pub extern "C" fn on_net_result(_event_type: i32, _node: i32, request_id: i32, s
         render();
         return;
     }
+    if (status == 503 || status == 403) && kind != Req::Session {
+        a.status(if status == 503 { "The bridge is stopped on the PC." } else { "The bridge does not list this world." }, true);
+        return;
+    }
     if status < 100 {
         let why = match status {
             0 => "The bridge did not answer. Is the PC awake?",
@@ -1020,9 +1026,15 @@ pub extern "C" fn on_net_result(_event_type: i32, _node: i32, request_id: i32, s
                     return;
                 }
             }
-            let why = match status {
-                403 => "Wrong passphrase.",
-                429 => "Too many tries. Wait ten minutes.",
+            // "NO <reason> <retry seconds>" from the bridge's one session (auth.ts).
+            let reason = model::read_pair(body, b"NO").map(|(r, _)| r).unwrap_or(b"");
+            let why = match (status, reason) {
+                (401, b"not_set") => "No passphrase is set on the PC yet.",
+                (401, _) => "Wrong passphrase.",
+                (429, b"too_fast") => "One try every 2 seconds. Press again.",
+                (429, b"hard_locked") => "Sign-in is locked. Unlock it on the PC.",
+                (429, _) => "Too many tries. Wait 15 minutes.",
+                (503, _) => "The bridge is stopped on the PC.",
                 _ => "The bridge refused the sign-in.",
             };
             a.status(why, true);

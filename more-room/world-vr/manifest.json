@@ -27,10 +27,10 @@
   },
   "network": {
     "connect": [
-      "https://more-room-bridge.micknerks.workers.dev"
+      "https://kosmos-agent-bridge.micknerks.workers.dev"
     ],
     "purpose": "Reads your day (calendar, messages, tasks) from the bridge on your own PC, and sends back your presses.",
-    "privacy_url": "https://more-room-bridge.micknerks.workers.dev/privacy",
+    "privacy_url": "https://kosmos-agent-bridge.micknerks.workers.dev/privacy",
     "required": false
   },
   "assets": {

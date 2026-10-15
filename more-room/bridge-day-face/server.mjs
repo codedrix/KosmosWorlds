@@ -1,24 +1,26 @@
 #!/usr/bin/env node
 /**
- * server.mjs -- the local mock bridge: the sample day on http://127.0.0.1:8787.
+ * server.mjs -- the mock bridge on http://127.0.0.1:8787, serving More Room's face
+ * with the invented sample day.
  *
  * @kosmos-system  Content (KosmosWorlds) -- More Room
  * @kosmos-owner   More Room v1 (design session 2026-10-14)
  *
- * Usage:  node more-room/bridge-day-face/server.mjs [--port 8787] [--dev]
+ * Usage:  node --experimental-strip-types more-room/bridge-day-face/server.mjs [--port 8787] [--dev]
  *   MORE_ROOM_PASSPHRASE  the passphrase (default "sample-day", the mock's test value)
  *
- * Local only and plain http: the headset calls https origins only, so this
- * serves the mock host (../tools/mock-host.mjs) and a browser. --dev enables
- * POST /day/v1/_mock/arrive, which lands the next sample message.
+ * Local and plain http only (the headset calls https origins; the real front
+ * door is Mission Control's relay Worker). Face calls need the header
+ * X-World-Address: more-room.micknerks, as the headset sends. --dev enables
+ * the face op "arrive", which lands the next sample message.
  */
 
 import http from "node:http";
-import { createDayFace, LIMITS } from "./day-face.mjs";
+import { createMockBridge, LIMITS } from "./mock-bridge.mjs";
 
 const args = process.argv.slice(2);
 const port = Number(args[args.indexOf("--port") + 1]) || 8787;
-const face = createDayFace({ passphrase: process.env.MORE_ROOM_PASSPHRASE ?? "sample-day", dev: args.includes("--dev") });
+const bridge = createMockBridge({ passphrase: process.env.MORE_ROOM_PASSPHRASE ?? "sample-day", dev: args.includes("--dev") });
 
 http
   .createServer((req, res) => {
@@ -30,12 +32,11 @@ http
     });
     req.on("end", () => {
       const path = new URL(req.url, "http://x").pathname;
-      const out = face.handle(req.method, path, Buffer.concat(chunks));
+      const out = bridge.handle(req.method, path, Buffer.concat(chunks), req.headers);
       const bytes = Buffer.from(out.body, "utf8");
-      if (bytes.length > LIMITS.responseMaxBytes) throw new Error("answer over 256 KiB");
       res.writeHead(out.status, { "content-type": out.contentType, "content-length": bytes.length, "cache-control": "no-store" });
       res.end(bytes);
-      console.log(`${req.method} ${path} -> ${out.status} (${bytes.length} B)`);
+      console.log(`${req.method} ${path} -> ${out.status} (${bytes.length} B)`); // never a body
     });
   })
   .listen(port, "127.0.0.1", () => console.log(`More Room mock bridge on http://127.0.0.1:${port}`));

@@ -1,5 +1,5 @@
 /**
- * sample-day.mjs -- the mock "sample day" More Room is built against.
+ * sample-day.ts -- the mock "sample day" More Room is built against.
  *
  * @kosmos-system  Content (KosmosWorlds) -- More Room
  * @kosmos-owner   More Room v1 (design session 2026-10-14)
@@ -10,11 +10,14 @@
  * (Class C). Until then this file is the whole day.
  *
  * Times are minutes after local midnight. `arrivals` are messages the mock
- * delivers later (see day-face.mjs `arrive`), so the harness can watch a card
+ * delivers later (day-core.ts, the dev-only op `arrive`), so the harness can watch a card
  * land face-down in focus mode, and a VIP one tick.
  */
 
-export const SAMPLE_DAY = {
+import type { DayData } from "./day-core.js";
+
+/** The day More Room shows until the bridge reads the real one (typed loosely on purpose: it is data). */
+export const SAMPLE_DAY: DayData = {
   date: "Wed 14 Oct",
   // The window.
   weather: "68F clear",

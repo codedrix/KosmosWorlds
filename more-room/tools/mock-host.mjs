@@ -58,7 +58,8 @@ export class Host {
    * @param wasmPath  world.wasm
    * @param glbPath   world.glb
    * @param manifest  the parsed manifest.json
-   * @param net       (method, url, bodyBuffer) => {status, body: string|Buffer}  (sync; the mock bridge)
+   * @param net       (method, path, bodyBuffer, headers) => {status, body: string|Buffer}  (sync; the mock bridge).
+   *                  headers carries what the headset sends: x-world-address and content-type.
    */
   constructor({ wasmPath, glbPath, manifest, net }) {
     this.manifest = manifest;
@@ -287,7 +288,8 @@ export class Host {
         const body = Buffer.from(H.bytes(bp, bl));
         H.maxRequestBytes = Math.max(H.maxRequestBytes, bl);
         H.requests.push({ t: H.time, method: method === 1 ? "POST" : "GET", url, body: body.toString("utf8") });
-        const ans = H.net(method === 1 ? "POST" : "GET", new URL(url).pathname, body);
+        const headers = { "x-world-address": `${H.manifest.world.id}.${H.manifest.world.author}`, "content-type": flags & 2 ? "application/json" : "text/plain" };
+        const ans = H.net(method === 1 ? "POST" : "GET", new URL(url).pathname, body, headers);
         const bytes = Buffer.isBuffer(ans.body) ? ans.body : Buffer.from(ans.body ?? "", "utf8");
         H.maxResponseBytes = Math.max(H.maxResponseBytes, bytes.length);
         const status = bytes.length > LIMITS.responseBytes ? -5 : ans.status;

@@ -114,10 +114,10 @@ Every number below was measured by running the built `world.wasm`:
 | Bytes per text / lines | 128 / 4, refused not cut | every text built by `text::Lines`; 0 refusals | 0 refusals |
 | Created objects | 128 (`MAX_CREATED_NODES`) | peak 15 | peak 37 (28 cards drawn + 8 events) |
 | Creates per frame | 16 (`MAX_NODE_CREATES_PER_FRAME`) | at most 12 (the script's own cap; the rest wait a frame) | at most 12 |
-| Request body | 16 KiB | largest 74 B | — |
+| Request body | 16 KiB | largest 83 B | — |
 | Answer | 256 KiB, text or JSON only | largest 1.8 KB | 7.2 KB for 40 messages |
 | Requests | 4 in flight, 1 a second with bursts of 10 | 19 polls in 49 s plus presses; never rate-limited | — |
-| Wasm | 256 KB | 56.9 KB | — |
+| Wasm | 256 KB | 57.8 KB | — |
 | Triangles | 1,000,000 | 504 (doctor) | — |
 
 **What the room draws when the day doesn't fit:**
@@ -136,7 +136,7 @@ Every number below was measured by running the built `world.wasm`:
 | Wrap-up | about 20 |
 
 **Test totals:**
-- `tools/scenario.mjs`: 175 checks across both worlds, all passing;
+- `tools/scenario.mjs`: 179 checks across both worlds, all passing;
 - `cargo test`: 14 host tests;
 - `kosmos-wp validate` at publisher main `fced9cf` (CLI 0.8.1, 83 rules) passes both worlds against level 4 (the registry's deployed level since 2026-10-12). The one warning is NET_007, "origin not checked (offline)";
 - `kosmos-wp doctor`: 17 ✅, 0 ⚠️, 0 ❌, "Ship it.";
@@ -144,42 +144,57 @@ Every number below was measured by running the built `world.wasm`:
 
 **MR plates never block a press.** Every press in the scenario traces a ray from eye height to the button, and fails if anything visible is hit first.
 
-## 5. The brain: the bridge's "day" face
+## 5. The brain: a face on the shared agent bridge
 
-More Room calls **one origin**: the bridge on the CEO's PC that Mission Control builds.
+More Room calls **one origin, the same one Mission Control uses**: the shared agent bridge on the CEO's PC (KosmosWorlds `agent-bridge/`, PR #5; its contract is `agent-bridge/API.md`; its brief is DB-044). The front door is Mission Control's relay Worker, `https://kosmos-agent-bridge.micknerks.workers.dev`.
+- **It answers the opt-in file and `/privacy` itself**, so they stay up while the PC sleeps. The registry drops an origin whose weekly check and its confirm 1–24 h later both fail, which would take the room offline for up to a week.
+- **It relays `POST /v1/*` through the tunnel to the PC**, adding a relay secret.
+- **One front door, one secret, one kill switch.** More Room deploys no Worker of its own.
 - On the bridge, Claude, with the CEO's mail, calendar and Linear connectors, does the reading, summarizing, drafting and ticket-making.
-- More Room adds a **day face**, mounted under `/day/v1/`. Its code is [bridge-day-face/day-face.mjs](bridge-day-face/day-face.mjs). It is written so the real bridge can import it and swap the sample store for Claude's reads, without editing Mission Control's files.
 
-| Route (all `POST`, JSON body) | Body | Answer (text, one record per line, TAB fields: `DAY/1`) |
+More Room is a **face** on that bridge: the folder [agent-bridge/src/faces/more-room/](../agent-bridge/src/faces/more-room/).
+- The bridge's registry finds it by folder. It adds no file of Mission Control's and edits none.
+- The server does the size, rate, relay-key, kill-switch, `X-World-Address` and token checks before the face runs.
+- The face's logic is [day-core.ts](../agent-bridge/src/faces/more-room/day-core.ts). The same file runs in the real bridge and, through Node's type stripping, in More Room's own tests ([bridge-day-face/mock-bridge.mjs](bridge-day-face/mock-bridge.mjs)).
+
+| Route (all `POST`, JSON body; the headset adds `X-World-Address`) | Body | Answer (text, one record per line, TAB fields: `DAY/1`) |
 |---|---|---|
-| `/day/v1/session` | `{"passphrase"}` | `TOKEN <hex> <ttl>`, or 403 wrong / 429 five failures in 10 minutes |
-| `/day/v1/changes` | `{"token","since":N}` | `DAY/1 rev M`, then either `SAME` or the whole day (`NOW`, `DATE`, `BRIEF`, `EV`, `TASK`, `MSG`, `DRAFT`, `WIN`, `WRAP`), then `END` |
-| `/day/v1/act` | `{"token","op","id"}` with op `turn`, `done`, `later`, `quiet`, `draft`, `approve`, `deny`, `task`, `complete`, `roll` or `pin` | `OK <rev> <note>` (e.g. "KOS-MOCK-1 created (mock)") |
-| `/day/v1/prep` | `{"token","event"}` | `PREP <id>`, then up to four `P` lines, then `END` |
-| `GET /.well-known/world-network.json` | — | `{"world_network":1,"worlds":["world://more-room.micknerks","world://more-room-mr.micknerks"]}` |
+| `/v1/faces/more-room/signin` | `{"pass"}` | `TOKEN <token> <seconds>` from the bridge's **one session** (`ctx.signIn`); or `NO <reason> <retry s>`: 401 `wrong` or `not_set`, 429 `too_fast` (one try every 2 s), `locked` (15 min after 5 wrong) or `hard_locked` |
+| `/v1/faces/more-room/changes` | `{"tok","since":N}` | `DAY/1 rev M`, then either `SAME` or the whole day (`NOW`, `DATE`, `BRIEF`, `EV`, `TASK`, `MSG`, `DRAFT`, `WIN`, `WRAP`), then `END`; 401 `AUTH` when the session has ended |
+| `/v1/faces/more-room/act` | `{"tok","op","id"}` with op `turn`, `done`, `later`, `quiet`, `draft`, `approve`, `deny`, `task`, `complete`, `roll` or `pin` | `OK <rev> <note>` (e.g. "KOS-MOCK-1 created (mock)") |
+| `/v1/faces/more-room/prep` | `{"tok","event"}` | `PREP <id>`, then up to four `P` lines, then `END` |
+| `GET /.well-known/world-network.json` (the relay) | — | every face's worlds: Mission Control's, `world://more-room.micknerks` and `world://more-room-mr.micknerks` |
 
 **Why the wire looks like this.** Each choice is forced by a headset fact.
-- **The token travels in the JSON body.** A world can send no Authorization header and no cookie, and the headset strips both. A token in a URL ends up in logs.
+- **The token (`tok`) travels in the JSON body.** A world can send no Authorization header and no cookie, and a token in a URL ends up in logs.
 - **Plain text, one record per line.** The world is no_std Rust: a line reader is a few dozen lines, where JSON is a few hundred.
-- **"What changed since N" answers the whole day** whenever anything changed, and `SAME` otherwise. A day is about 3 KiB, so a missed poll can never leave the room out of step. Deltas are a later optimisation.
-- **The room polls every 4 seconds.** Timers deliver on device since cook `C-20260912-78cb17c`, but polling rides `k_tick`, which the room needs anyway for card slides.
+- **"What changed since N" answers the whole day** whenever anything changed, and `SAME` otherwise. A day is about 3 KiB, so a missed poll can never leave the room out of step.
+- **The room polls every 4 seconds.** That also keeps the bridge session's 30-minute idle timer alive. The session's 8-hour limit ends with "Signed out by the bridge. Sign in again."
 - **The bridge sends ASCII only, clipped to the field caps.** The world clips again.
 
-**Approve and Deny.** These are the CEO's press in the room. The real bridge passes `approve` to **Mission Control's approval path**, so the same pattern and the same log apply, and only that path sends. The mock marks the draft "sent (mock)" and sends nothing.
+**One sign-in at a time, for the whole bridge.** Signing in to More Room is signing in to the bridge. If the CEO then signs in from the Lobby (Mission Control), More Room's token stops working, and the room says "Signed out by the bridge"; the same holds the other way round. That is the bridge's rule, and More Room follows it.
 
-**Built against a mock "sample day" only.** [bridge-day-face/sample-day.mjs](bridge-day-face/sample-day.mjs) is invented: every person, company and message in it is fake. `node more-room/bridge-day-face/server.mjs --dev` serves it on `http://127.0.0.1:8787`. **Connecting the CEO's real accounts is his act (Class C).**
+**Approve and Deny.** These are the CEO's press in the room.
+- A draft that is a **bridge Approval** is decided through `ctx.bridge.actions.decide`, which is Mission Control's path, log and sender. A test asserts this.
+- If the bridge refuses ("approve this one at the desk", or already answered), the draft stays pending.
+- A sample draft is only marked "sent (mock)". Nothing is sent from the face.
 
-**Waiting on Mission Control** (asked 2026-10-14; no answer yet when this was written):
-- the bridge's origin;
-- its passphrase sign-in shape;
-- its approval route.
+**Built against a mock "sample day" only.** [sample-day.ts](../agent-bridge/src/faces/more-room/sample-day.ts) is invented: every person, company and message in it is fake. `node --experimental-strip-types more-room/bridge-day-face/server.mjs --dev` serves it on `http://127.0.0.1:8787`. **Connecting the CEO's real accounts is his act (Class C).**
 
-These are the assumptions, in one place each:
-- `ORIGIN` in `script/src/lib.rs` and `network.connect` in both manifests;
-- the session route;
-- the token in the body.
+**What comes next on the bridge** (verbs to propose for `bridge.ts`, the one shared file, per API.md §4):
+1. **"Today"**: today's calendar with each event's prep (attendees, agenda, related mail and tickets), the inbox summary (sender, subject, a short preview, a VIP flag), pinned and open Linear tasks, the weather, the sunset and one headline. These fill the face's store in place of the sample.
+2. **"Draft a reply to message X"**: a Claude job whose send step becomes a bridge **Approval**. Its id goes on the draft, so Approve is `actions.decide`.
+3. **Message moves:** archive, snooze, mute (labels), and "make a Linear ticket from message X".
 
-If Mission Control chose differently, the change is those lines and a rebuild.
+**Tested on the real bridge.** In a throwaway copy of Mission Control's branch with this face folder dropped in, `tsc` was clean and the bridge's whole suite passed: 52 of 52, including More Room's 10 in `agent-bridge/test/more-room-face.test.ts`. Those 10 cover:
+- the registry finds the face, and the opt-in file lists both worlds;
+- another world's address is refused, and nothing is served before sign-in;
+- wrong-then-right sign-in through the shared session, whose token also works on `/v1/jobs`;
+- the day is served to both worlds;
+- turn, draft and approve;
+- the dev-only op is absent;
+- sign-out ends the room;
+- a bridge Approval goes through `decide`.
 
 ## 6. Headset facts that shaped the design
 
@@ -204,13 +219,14 @@ Each was found reading the client at the cooked commit, or in the lit review of 
    - Passthrough is drawn under every virtual pixel, so a real monitor never hides the room's text. It does make the middle of the desk busy, which only a headset check can judge.
 7. **The sign-in sheet is plain, unmasked text** (`k_ui_prompt`: "never a password field").
    - The passphrase shows while you type it.
-   - The sheet's footer says the text goes to this world, and the room sends it once, to `/session` only (a test asserts this), then wipes its buffers.
+   - The sheet's footer says the text goes to this world, and the room sends it once, to the face's `signin` op only (a test asserts this), then wipes its buffers.
    - The token lives in memory for the visit only, never in `k_state_*` (that state syncs to groups).
    - A masked field arrives with R5's `k_ui_text_*` at the level of the cook that carries them. Until then, see section 11's alternative.
 8. **A clone keeps its source's visibility and collision**, so the hidden templates' clones are shown on creation.
    - Presses on clones dispatch through the handle registry. This is **inferred from source, not yet seen on a headset**, and it is on the device check list.
    - Every clone's `OnInteract` subscription is released when it is destroyed. Subscriptions are a capped pool (256).
 9. **Rotations are relative and in raw engine degrees**, so the room never rotates a clone. A card "turns over" by swapping its face: the face-down tile is destroyed and a read-face tile is cloned in its place.
+10. **Text plaques** (from Mission Control, client `ecad7c5`, `KWorldTextPool.cpp`): text on an anchor that is a thin plane (3 cm x 3 cm x 2 mm, rotation not baked) is printed flat and never turned. That could put the desk labels flat on the desk, readable from above. It is not used in v1: the layout avoids desk-level text instead.
 
 ## 7. Message sources
 
@@ -242,7 +258,8 @@ Each was found reading the client at the cooked commit, or in the lit review of 
 ## 9. What is verified, and what is not
 
 **Verified here:**
-- the 175-check scenario on both worlds;
+- the 179-check scenario on both worlds;
+- the face on the real bridge server (52 of 52 bridge tests, More Room's 10 among them);
 - the heavy day;
 - the packaged scenes;
 - the host tests;
@@ -251,7 +268,7 @@ Each was found reading the client at the cooked commit, or in the lit review of 
 
 **Not verified here** (all of these are the device checkpoint's):
 - anything on a headset;
-- the real bridge and tunnel;
+- the real tunnel and the relay Worker (not deployed when this was written);
 - TLS;
 - the registry's opt-in probe;
 - the real font;
@@ -270,8 +287,8 @@ Each was found reading the client at the cooked commit, or in the lit review of 
 ## 10. Publishing
 
 The steps, in order, are in [PUBLISH.md](PUBLISH.md). In short:
-- the bridge's origin settles with Mission Control;
-- an always-on front serves the opt-in file, because the registry re-checks it weekly and drops an origin that fails twice;
+- Mission Control's relay Worker is deployed with both More Room worlds in its `WORLDS` var;
+- the bridge runs with this face folder (PR #4 on top of PR #5);
 - then `kosmos-wp publish --status unlisted` for both worlds, signed in as micknerks.
 
 **Access:** the brief asks for a "private" world.
@@ -282,8 +299,8 @@ The steps, in order, are in [PUBLISH.md](PUBLISH.md). In short:
 
 ## 11. Open questions
 
-1. **Mission Control:** the origin, the sign-in shape, and the approval route (section 5).
+1. **Bridge verbs:** "today", "draft a reply" and the message moves (section 5), to propose for `bridge.ts`.
 2. **Which phone?** (section 7).
-3. **The passphrase on an unmasked sheet.** Accept it for v1, or use **pairing** instead? Pairing is the device-flow pattern Kosmos already uses: the room shows a short code, the CEO approves it on Mission Control on his PC or phone, and the room gets its token without anything secret being typed in the headset.
+3. **The passphrase on an unmasked sheet.** Accept it for v1, or use **pairing** instead? Pairing is the device-flow pattern Kosmos already uses: the room shows a short code, the CEO approves it on Mission Control on his PC or phone, and the room gets its token without anything secret being typed in the headset. It would be a bridge verb, shared with the Lobby.
 4. **v2 route:** A (sooner) or B (better)? See [PLATFORM_ASK_v2.md](PLATFORM_ASK_v2.md).
 5. **Name:** "More Room" is a working title.

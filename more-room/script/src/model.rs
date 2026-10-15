@@ -3,7 +3,7 @@
 //! @kosmos-system  Content (KosmosWorlds) -- More Room
 //! @kosmos-owner   More Room v1
 //!
-//! The wire is defined in ../../bridge-day-face/day-face.mjs: one record per
+//! The wire is defined in agent-bridge/src/faces/more-room/day-core.ts: one record per
 //! line, fields split by TAB. Unknown records are skipped, so the bridge can
 //! add records without breaking an older room. Everything is fixed-size:
 //! a world has no allocator here, and a day that is larger than these tables
