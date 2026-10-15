@@ -48,6 +48,12 @@ export interface BridgeConfig {
   claudeExecutable?: string;
   /** Correction to world-text widths found at the device check (1 = as the client claims). */
   textScale?: number;
+  /**
+   * When set, every /v1/ request must carry X-Relay-Key with this value: the relay Worker adds
+   * it, so a request that reaches the tunnel any other way is refused. Same value as the
+   * Worker's RELAY_SECRET; never commit it.
+   */
+  relaySecret?: string;
   passphrase?: PassphraseHash;
 }
 
@@ -100,6 +106,7 @@ export function normalizeConfig(raw: unknown): BridgeConfig {
   if (typeof r.model === "string" && r.model) c.model = r.model;
   if (typeof r.claudeExecutable === "string" && r.claudeExecutable) c.claudeExecutable = r.claudeExecutable;
   if (typeof r.textScale === "number") c.textScale = r.textScale;
+  if (typeof r.relaySecret === "string" && r.relaySecret.length >= 24) c.relaySecret = r.relaySecret;
   if (r.passphrase && typeof r.passphrase === "object") c.passphrase = r.passphrase as PassphraseHash;
   return c;
 }

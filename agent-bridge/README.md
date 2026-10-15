@@ -9,6 +9,12 @@ beside it without editing Mission Control's files. Brief: **DB-043** (kosmos-pro
 it through a tunnel **the CEO sets up** (DB-043, "Your steps"). Nothing here creates a tunnel, an
 account or a key.
 
+**The recommended front door (DB-043 option A)** is `relay-worker/`: a ~90-line Cloudflare Worker on
+`kosmos-agent-bridge.micknerks.workers.dev` that serves the opt-in file and `/privacy` itself (so
+they stay up when the PC sleeps; the registry drops an origin whose weekly check fails twice) and
+relays `POST /v1/*` to the PC's tunnel with a shared secret (`npm run make-relay-secret`). With the
+secret set, the bridge refuses any `/v1/` call that didn't come through the Worker.
+
 ## Run it
 
 ```
@@ -114,7 +120,7 @@ Host/Origin checks before a face runs, and passes `ctx.authed`; a face acts only
 
 ## Tests
 
-`npm test`: 38 tests (sanitizing, auth and lockout, jobs and approvals, the HTTP surface and kill
+`npm test`: 41 tests (sanitizing, auth and lockout, jobs and approvals, the HTTP surface and kill
 switch, the Mission Control face end to end with the fake adapter, the Claude adapter against a
-scripted SDK, face discovery, the node contract). A live run against the real SDK turned one real
+scripted SDK, face discovery, the node contract, the relay Worker in front of a live bridge). A live run against the real SDK turned one real
 Claude Code permission prompt into one approval and got the answer back (2026-10-14).

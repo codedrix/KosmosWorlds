@@ -35,6 +35,7 @@
  * Logs carry method, path, status and time: never a body, a token or a header value.
  */
 
+import crypto from "node:crypto";
 import http from "node:http";
 import type { Bridge } from "./bridge.js";
 import type { Decision, Job } from "./jobs.js";
@@ -161,6 +162,16 @@ export function createServer(bridge: Bridge, faces: Map<string, Face>, opts: Ser
     if (req.method !== "POST") {
       json(res, 405, { error: "post_only" });
       return 405;
+    }
+    // Behind the relay Worker (DB-043 option A), only the Worker knows this key.
+    const relaySecret = bridge.config.relaySecret;
+    if (relaySecret) {
+      const got = Buffer.from(String(req.headers["x-relay-key"] ?? ""));
+      const want = Buffer.from(relaySecret);
+      if (got.length !== want.length || !crypto.timingSafeEqual(got, want)) {
+        json(res, 403, { error: "relay_only" });
+        return 403;
+      }
     }
 
     // Read the body, refusing anything over 16 KiB.

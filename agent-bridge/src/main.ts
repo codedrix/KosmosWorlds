@@ -13,8 +13,10 @@
  *   agent-bridge unkill                     lift the stop (restart `serve` afterwards to be sure)
  *   agent-bridge unlock                     clear the lock left by too many wrong passphrases
  *   agent-bridge status                     what is set, without printing any secret
+ *   agent-bridge make-relay-secret          the shared secret for the relay Worker (DB-043 option A)
  */
 
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -104,6 +106,17 @@ async function main(): Promise<void> {
       console.log(`Allowed ${name}: ${path.resolve(p)}`);
       return;
     }
+    case "make-relay-secret": {
+      // The shared secret between the relay Worker and this bridge (DB-043 option A).
+      const secret = crypto.randomBytes(32).toString("base64url");
+      config.relaySecret = secret;
+      saveConfig(config);
+      console.log("Saved to the bridge's config. Now give the SAME value to the relay Worker, once:");
+      console.log("  cd agent-bridge/relay-worker && npx wrangler secret put RELAY_SECRET");
+      console.log("and paste this when it asks (it is shown only now):");
+      console.log(`  ${secret}`);
+      return;
+    }
     case "kill":
       kill(process.argv.slice(3).join(" ") || "npm run kill");
       console.log(`STOPPED. ${stopFile()} exists: the bridge refuses every request and stops every job. Lift it with: npm run unkill`);
@@ -122,6 +135,7 @@ async function main(): Promise<void> {
       console.log(`stopped:     ${isKilled() ? "YES (npm run unkill)" : "no"}`);
       console.log(`locked:      ${isHardLocked() ? "YES (npm run unlock)" : "no"}`);
       console.log(`port:        127.0.0.1:${config.port}`);
+      console.log(`relay key:   ${config.relaySecret ? "set (only the relay Worker can call)" : "not set (direct tunnel)"}`);
       for (const p of config.projects) console.log(`project:     ${p.name}  ${p.path}${fs.existsSync(p.path) ? "" : "  (MISSING)"}`);
       return;
     case "serve": {
