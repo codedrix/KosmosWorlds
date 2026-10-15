@@ -1,0 +1,22 @@
+[package]
+name = "more_room_script"
+version = "1.0.0"
+edition = "2021"
+description = "More Room: the day around you. One script for world://more-room.micknerks (VR) and world://more-room-mr.micknerks (MR)."
+license = "MIT"
+# build.rs supplies --import-memory and --export-table (see its header).
+build = "build.rs"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# No dependencies. The world declares its host imports itself (src/lib.rs,
+# `mod host`), as net-check does; every signature is the levels table's at
+# publisher main fced9cf (host API level 4).
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

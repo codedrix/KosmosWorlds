@@ -1,0 +1,43 @@
+{
+  "kosmos_version": "1.0",
+  "world": {
+    "id": "more-room",
+    "name": "More Room",
+    "author": "micknerks",
+    "description": "Your day, given a place around you: the calendar on the wall, messages on the desk, tasks beside you. It reads a bridge on your own PC. Private test world.",
+    "version": "1.0.0",
+    "spawn_point": {
+      "x": 0,
+      "y": 0,
+      "z": 1.1
+    },
+    "sky": "night"
+  },
+  "capabilities": [
+    "scene_read",
+    "scene_write",
+    "transform",
+    "events",
+    "ui_basic",
+    "audio",
+    "network"
+  ],
+  "requires": {
+    "host_api": 4
+  },
+  "network": {
+    "connect": [
+      "https://more-room-bridge.micknerks.workers.dev"
+    ],
+    "purpose": "Reads your day (calendar, messages, tasks) from the bridge on your own PC, and sends back your presses.",
+    "privacy_url": "https://more-room-bridge.micknerks.workers.dev/privacy",
+    "required": false
+  },
+  "assets": {
+    "gltf": "world.glb",
+    "wasm": "world.wasm",
+    "audio": [
+      "tick.wav"
+    ]
+  }
+}
