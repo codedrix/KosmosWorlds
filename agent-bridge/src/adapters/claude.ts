@@ -5,7 +5,7 @@
  * @kosmos-owner   Platform
  *
  * Each job is one Claude Code session in one of the CEO's project folders,
- * with his own login, settings, CLAUDE.md, memory, skills and MCP servers
+ * with the CEO's own login, settings, CLAUDE.md, memory, skills and MCP servers
  * (`settingSources` loads user, project and local settings: the CLI default).
  *
  * THE APPROVAL RULE. `permissionMode` is always 'default', set explicitly,

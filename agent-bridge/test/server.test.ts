@@ -13,6 +13,12 @@ test("the opt-in file lists the world and is served without a sign-in", async ()
   assert.deepEqual(JSON.parse(r.text), { world_network: 1, worlds: ["world://mission-control.micknerks"] });
 });
 
+test("the privacy page is served, plain text, without a sign-in", async () => {
+  const r = await call(b.port, "/privacy", { method: "GET" });
+  assert.equal(r.status, 200);
+  assert.match(r.text, /File contents, command output\nand diffs never leave the computer/);
+});
+
 test("a request for another host name is refused (DNS rebinding)", async () => {
   const r = await call(b.port, "/v1/health", { method: "GET", headers: { Host: "evil.example" } });
   assert.equal(r.status, 421);

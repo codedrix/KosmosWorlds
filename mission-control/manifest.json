@@ -1,0 +1,44 @@
+{
+  "kosmos_version": "1.0",
+  "world": {
+    "id": "mission-control",
+    "name": "Mission Control",
+    "author": "micknerks",
+    "description": "The owner's own Claude Code jobs, on a wall: start a job, read the conversation, approve what Claude asks to run. Private: it signs in with a passphrase only the owner knows.",
+    "version": "0.1.0",
+    "spawn_point": {
+      "x": 0,
+      "y": 0,
+      "z": 1.1
+    },
+    "sky": "night"
+  },
+  "capabilities": [
+    "scene_read",
+    "scene_write",
+    "transform",
+    "events",
+    "ui_basic",
+    "audio",
+    "player_write",
+    "network"
+  ],
+  "requires": {
+    "host_api": 4
+  },
+  "network": {
+    "connect": [
+      "https://bridge-host-not-set.invalid"
+    ],
+    "purpose": "Shows the owner's Claude Code jobs from the owner's PC and sends presses back. Only summaries leave the PC.",
+    "privacy_url": "https://bridge-host-not-set.invalid/privacy",
+    "required": true
+  },
+  "assets": {
+    "gltf": "world.glb",
+    "wasm": "world.wasm",
+    "audio": [
+      "audio/chime.wav"
+    ]
+  }
+}

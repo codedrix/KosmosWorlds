@@ -24,6 +24,7 @@ import { MIN_PASSPHRASE_CHARS, bridgeHome, configPath, hashPassphrase, loadConfi
 import { clearHardLock, isHardLocked, isKilled, kill, stopFile, unkill } from "./killswitch.js";
 import { loadFaces } from "./faces/registry.js";
 import { createServer } from "./server.js";
+import { setTextScale } from "./sanitize.js";
 import { ClaudeAdapter } from "./adapters/claude.js";
 import { FakeAdapter } from "./adapters/fake.js";
 
@@ -131,6 +132,7 @@ async function main(): Promise<void> {
       if (adapterName === "fake" && config.projects.length === 0) config.projects = [{ name: "demo-project", path: os.tmpdir() }];
       if (!config.passphrase) console.warn("WARNING: no passphrase is set, so nobody can sign in. Run: npm run set-passphrase");
       if (config.projects.length === 0) console.warn("WARNING: no project folders are allowed. Run: npm run init");
+      setTextScale(config.textScale ?? 1);
       const bridge = new Bridge(config, adapter);
       const faces = await loadFaces();
       const server = createServer(bridge, faces, { port, publicHost: arg("--public-host") ?? process.env.AGENT_BRIDGE_PUBLIC_HOST });

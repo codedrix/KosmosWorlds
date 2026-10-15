@@ -46,6 +46,8 @@ export interface BridgeConfig {
   model?: string;
   /** Optional path to a Claude Code executable; unset = the SDK's bundled one. */
   claudeExecutable?: string;
+  /** Correction to world-text widths found at the device check (1 = as the client claims). */
+  textScale?: number;
   passphrase?: PassphraseHash;
 }
 
@@ -97,6 +99,7 @@ export function normalizeConfig(raw: unknown): BridgeConfig {
   if (typeof r.maxJobs === "number" && r.maxJobs >= 1 && r.maxJobs <= 4) c.maxJobs = Math.floor(r.maxJobs);
   if (typeof r.model === "string" && r.model) c.model = r.model;
   if (typeof r.claudeExecutable === "string" && r.claudeExecutable) c.claudeExecutable = r.claudeExecutable;
+  if (typeof r.textScale === "number") c.textScale = r.textScale;
   if (r.passphrase && typeof r.passphrase === "object") c.passphrase = r.passphrase as PassphraseHash;
   return c;
 }

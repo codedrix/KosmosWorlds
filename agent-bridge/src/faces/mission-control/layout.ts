@@ -68,6 +68,7 @@ export const SHOW_NODES = [
   "DoneShelf",
   "ChipDone",
   ...CARD_SLOTS.flatMap((s) => [`PillRun${s}`, `PillWait${s}`, `PillIdle${s}`, `Glow${s}`, `BarBg${s}`, `Bar${s}`]),
+  ...RAIL_SLOTS.map((s) => `RailSel${s}`),
 ] as const;
 
 /** Width of one line on each panel, metres. */

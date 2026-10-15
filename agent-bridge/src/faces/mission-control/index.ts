@@ -309,6 +309,7 @@ export class MissionControlFace implements Face {
     for (const n of TEXT_NODES) if (n !== "TxTicker" && n !== "TxStatus" && n !== "TxLock") s.hide(n);
     for (const n of [...BUTTON_NODES, ...SHOW_NODES]) if (n !== "BtnSignIn" && n !== "LockPanel") s.visible(n, false);
     s.visible("LockPanel", true);
+    s.copies("ChipDone", 0);
     s.text("TxTicker", "MISSION CONTROL | signed out");
     if (ctx.killed) {
       s.visible("BtnSignIn", false);
@@ -366,7 +367,7 @@ export class MissionControlFace implements Face {
       }
       const job = store.jobs.get(a.jobId);
       s.visible(node, true);
-      s.text(`TxNeed${slot}`, label([clipWidth(`${job?.project ?? "?"}: ${a.title}`, W.need), clipWidth(a.command, W.need), "Press to open"]));
+      s.text(`TxNeed${slot}`, label([clipWidth(job?.project ?? "?", W.need), clipWidth(a.title, W.need), clipWidth(a.command, W.need), "Press to open"]));
       actions.set(node, `open:${a.jobId}`);
     });
   }
@@ -379,6 +380,7 @@ export class MissionControlFace implements Face {
     for (const n of ["ChatPanel", "AskPanel", "BtnStop", "BtnBack", "BtnApprove", "BtnDeny", "BtnWhy", "BtnKeep", "BtnSimple", "BtnSummary", "BtnReply", "BtnPageUp", "BtnPageDown"]) s.visible(n, false);
     for (const slot of RAIL_SLOTS) {
       s.visible(`Rail${slot}`, false);
+      s.visible(`RailSel${slot}`, false);
       s.hide(`TxRail${slot}`);
     }
     for (const slot of CONV_SLOTS) s.hide(`TxConv${slot}`);
@@ -454,11 +456,13 @@ export class MissionControlFace implements Face {
       const j = rail[i];
       if (!j) {
         s.visible(`Rail${slot}`, false);
+        s.visible(`RailSel${slot}`, false);
         s.hide(`TxRail${slot}`);
         return;
       }
       s.visible(`Rail${slot}`, true);
-      s.text(`TxRail${slot}`, label([clipWidth(`${j.id === job.id ? "> " : ""}${j.project}`, W.rail), clipWidth(STATUS_WORD[j.status], W.rail)]));
+      s.text(`TxRail${slot}`, label([clipWidth(shortProject(j.project), W.rail), clipWidth(STATUS_WORD[j.status], W.rail)]));
+      s.visible(`RailSel${slot}`, j.id === job.id);
       actions.set(`Rail${slot}`, `rail:${j.id}`);
     });
 
@@ -492,7 +496,7 @@ export class MissionControlFace implements Face {
     });
     const page = pages - this.state.pageBack;
     const newBelow = this.state.pageBack > 0 && lines.length > this.state.seenLines;
-    s.text("TxPage", pages > 1 ? `Page ${page} of ${pages}${newBelow ? "  |  new below" : ""}` : job.status === "running" ? "Working..." : "");
+    s.text("TxPage", pages > 1 ? `${page}/${pages}${newBelow ? "\nnew" : ""}` : job.status === "running" ? "..." : "");
     s.visible("BtnPageUp", this.state.pageBack < pages - 1);
     s.visible("BtnPageDown", this.state.pageBack > 0);
     actions.set("BtnPageUp", "pageup");
@@ -527,7 +531,10 @@ export class MissionControlFace implements Face {
     const approvable = a.exact && fits;
     s.visible("AskPanel", true);
     s.text("TxAskA", label([clipWidth(`!! Claude wants to: ${a.title}`, W.ask), ...(fits ? cmd.slice(0, 1) : [])]));
-    if (approvable) s.text("TxAskB", label(cmd.slice(1, 3).length ? cmd.slice(1, 3) : [" "]));
+    if (approvable) {
+      if (cmd.length > 1) s.text("TxAskB", label(cmd.slice(1, 3)));
+      else s.hide("TxAskB");
+    }
     else s.text("TxAskB", label([clipWidth(cmd[0] ?? "", W.ask), "Too long or has a secret: approve it at the desk."]));
     s.visible("BtnApprove", approvable);
     if (approvable) actions.set("BtnApprove", `approve:${a.id}`);
@@ -536,6 +543,11 @@ export class MissionControlFace implements Face {
     s.visible("BtnWhy", true);
     actions.set("BtnWhy", `why:${a.id}`);
   }
+}
+
+/** "kosmos-registry" reads "registry" on the slim rail. */
+export function shortProject(name: string): string {
+  return name.replace(/^kosmos-/i, "");
 }
 
 /** The conversation as wall lines: who said it, then what, wrapped by width. */

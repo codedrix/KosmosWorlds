@@ -1,0 +1,101 @@
+AB1
+V 1
+M lock
+X TxProject
+X TxCardA
+X TxCardB
+X TxCardC
+X TxCardD
+X TxNeedA
+X TxNeedB
+X TxNeedC
+X TxDone
+X TxRailA
+X TxRailB
+X TxRailC
+X TxRailD
+X TxHeader
+X TxConvA
+X TxConvB
+X TxConvC
+X TxConvD
+X TxConvE
+X TxConvF
+X TxConvG
+X TxConvH
+X TxConvI
+X TxConvJ
+X TxConvK
+X TxConvL
+X TxPage
+X TxAskA
+X TxAskB
+U BtnSignOut 0
+U BtnTests 0
+U BtnPrs 0
+U BtnToday 0
+U BtnNotes 0
+U BtnNewTask 0
+U BtnProject 0
+U CardA 0
+U CardB 0
+U CardC 0
+U CardD 0
+U NeedA 0
+U NeedB 0
+U NeedC 0
+U RailA 0
+U RailB 0
+U RailC 0
+U RailD 0
+U BtnStop 0
+U BtnBack 0
+U BtnApprove 0
+U BtnDeny 0
+U BtnWhy 0
+U BtnKeep 0
+U BtnSimple 0
+U BtnSummary 0
+U BtnReply 0
+U BtnPageUp 0
+U BtnPageDown 0
+U WallPanel 0
+U ChatPanel 0
+U AskPanel 0
+U DoneShelf 0
+U ChipDone 0
+U PillRunA 0
+U PillWaitA 0
+U PillIdleA 0
+U GlowA 0
+U BarBgA 0
+U BarA 0
+U PillRunB 0
+U PillWaitB 0
+U PillIdleB 0
+U GlowB 0
+U BarBgB 0
+U BarB 0
+U PillRunC 0
+U PillWaitC 0
+U PillIdleC 0
+U GlowC 0
+U BarBgC 0
+U BarC 0
+U PillRunD 0
+U PillWaitD 0
+U PillIdleD 0
+U GlowD 0
+U BarBgD 0
+U BarD 0
+U RailSelA 0
+U RailSelB 0
+U RailSelC 0
+U RailSelD 0
+U LockPanel 1
+C ChipDone 0
+T TxTicker MISSION CONTROL | signed out
+U BtnSignIn 1
+P BtnSignIn Mission Control passphrase (it shows on screen as you type)
+T TxLock Press SIGN IN and type\nyour passphrase.
+T TxStatus Kosmos sends nothing about you; the passphrase is the only key.

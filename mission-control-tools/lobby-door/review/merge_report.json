@@ -1,0 +1,42 @@
+{
+ "lobby": {
+  "path": "E:/Kosmos_Integration/mission-control-door/lobby_1.1.1_live/scene.glb",
+  "sha256": "427a2931dab1c17baa966d17fb18a6e8523efb4ea8ec1735a4eb2455e999386c",
+  "bytes": 21208140
+ },
+ "orb": {
+  "path": "E:/Kosmos_Integration/mission-control-door/mc_door.glb",
+  "sha256": "eb61958a766111f52e541443f6793e67086c5b8d738b182a070de4e1141ac454"
+ },
+ "output": {
+  "path": "E:/Kosmos_Integration/mission-control-door/scene_with_door.glb",
+  "sha256": "594791be88e4a517e9eb41aec66dc73f512accc12ab5e1f671eaebce76cd3a46",
+  "bytes": 21489624
+ },
+ "appended": {
+  "nodes": [
+   "mission_control_portal",
+   "mission_control_label"
+  ],
+  "roots": [
+   209,
+   210
+  ]
+ },
+ "checks": {
+  "binPrefixIdentical": true,
+  "nodesOriginalsIdentical": true,
+  "meshesOriginalsIdentical": true,
+  "accessorsOriginalsIdentical": true,
+  "bufferViewsOriginalsIdentical": true,
+  "materialsOriginalsIdentical": true,
+  "texturesOriginalsIdentical": true,
+  "imagesOriginalsIdentical": true,
+  "samplersOriginalsIdentical": true,
+  "animationsOriginalsIdentical": true,
+  "skinsOriginalsIdentical": true,
+  "sceneOriginalRootsKept": true,
+  "sceneOtherPropsIdentical": true,
+  "orbNamesUnique": true
+ }
+}

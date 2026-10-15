@@ -19,6 +19,7 @@
  *
  * Routes:
  *   GET  /.well-known/world-network.json      the opt-in file (always served)
+ *   GET  /privacy                             what this server keeps (the manifest's privacy_url)
  *   GET  /v1/health                           {"ok":true,"stopped":false}
  *   POST /v1/faces/<face>/<op>                a world's wall (wire.ts format)
  *   POST /v1/session                          {"passphrase"} -> {"token","expires_in"}
@@ -41,6 +42,25 @@ import type { Face } from "./faces/types.js";
 import { parseWorldRequest } from "./wire.js";
 
 export const MAX_BODY_BYTES = 16 * 1024;
+
+/** The page the world's manifest names as its privacy_url (NET_004). Plain words, no tracking. */
+export const PRIVACY_TEXT = [
+  "Mission Control bridge - privacy",
+  "",
+  "This server runs on its owner's own computer and serves one person: the owner, who signs in",
+  "with a passphrase inside the Kosmos world world://mission-control.micknerks.",
+  "",
+  "What it receives: the buttons the owner presses on the wall and the words the owner types.",
+  "What it sends back: short summaries of the owner's own Claude Code jobs (titles, status,",
+  "Claude's replies, one line per action, and approval requests). File contents, command output",
+  "and diffs never leave the computer.",
+  "What it keeps: nothing about anyone else. The headset sends no identity. The server keeps",
+  "its jobs in memory and writes a request log (method, path, status, time) to its own console;",
+  "it stores no request bodies, no tokens and no addresses.",
+  "",
+  "Questions or deletion requests: privacy@kosmosvr.com",
+  "",
+].join("\n");
 export const MAX_RESPONSE_EVENTS = 200;
 
 export interface ServerOptions {
@@ -128,6 +148,10 @@ export function createServer(bridge: Bridge, faces: Map<string, Face>, opts: Ser
     if (req.method === "GET" && p === "/.well-known/world-network.json") {
       res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "max-age=300", "Content-Length": Buffer.byteLength(wellKnown) });
       res.end(wellKnown);
+      return 200;
+    }
+    if (req.method === "GET" && p === "/privacy") {
+      send(res, 200, PRIVACY_TEXT, "text/plain; charset=utf-8");
       return 200;
     }
     if (req.method === "GET" && p === "/v1/health") {

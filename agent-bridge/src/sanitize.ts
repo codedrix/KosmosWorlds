@@ -28,6 +28,8 @@
  *    by width, and so a face can place a centred label as if it were left-aligned.
  */
 
+import { ROBOTO_ADVANCE_EM } from "./roboto-advance.js";
+
 /** World text glyph height, metres (KWorldTextPool.cpp `WorldTextSizeCm` = 8). */
 export const GLYPH_M = 0.08;
 /** The host refuses world text over this many bytes (KWasm::MAX_WORLD_TEXT_BYTES). */
@@ -105,26 +107,27 @@ export function cleanUntrusted(s: string): string {
   return defangAgentText(toWallAscii(redactSecrets(s)));
 }
 
+let textScale = 1;
+
 /**
- * Approximate Roboto advance widths, in em, for printable ASCII. Close enough
- * to wrap lines inside a panel and to fake left alignment to within a few cm.
+ * Multiply every width by this. 1 = the glyph size the client claims (8 cm em).
+ * The device check measures the real rendering; the bridge's config carries any
+ * correction (`textScale`), so wrap and alignment are tuned without a new world.
  */
+export function setTextScale(k: number): void {
+  textScale = Number.isFinite(k) && k > 0.5 && k < 2 ? k : 1;
+}
+
+/** Roboto Regular advances, measured from the font (roboto-advance.ts). */
 function advanceEm(ch: string): number {
-  if (ch === " ") return 0.25;
-  if ("ijl|!.,:;'`".includes(ch)) return 0.24;
-  if ("frtI()[]{}\"/\\-".includes(ch)) return 0.33;
-  if ("mw".includes(ch)) return 0.85;
-  if ("MW".includes(ch)) return 0.9;
-  if (ch >= "A" && ch <= "Z") return 0.64;
-  if (ch >= "0" && ch <= "9") return 0.56;
-  if (ch >= "a" && ch <= "z") return 0.53;
-  return 0.56;
+  const code = ch.charCodeAt(0);
+  return ROBOTO_ADVANCE_EM[code - 32] ?? 0.5;
 }
 
 export function estimateWidthM(line: string): number {
   let em = 0;
   for (const ch of line) em += advanceEm(ch);
-  return em * GLYPH_M;
+  return em * GLYPH_M * textScale;
 }
 
 /** Cut to at most `maxBytes` ASCII bytes, ending in "..." when cut. */

@@ -1,0 +1,21 @@
+[package]
+name = "mission_control_script"
+version = "0.1.0"
+edition = "2021"
+description = "Mission Control (DB-043): applies the agent bridge's wall snapshots and reports presses."
+license = "MIT"
+# build.rs supplies --import-memory and --export-table (see its header).
+build = "build.rs"
+
+[lib]
+crate-type = ["cdylib"]
+
+# No dependencies: the script declares its host imports itself (src/lib.rs, `mod host`),
+# with the signatures of the levels table at level 4.
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
