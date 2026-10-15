@@ -1,0 +1,112 @@
+DAY/1	rev	1
+NOW	605	1138
+DATE	Wed 14 Oct
+NOTE	SAMPLE DAY: nothing here is real yet
+BRIEF	3 things need you today:
+BRIEF	1 Answer counsel on terms
+BRIEF	2 Menu review at 2:00
+BRIEF	3 Pick the first 10 testers
+EV	ev-a	510	540	Gym	1
+EV	ev-b	540	570	Standup	1
+EV	ev-c	630	690	Counsel call	1
+EV	ev-d	705	735	Investor call	1
+EV	ev-e	750	795	Lunch	1
+EV	ev-f	840	900	Menu review	1
+EV	ev-g	915	945	World jam	1
+EV	ev-h	990	1020	Tester list	1
+EV	ev-i	1035	1065	1:1 Tomas	1
+EV	ev-j	1110	1140	Walk	1
+TASK	t-a	1	doing	Answer counsel on terms
+TASK	t-b	1	open	Menu review notes
+TASK	t-c	1	open	Pick first 10 testers
+TASK	t-d	0	doing	Investor update deck v4
+TASK	t-e	0	doing	Cook 1012 smoke test
+TASK	t-f	0	open	Reply to creator jam
+TASK	t-g	0	open	Privacy page wording
+TASK	t-h	0	open	Book flight to the me...
+TASK	t-i	0	open	Review PR 214
+TASK	t-j	0	open	Thumbnail for Austin...
+TASK	t-k	0	done	Cook ledger row
+TASK	t-l	0	done	Sign the office lease
+TASK	t-m	0	done	Waitlist export
+TASK	t-n	0	done	Fix the travel flash
+TASK	t-o	0	done	Order the second headset
+TASK	t-p	0	open	Plan Friday demo
+MSG	m-a	gmail	1	in	0	Dana Whitfield	Terms: one question	Can we keep the conduit wording as drafted, or do you want the shorter version?
+MSG	m-b	gmail	1	in	0	Sam Okoro	Before our call	Could you send the alpha numbers ahead of 11:45? Just the three we discussed.
+MSG	m-c	gmail	0	in	0	Marisol Vega	Lunch still on?	Taco place on 6th at 12:30? I'll grab a table outside.
+MSG	m-d	slack	0	in	0	#builds (sample)	Cook 1012 is green	Build 1012 passed its smoke test on both test headsets.
+MSG	m-e	github	0	in	0	Repo bot (sample)	PR 214 checks passed	All checks passed on the registry PR 214. Ready for review.
+MSG	m-f	linear	0	in	0	Tracker (sample)	KOS-S31 moved	KOS-S31 Settings groups moved to In Review by Lena.
+MSG	m-g	gmail	0	in	0	Theo Lindqvist	Creator jam follow-up	Three creators asked how to add sound. Is there a doc yet?
+MSG	m-h	slack	0	in	0	Lena (design)	Menu v3 is up	Settings > History mockup v3 is in the review folder.
+MSG	m-i	gmail	0	in	0	Office Hub (sample)	Your desk is booked	Desk 4 is yours for Thursday and Friday this week.
+MSG	m-j	github	0	in	0	Repo bot (sample)	Issue 88 commented	Priya commented: the cache cap needs a device check.
+MSG	m-k	gmail	0	in	0	Newsletter (sample)	This week in headsets	Ten stories about headsets you might have missed.
+MSG	m-l	slack	0	in	0	Tomas	Load test numbers	Load time median 3.1 s on the big city world.
+MSG	m-m	gmail	0	in	0	Avery Chen	Podcast invite	Would you join our show next month to talk about 3D worlds?
+MSG	m-n	linear	0	in	0	Tracker (sample)	KOS-S20 assigned	KOS-S20 Cook pipeline timing was assigned to you.
+MSG	m-o	gmail	0	in	0	Jordan Pike	Invoice 1043	The invoice for September is attached (attachments are not shown here).
+MSG	m-p	slack	0	in	0	#creators (sample)	Sound question	How do I add a looping sound to my world?
+MSG	m-q	github	0	in	0	Repo bot (sample)	Release 0.9.2 tagged	The publisher release 0.9.2 was tagged.
+MSG	m-r	gmail	0	in	0	Rina Osei	Tester signup	I have two headsets and would love to test. Here is my handle.
+MSG	m-s	gmail	0	in	0	Kai Mercer	Tester signup	Teacher here; my class builds worlds. Can we join the alpha?
+MSG	m-t	slack	0	in	0	Priya	Cache cap	I think 2 GB is right for the cache. Want a device check first?
+MSG	m-u	linear	0	in	0	Tracker (sample)	KOS-S14 done	KOS-S14 Travel flash fix moved to Done.
+MSG	m-v	gmail	0	in	0	Building Mgmt (sample)	Fire drill Friday	A short fire drill on Friday at 10:00.
+MSG	m-w	gmail	0	in	0	Noor Haddad	Meetup venue	The meetup venue holds 80 people. Should I confirm?
+MSG	m-x	github	0	in	0	Repo bot (sample)	Dependabot PR 219	A dependency update PR was opened on the portal.
+MSG	m-y	slack	0	in	0	#random (sample)	Lunch poll	Tacos or noodles on Friday? Vote in the thread.
+MSG	m-z	gmail	0	in	0	Travel desk (sample)	Flight options	Three flight options for the meetup are ready to pick.
+MSG	m-aa	gmail	0	in	0	Hana Brooks	Coffee next week?	Back in town on the 21st, free Tuesday or Wednesday morning.
+MSG	m-ab	linear	0	in	0	Tracker (sample)	KOS-S12 comment	Lena: the menu lane needs one more icon pass.
+MSG	m-ac	slack	0	in	0	Tomas	Cook 1013 queued	Cook 1013 is queued for tonight with the menu changes.
+MSG	m-ad	gmail	0	in	0	Newsletter (sample)	Indie dev digest	Five tools for small teams this week.
+WIN	68F clear	Sample news: city opens a new riverside trail
+WRAP	first	Send the tester invites at 9
+PREPL	ev-a	Gym 8:30-9:00
+PREPL	ev-a	Nothing to prepare
+PREPL	ev-b	Standup 9:00-9:30
+PREPL	ev-b	With: Priya, Tomas, Lena
+PREPL	ev-b	Agenda: cook 1012, menu lane
+PREPL	ev-b	Related: KOS-S12, KOS-S14
+PREPL	ev-c	Counsel call 10:30-11:30
+PREPL	ev-c	With: Dana Whitfield (counsel)
+PREPL	ev-c	Agenda: card scope, terms v2
+PREPL	ev-c	Related: 2 threads, 1 draft
+PREPL	ev-d	Investor update 11:45
+PREPL	ev-d	With: Sam Okoro
+PREPL	ev-d	Agenda: alpha numbers, hiring
+PREPL	ev-d	Related: deck v4, 1 mail
+PREPL	ev-e	Lunch with Marisol
+PREPL	ev-e	At the taco place on 6th
+PREPL	ev-e	Nothing to prepare
+PREPL	ev-f	Menu review 2:00-3:00
+PREPL	ev-f	With: Lena (design)
+PREPL	ev-f	Agenda: Settings groups
+PREPL	ev-f	Related: KOS-S31, 2 mails
+PREPL	ev-g	Creator world jam
+PREPL	ev-g	With: 6 sample creators
+PREPL	ev-g	Agenda: what blocks publish
+PREPL	ev-g	Related: #creators thread
+PREPL	ev-h	Tester list 4:30-5:00
+PREPL	ev-h	Agenda: pick the first 10
+PREPL	ev-h	Related: waitlist, 214 names
+PREPL	ev-h	Decide: headset mix
+PREPL	ev-i	1:1 with Tomas
+PREPL	ev-i	Agenda: cook pipeline, load
+PREPL	ev-i	Related: KOS-S20
+PREPL	ev-j	Walk before sunset
+PREPL	ev-j	Sunset 6:58
+PREPL	ev-j	Nothing to prepare
+REPLY	m-a	Keep the conduit wording as drafted. The shorter version drops the card-data sentence we need. Thanks!
+REPLY	m-b	Here are the three: 214 on the waitlist, 31 worlds published, median load 3.1 s. Talk at 11:45.
+REPLY	m-c	Yes, 12:30 at the taco place on 6th. See you there!
+REPLY	m-g	Not yet. I will write a short sound doc this week and share it in the creators channel.
+REPLY	m-m	Thanks Avery, I would like that. Next month works; send me two dates?
+REPLY	m-r	Thanks Rina! You are on the list for the first wave. Invites go out tomorrow at 9.
+REPLY	m-s	Love this, Kai. A class is a great first group. I will add you to the second wave.
+REPLY	m-w	Yes, please confirm the venue for 80. Thank you, Noor!
+REPLY	m-aa	Wednesday morning works. 9:30 at the usual place?
+REPLY	*	Thanks, got it. I will get back to you today.
+END

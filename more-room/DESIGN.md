@@ -32,16 +32,27 @@ A phone puts your calendar, mail, tasks, weather and the news through one rectan
 
 It is the working answer to the brand question *"How much of your life are you trying to fit into a rectangle?"*
 
+**It opens on a sample day, built in** (CEO, 2026-10-14: "show sample for now and make it a very elaborate setup and info").
+- The world carries a whole invented day: 10 events with prep, 30 messages, and 16 tasks across To do, Doing and Done.
+- So it is full the moment it loads, with no PC, no bridge and no sign-in.
+- A banner on every mode reads **"SAMPLE DAY: nothing here is real yet"**.
+- In the sample, every press works in the room itself and sends nothing; the status line says so ("Sent (sample: nothing left the room)").
+- **Sign in** switches the room to the bridge.
+- **About** opens a short paged panel: what the room is, that the day is a sample, the modes and piles, how the real one connects, the visitor's steps, and what is coming.
+- The sample's source is the bridge face's `sample-day.ts`. `tools/gen_sample.mjs` bakes it into `script/src/sample_day.txt`, so the world and the bridge show the same day.
+
 ## 2. The room
 
 Distances are from where you stand when the world loads, facing forward (+X), with +Z on your right. VR and MR share every scripted position; the script is one file for both.
 
 | Where | What | Height |
 |---|---|---|
-| 0.42–1.12 m ahead | **The desk.** The message grid (12 slots), the inbox tray at the back left, the **Later** pile at the front left and the **Done** pile at the front right | top 0.74 m |
+| 0.42–1.12 m ahead | **The desk.** The message grid (12 slots); the **inbox tray** at the back left, where up to 3 messages that have no slot yet wait in a stack (unread VIPs first, then the newest; it is pressed from the top); the **Later** pile at the front left and the **Done** pile at the front right | top 0.74 m |
 | 1.04 m ahead, raised | **The action row** (triage): Done, Later, Reply, Task, Mute | 0.90 m |
 | 1.1 m ahead, above the action row | **The open card**: from, subject, preview | 1.04–1.38 m |
-| 1.3 m ahead, 1.3 m left | **The mode buttons**: Morning, Focus, Triage, Wrap-up | 0.98–1.52 m |
+| 1.3 m ahead, 1.3 m left | **The mode column**: About at the top, then Morning, Focus, Triage and Wrap-up, then Sign in (until signed in) | 0.82–1.7 m |
+| 1.9 m ahead | **The About panel** (when open): one short page, with Next to its right | 1.25–1.6 m |
+| 2.6 m ahead | **The banner**: "SAMPLE DAY: nothing here is real yet", between the stage and the calendar | 1.8 m |
 | 1.2 m ahead, 1.25 m right | **The side table**: a draft waiting for Approve or Deny | 0.95–1.45 m |
 | 1.8 m ahead, 2.0 m right | **Pinned tasks** (three tiles) | 1.1–1.7 m |
 | 2.4 m ahead | **The stage**: the brief, the focus task and its timer, a prep sheet, the wrap-up | 1.0–1.7 m |
@@ -95,6 +106,18 @@ Renders: [renders/](renders/), as `vr-<mode>-<view>.jpg` and `mr-<mode>-<view>.j
 - **The task tiles:** every open task, as "Roll: …". A press rolls it to tomorrow.
 - **Under the stage:** "First tomorrow: Send the tester invites at 9".
 
+### About this room
+- **The About button** (top of the mode column) opens seven short pages, at 1.9 m, while everything else on the walls clears. The banner stays.
+  1. What the room is: the rectangle question, and a place for each part of the day.
+  2. Sample day: nothing here is real yet.
+  3. The four modes.
+  4. The piles and actions.
+  5. How the real room connects: your own bridge on your PC, with your Gmail, calendar and Linear; Kosmos never sees your mail.
+  6. Your steps: connect your accounts on your PC, and tell us your phone (iPhone texts can't be read).
+  7. What is coming: pinning the cards to your real wall, which needs the room permission sheet first.
+- **Next** pages through them, and **Close about** returns.
+- A test asserts that every page fits whole: 4 lines of 30 characters, no cut.
+
 ### Always there
 - **The calendar's prep:** press any event (outside focus) and the stage shows its prep sheet, which Claude gathers: attendees, agenda, related mail and tickets. A Close button returns.
 - **The window:** weather, sunset and one headline.
@@ -110,18 +133,20 @@ Every number below was measured by running the built `world.wasm`:
 
 | Budget | Limit (source) | Sample day | Heavy day (`tools/stress.mjs`) |
 |---|---|---|---|
-| World texts at once | 32 (`KWasm::MAX_WORLD_TEXT`) | peak 26 | busiest screen (triage, open card, draft, prep): 30 |
+| World texts at once | 32 (`KWasm::MAX_WORLD_TEXT`) | peak 28 | busiest screen (triage, open card, draft, prep): 28 |
 | Bytes per text / lines | 128 / 4, refused not cut | every text built by `text::Lines`; 0 refusals | 0 refusals |
-| Created objects | 128 (`MAX_CREATED_NODES`) | peak 15 | peak 37 (28 cards drawn + 8 events) |
+| Created objects | 128 (`MAX_CREATED_NODES`) | peak 30 | peak 39 (30 cards drawn + 8 events) |
 | Creates per frame | 16 (`MAX_NODE_CREATES_PER_FRAME`) | at most 12 (the script's own cap; the rest wait a frame) | at most 12 |
-| Request body | 16 KiB | largest 83 B | — |
-| Answer | 256 KiB, text or JSON only | largest 1.8 KB | 7.2 KB for 40 messages |
+| Request body | 16 KiB | largest 84 B | — |
+| Answer | 256 KiB, text or JSON only | largest 4.7 KB (the whole sample day) | 7.7 KB for 40 messages |
 | Requests | 4 in flight, 1 a second with bursts of 10 | 19 polls in 49 s plus presses; never rate-limited | — |
-| Wasm | 256 KB | 57.8 KB | — |
+| Wasm | 256 KB | 80.1 KB (6.4 KB of it is the built-in sample) | — |
 | Triangles | 1,000,000 | 504 (doctor) | — |
 
 **What the room draws when the day doesn't fit:**
-- a full desk shows 12 cards, and the tray says "+2 more";
+- a full desk shows 12 cards, up to 3 more wait on the inbox tray, and the tray's label counts the rest ("+15 more" on the sample day);
+- the calendar labels at most 5 events, around now (the one just past and the next ones); every tile stays pressable for its prep;
+- the window's caption is hidden in Triage as well as Focus (desk work, and the text budget);
 - each pile shows 5 cards and counts the rest;
 - the shelf shows 6.
 
@@ -136,10 +161,10 @@ Every number below was measured by running the built `world.wasm`:
 | Wrap-up | about 20 |
 
 **Test totals:**
-- `tools/scenario.mjs`: 179 checks across both worlds, all passing;
-- `cargo test`: 14 host tests;
+- `tools/scenario.mjs`: 215 checks across both worlds, all passing. Part 1 runs the built-in sample with **no request at all**, the About panel included; part 2 signs in and runs the live day;
+- `cargo test`: 16 host tests, including "the baked sample is a complete DAY/1 day" and "every About page fits whole";
 - `kosmos-wp validate` at publisher main `fced9cf` (CLI 0.8.1, 83 rules) passes both worlds against level 4 (the registry's deployed level since 2026-10-12). The one warning is NET_007, "origin not checked (offline)";
-- `kosmos-wp doctor`: 17 ✅, 0 ⚠️, 0 ❌, "Ship it.";
+- `kosmos-wp doctor`: VR 17 ✅, 0 ⚠️, 0 ❌; MR 16 ✅, 1 ⚠️, 0 ❌. The MR warning is head clearance under an hour tick on the calendar strip, which doesn't apply in MR, where the visitor doesn't move by stick (`MOVE_None`);
 - the wasm passes `wasm-tools validate` with the device feature set.
 
 **MR plates never block a press.** Every press in the scenario traces a ray from eye height to the button, and fails if anything visible is hit first.
@@ -258,7 +283,7 @@ Each was found reading the client at the cooked commit, or in the lit review of 
 ## 9. What is verified, and what is not
 
 **Verified here:**
-- the 179-check scenario on both worlds;
+- the 215-check scenario on both worlds (the built-in sample with no request, then the live day);
 - the face on the real bridge server (52 of 52 bridge tests, More Room's 10 among them);
 - the heavy day;
 - the packaged scenes;
@@ -276,13 +301,14 @@ Each was found reading the client at the cooked commit, or in the lit review of 
 - passthrough (the MR renders composite a modelled stand-in room, not the CEO's room).
 
 **Device check list (one sitting, on Build 1009 or later at level ≥ 4):**
-1. Signed in as micknerks, open each world: the sign-in sheet opens and names the bridge's host; a wrong passphrase says so; the right one fills the room.
-2. The text is readable at eye height in VR and in MR (plates against a real wall). Is the open card readable over a real monitor?
-3. Presses on clones (cards, events) work. If they don't, the fallback is authored card slots instead of clones.
-4. Turn over, Done, Later, Mute, Task, Reply → Approve: each lands where it lives, and Approve reaches Mission Control's approval log.
-5. Focus: a VIP arriving ticks once from the tray; a normal message is silent.
-6. Put the headset to sleep and wake it, then turn off the PC: the status says "The bridge did not answer. Is the PC awake?", and nothing crashes.
-7. Frame time with the full room visible stays within 13.8 ms. The room is 504 triangles and about 40 objects, so it is expected to be fine.
+1. Open each world: it is full at once on the sample day, with the banner. Press Sign in: the system sheet names the world (its address and author), and the room's own prompt text says the passphrase goes to your bridge. A wrong passphrase says so, and the right one switches to the bridge's day.
+2. About: all seven pages are readable from where you stand, and Next and Close about work.
+3. The text is readable at eye height in VR and in MR (plates against a real wall). Is the open card readable over a real monitor? Do translucent plates and mats draw correctly over passthrough on the headset (mobile alpha)? Do the 1 cm text-anchor studs show as specks on a real wall?
+4. Presses on clones (cards, events, the top card of the inbox tray) work. If they don't, the fallback is authored card slots instead of clones.
+5. Turn over, Done, Later, Mute, Task, Reply → Approve: each lands where it lives (in the sample, nothing is sent; signed in, Approve reaches Mission Control's approval log).
+6. Focus: a VIP arriving ticks once from the tray; a normal message is silent.
+7. Put the headset to sleep and wake it, then turn off the PC: the status says "The bridge did not answer. Is the PC awake?", and nothing crashes.
+8. Frame time with the full room visible stays within 13.8 ms. The room is about 600 triangles and about 60 objects, so it is expected to be fine.
 
 ## 10. Publishing
 

@@ -252,12 +252,19 @@ function scripted(g, P, variant) {
   [["BtnModeMorning", 1.46], ["BtnModeFocus", 1.3], ["BtnModeTriage", 1.14], ["BtnModeWrap", 0.98]].forEach(([n, y]) =>
     g.box(n, [1.3, y, -1.3], [0.05, 0.05, 0.16], P.mode, PRESS),
   );
-  // --- Sign in (centre of the desk, shown only when signed out).
-  // At eye height in front of the stage, so it is the first thing you see (hidden once signed in).
-  g.box("BtnSignIn", [1.6, 1.22, 0], [0.06, 0.09, 0.3], P.signin, PRESS);
+  // --- About (top of the mode column) and Sign in (bottom; hidden once signed in).
+  //     The room opens on its built-in sample day, so Sign in is a choice, not a door.
+  g.box("BtnAbout", [1.3, 1.62, -1.3], [0.05, 0.05, 0.16], P.signin, PRESS);
+  g.box("BtnSignIn", [1.3, 0.82, -1.3], [0.05, 0.05, 0.16], P.focus, PRESS);
+  // --- The About panel: one short page at 1.9 m, with Next to its right.
+  stud(g, P, "TxtAbout", [1.9, 1.25, 0]);
+  g.box("BtnAboutNext", [1.85, 1.08, 0.72], [0.05, 0.06, 0.14], P.signin, PRESS);
+  // --- The banner ("SAMPLE DAY: nothing here is real yet"), between the stage and the calendar.
+  stud(g, P, "TxtBanner", [2.6, 1.8, 0]);
   // --- The triage action row, raised on a rail above the desk's back edge.
   g.box("ActionRail", [1.06, 0.86, 0], [0.03, 0.02, 1.2], P.deskLeg);
-  [["BtnDone", -0.5, P.done], ["BtnLater", -0.25, P.later], ["BtnReply", 0, P.action], ["BtnTask", 0.25, P.action], ["BtnMute", 0.5, P.action]].forEach(([n, z, m]) =>
+  // 0.22 m apart, so "Done" and "Mute" stay on the MR plate behind them (review lens B, LOW-5).
+  [["BtnDone", -0.44, P.done], ["BtnLater", -0.22, P.later], ["BtnReply", 0, P.action], ["BtnTask", 0.22, P.action], ["BtnMute", 0.44, P.action]].forEach(([n, z, m]) =>
     g.box(n, [1.04, 0.895, z], [0.05, 0.05, 0.12], m, PRESS),
   );
   // --- Focus: start / pause, where the action row is (shown only in focus).
@@ -355,15 +362,18 @@ function mrRoom(g, P) {
  */
 export const PLATES = [
   // name, text centre (glTF; anchors are text BOTTOMS, so this is higher), text width x height (m)
-  ["PlateStage", [2.4, 1.32, 0], [1.25, 0.82]],
+  // Wide enough to frame the prep sheet's Close button at z 1.1 too (review lens B, MED-1).
+  ["PlateStage", [2.4, 1.32, 0], [2.5, 0.82]],
   ["PlateCal", [2.98, 2.28, 0], [4.6, 0.62]],
   ["PlateOpen", [1.1, 1.16, 0], [1.05, 0.56]],
   ["PlateDraft", [1.25, 1.25, 1.25], [0.95, 0.62]],
   ["PlateTasks", [1.8, 1.46, 2.0], [0.7, 0.86]],
-  ["PlateModes", [1.3, 1.25, -1.3], [0.36, 0.66]],
+  ["PlateModes", [1.3, 1.26, -1.3], [0.36, 0.98]],
   ["PlateWindow", [1.4, 0.92, -2.35], [0.85, 0.5]],
   ["PlateVip", [2.4, 1.64, 1.55], [0.9, 0.2]],
   ["PlateQuiet", [-1.45, 1.22, 0], [0.85, 0.24]],
+  ["PlateBanner", [2.6, 1.84, 0], [1.5, 0.13]],
+  ["PlateAbout", [1.9, 1.42, 0], [1.2, 0.5]],
 ];
 
 function mrPlates(g, P) {

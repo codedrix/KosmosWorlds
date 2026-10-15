@@ -30,7 +30,7 @@ from mathutils import Vector
 argv = sys.argv[sys.argv.index("--") + 1:]
 VARIANT, OUT = argv[0], os.path.abspath(argv[1])
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-MODES = ["signin", "morning", "prep", "focus", "triage", "triage-after", "wrap"]
+MODES = ["signin", "morning", "prep", "about", "focus", "triage", "triage-after", "wrap"]
 EYE = (0.0, 0.0, 1.62)  # Blender Z-up; the visitor at the spawn, standing
 
 

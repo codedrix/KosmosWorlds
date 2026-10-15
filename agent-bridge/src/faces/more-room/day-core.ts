@@ -34,13 +34,15 @@ export type Src = "gmail" | "slack" | "github" | "linear";
 export type Pile = "in" | "later" | "done" | "quiet";
 
 export interface DayEvent { id: string; start: number; end: number; title: string; prep?: string[] }
-export interface DayTask { id: string; pin: boolean; state: "open" | "done" | "rolled"; title: string }
+export interface DayTask { id: string; pin: boolean; state: "open" | "doing" | "done" | "rolled"; title: string }
 export interface DayMessage { id: string; src: Src; vip: boolean; from: string; subject: string; preview: string }
 export interface DayDraft { id: string; msg: string; state: "pending" | "sent" | "denied"; to: string; text: string; approval?: string }
 
 /** A day as a source describes it (the sample, or the bridge's reads). */
 export interface DayData {
   date: string;
+  /** A banner shown on every mode, e.g. "SAMPLE DAY: nothing here is real yet". Empty for a real day. */
+  note: string;
   weather: string;
   sunsetMin: number;
   headline: string;
@@ -56,6 +58,7 @@ export interface DayData {
 
 export interface Store {
   date: string;
+  note: string;
   weather: string;
   sunsetMin: number;
   headline: string;
@@ -109,6 +112,7 @@ export function createStore(day: DayData): Store {
   const d = JSON.parse(JSON.stringify(day)) as DayData;
   return {
     date: d.date,
+    note: d.note,
     weather: d.weather,
     sunsetMin: d.sunsetMin,
     headline: d.headline,
@@ -153,6 +157,8 @@ export interface CoreOptions {
 export interface Core {
   handle(op: string, fields: Record<string, string>, authed: boolean, hooks: Hooks): Reply;
   snapshot(): string;
+  /** The whole day plus REPLY and PREPL records: the sample the world carries built in. */
+  baked(): string;
   reset(): void;
   store: Store;
   log: { op: string; id: string; rev: number; note: string }[];
@@ -172,23 +178,33 @@ export function createCore(opts: CoreOptions): Core {
   const bump = () => ++rev;
   const text = (status: number, body: string): Reply => ({ status, body });
 
-  function snapshot(): string {
+  function snapshot(extra: string[] = []): string {
     const L: string[] = [];
     const rec = (...f: (string | number)[]) => L.push(f.join("\t"));
     rec(WIRE, "rev", rev);
     rec("NOW", nowMin(), store.sunsetMin);
     rec("DATE", clean(store.date, 16));
+    if (store.note) rec("NOTE", clean(store.note, 40));
     for (const b of store.brief.slice(0, 4)) rec("BRIEF", clean(b, CAP.line));
-    for (const e of store.events.slice(0, 8)) rec("EV", e.id, e.start, e.end, clean(e.title, CAP.eventTitle), e.prep ? 1 : 0);
-    for (const t of store.tasks.slice(0, 16)) rec("TASK", t.id, t.pin ? 1 : 0, t.state, clean(t.title, CAP.task));
+    for (const e of store.events.slice(0, 10)) rec("EV", e.id, e.start, e.end, clean(e.title, CAP.eventTitle), e.prep ? 1 : 0);
+    for (const t of store.tasks.slice(0, 24)) rec("TASK", t.id, t.pin ? 1 : 0, t.state, clean(t.title, CAP.task));
     for (const m of store.messages.slice(0, 48)) {
       rec("MSG", m.id, m.src, m.vip ? 1 : 0, m.pile, m.read ? 1 : 0, clean(m.from, CAP.from), clean(m.subject, CAP.subject), clean(m.preview, CAP.preview));
     }
     for (const dr of store.drafts.slice(-4)) rec("DRAFT", dr.id, dr.msg, dr.state, clean(dr.to, CAP.from), clean(dr.text, CAP.draft));
     rec("WIN", clean(store.weather, CAP.weather), clean(store.headline, CAP.headline));
     rec("WRAP", "first", clean(store.wrapFirstTomorrow, CAP.task + 8));
+    L.push(...extra);
     rec("END");
     return L.join("\n") + "\n";
+  }
+
+  function baked(): string {
+    const extra: string[] = [];
+    for (const e of store.events.slice(0, 10)) for (const p of (e.prep ?? []).slice(0, 4)) extra.push(["PREPL", e.id, clean(p, CAP.line)].join("\t"));
+    for (const [msg, text] of Object.entries(store.cannedDrafts).slice(0, 12)) extra.push(["REPLY", msg, clean(text, CAP.draft)].join("\t"));
+    extra.push(["REPLY", "*", clean(store.defaultDraft, CAP.draft)].join("\t"));
+    return snapshot(extra);
   }
 
   function act(fields: Record<string, string>, hooks: Hooks): Reply {
@@ -304,5 +320,5 @@ export function createCore(opts: CoreOptions): Core {
     return text(404, "NO\tnot here\n");
   }
 
-  return { handle, snapshot, reset: () => undefined, store, log, rev: () => rev };
+  return { handle, snapshot: () => snapshot(), baked, reset: () => undefined, store, log, rev: () => rev };
 }

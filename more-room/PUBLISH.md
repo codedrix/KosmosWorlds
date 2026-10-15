@@ -1,6 +1,14 @@
 # More Room — publish steps (ready for the CEO's OK)
 
-**Publishing is Class C, and nothing here has been run against production.** Each step says whose act it is. "Agent" steps are safe to hand to a session. **CEO** steps are his.
+**Publishing is Class C.** The CEO approved it on 2026-10-14, relayed verbatim: "Yes, my OK also covers publishing the More Room worlds (VR and MR), unlisted, once they pass review." The conditions:
+- the independent two-lens review passes, and `kosmos/qa-pass` is on the head SHA;
+- KosmosWorlds #5 has merged, and the relay Worker is deployed with both worlds in `WORLDS`;
+- each publish is verified by resolve (`network_origins` present, NET_007 passes);
+- both versions and their hashes are recorded.
+
+It does not cover connecting the CEO's accounts or new bridge verbs.
+
+**Nothing here has been run against production yet.** Each step says whose act it is. "Agent" steps are safe to hand to a session. **CEO** steps are his.
 
 ## 0. Before anything
 
@@ -29,7 +37,7 @@ node --experimental-strip-types more-room/tools/scenario.mjs --packaged
 
 - Use a publisher at main `fced9cf` or later (CLI 0.8.1). The globally installed `kosmos-wp` on this PC is 0.3.0 and too old.
 - Online (without `--offline`), `validate` probes the origin, so NET_007 must PASS.
-- Expected warnings: none, or WASM_007 if the vendored deployed hint still says level 2. The registry's live `deployed` is 4 (DEPLOY_LEDGER `DATA-20261012-deployed-level-4`).
+- Without `--deployed-level 4`, `validate` and `bundle` **will** warn WASM_007: the vendored hint still says level 2, while the registry's live `deployed` is 4 (DEPLOY_LEDGER `DATA-20261012-deployed-level-4`). It is a warning only; pass `--deployed-level 4` to check against the deployed level. `publish` reads the registry's live level itself.
 
 ## 2. Publish (CEO)
 
@@ -52,7 +60,9 @@ curl -s "https://api.kosmosvr.com/api/v1/worlds/micknerks/more-room-mr?host_api=
 
 Each should show `semver 1.0.0`, `host_api_level 4`, `status unlisted`, and `world.network_origins` naming the bridge's origin. Without `?host_api=4`, the answer is `CLIENT_TOO_OLD`, as designed.
 
-Then append a DEPLOY_LEDGER row for each publish.
+Then record each publish:
+- the world, its `semver` and its `content_hash` (from the resolve answer; `bundle` prints the same digest) on KOS-994 and in this file's "Published" section;
+- a DEPLOY_LEDGER row for each.
 
 ## 4. The device checkpoint (CEO, on Build 1009 or later)
 
