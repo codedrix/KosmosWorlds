@@ -12,8 +12,12 @@ account or a key.
 **The recommended front door (DB-044 option A)** is `relay-worker/`: a ~90-line Cloudflare Worker on
 `kosmos-agent-bridge.micknerks.workers.dev` that serves the opt-in file and `/privacy` itself (so
 they stay up when the PC sleeps; the registry drops an origin whose weekly check fails twice) and
-relays `POST /v1/*` to the PC's tunnel with a shared secret (`npm run make-relay-secret`). With the
-secret set, the bridge refuses any `/v1/` call that didn't come through the Worker.
+relays `POST /v1/*` to the PC's tunnel with a shared secret. `npm run make-relay-secret` makes the
+secret, hands it to `wrangler secret put RELAY_SECRET` through stdin and saves it to the bridge's
+config; it is never printed (deploy the Worker once first, signed in with `npx wrangler login`).
+With the secret set, the bridge refuses any `/v1/` call that didn't come through the Worker. The
+Worker's opt-in file lists `world://lobby.micknerks` (Mission Control) and More Room's two worlds,
+`world://more-room.micknerks` and `world://more-room-mr.micknerks` (`relay-worker/wrangler.toml`).
 
 ## Run it
 

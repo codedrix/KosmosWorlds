@@ -1,1 +1,1 @@
-https://bridge-host-not-set.invalid
+https://kosmos-agent-bridge.micknerks.workers.dev
