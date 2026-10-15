@@ -107,7 +107,62 @@ export class MissionControlFace implements Face {
   async handle(op: string, req: WorldRequest, ctx: FaceContext): Promise<FaceReply> {
     if (op === "view") return this.view(req, ctx);
     if (op === "press") return this.press(req, ctx);
+    // The Lobby ritual: the first call a world makes, with the passphrase as its text.
+    if (op === "signin") return this.signIn(req, ctx);
+    if (op === "watch") return this.watchView(req, ctx);
     return { status: 404, body: "unknown op\n" };
+  }
+
+  // -------------------------------------------------------------------------
+  // watch: a group member's read-only copy of the owner's wall
+  // -------------------------------------------------------------------------
+
+  private watchVersion = 0;
+  private watchKey = "";
+  private lastPress: { node: string; at: number } | null = null;
+
+  private async watchView(req: WorldRequest, ctx: FaceContext): Promise<FaceReply> {
+    const verdict = ctx.bridge.watch.check(req.fields.watch);
+    if (verdict !== "ok") {
+      const why: Record<string, string> = {
+        wrong: "That watch code is wrong.",
+        off: "Nobody is sharing Mission Control right now.",
+        owner_gone: "The owner has left Mission Control.",
+        too_many: "Too many wrong codes. Wait a minute.",
+      };
+      const s = new Snapshot().version(0).mode("lock");
+      s.text("TxStatus", why[verdict] ?? "Refused.");
+      return this.reply(s.event("watch_refused"));
+    }
+    let snap = this.renderWatcher(ctx);
+    if (req.v !== undefined && req.v === this.watchVersion) {
+      const deadline = Date.now() + this.longPollMs;
+      while (Date.now() < deadline) {
+        await ctx.waitForChange(Math.max(1, deadline - Date.now()));
+        snap = this.renderWatcher(ctx);
+        if (this.watchVersion !== req.v) break;
+      }
+      if (this.watchVersion === req.v) return this.reply(new Snapshot().version(this.watchVersion).same());
+    }
+    return this.reply(snap);
+  }
+
+  /** The owner's wall, as the owner sees it, minus anything that acts: no prompts, no token, no watch toggle. */
+  private renderWatcher(ctx: FaceContext): Snapshot {
+    const owner = { ...ctx, authed: ctx.bridge.auth.signedIn };
+    const body = this.renderWith(owner, false, true);
+    body.dropPrompts();
+    body.visible("BtnWatch", false);
+    body.visible("BtnSignOut", false);
+    const pressed = this.lastPress ? `  |  pressed: ${pressLabel(this.lastPress.node)} ${formatElapsed(Date.now() - this.lastPress.at)} ago` : "";
+    body.text("TxWatch", "Watching (read-only)");
+    body.text("TxStatus", clipWidth(`Watching Mission Control${pressed}`, W.status));
+    const key = body.contentKey();
+    if (key !== this.watchKey) {
+      this.watchVersion++;
+      this.watchKey = key;
+    }
+    return body.version(this.watchVersion);
   }
 
   // -------------------------------------------------------------------------
@@ -115,6 +170,8 @@ export class MissionControlFace implements Face {
   // -------------------------------------------------------------------------
 
   private async view(req: WorldRequest, ctx: FaceContext): Promise<FaceReply> {
+    // The owner is on the wall: watch codes stay alive only while this keeps happening.
+    if (ctx.authed) ctx.bridge.watch.ownerSeen();
     let snap = this.render(ctx);
     if (req.v !== undefined && req.v === this.version) {
       // Nothing new for this world yet: wait for a change, then answer once.
@@ -139,21 +196,23 @@ export class MissionControlFace implements Face {
 
   private async press(req: WorldRequest, ctx: FaceContext): Promise<FaceReply> {
     const node = req.press;
-    const map = req.v !== undefined ? this.renders.get(req.v) : undefined;
+    const live = ctx.authed && !ctx.killed;
+    // Anonymous callers and the owner have separate snapshots, versions and press maps,
+    // so nothing an anonymous caller sends can touch the owner's wall.
+    const maps = live ? this.renders : this.anonRenders;
+    const map = req.v !== undefined ? maps.get(req.v) : undefined;
     const action = node && map ? map.get(node) : undefined;
     if (!action) {
-      this.note("That changed before your press arrived. Look again.");
+      if (live) this.note("That changed before your press arrived. Look again.");
       return this.reply(this.render(ctx).event("stale"));
     }
 
     if (action === "signin") return this.signIn(req, ctx);
-    if (!ctx.authed || ctx.killed) {
-      this.reset();
-      return this.reply(this.render(ctx).event("signed_out"));
-    }
+    if (!live) return this.reply(this.render(ctx).event("signed_out"));
 
     const a = ctx.bridge.actions;
     const [verb, arg, arg2] = action.split(":");
+    if (node) this.lastPress = { node, at: Date.now() };
     const text = (req.text ?? "").trim();
     const project = this.project(ctx);
     let result: { ok: boolean; why?: string; job?: Job } = { ok: true };
@@ -162,7 +221,7 @@ export class MissionControlFace implements Face {
       case "signout":
         ctx.signOut();
         this.reset();
-        return this.reply(this.render(ctx).event("signed_out"));
+        return this.reply(this.render({ ...ctx, authed: false }).event("signed_out"));
       case "preset":
         result = await a.startPreset(arg ?? "", project);
         if (result.ok && result.job) this.focus(result.job.id);
@@ -211,6 +270,15 @@ export class MissionControlFace implements Face {
         result = await a.send(arg ?? "", text);
         this.state.pageBack = 0;
         break;
+      case "watch":
+        if (ctx.bridge.watch.current) {
+          ctx.bridge.watch.close();
+          this.note("Group watching is off.");
+        } else {
+          ctx.bridge.watch.open();
+          this.note("Share the watch code with your group; they type it at the Watch button.");
+        }
+        break;
       case "pageup":
         this.state.pageBack++;
         break;
@@ -243,7 +311,7 @@ export class MissionControlFace implements Face {
       too_fast: "Too fast. Wait two seconds and try again.",
       not_set: "No passphrase is set. At the PC: npm run set-passphrase.",
     };
-    this.note(why[r.reason] ?? "Sign-in refused.");
+    this.anonNotice = { text: why[r.reason] ?? "Sign-in refused.", at: Date.now() };
     return this.reply(this.render(ctx).event("refused"));
   }
 
@@ -273,23 +341,44 @@ export class MissionControlFace implements Face {
     return this.renderWith(ctx, false);
   }
 
-  private renderWith(ctx: FaceContext, forceNewVersion: boolean): Snapshot {
+  // Anonymous callers (signed out, or the bridge stopped) see the lock screen from their own
+  // version space and press map. They never read or write the owner's view state.
+  private anonVersion = 1_000_000;
+  private anonKey = "";
+  private anonRenders = new Map<number, ActionMap>();
+  private anonNotice: { text: string; at: number } | null = null;
+
+  private renderAnon(ctx: FaceContext): Snapshot {
+    const actions: ActionMap = new Map();
+    const body = new Snapshot().mode("lock");
+    this.renderLock(body, actions, ctx);
+    const key = body.contentKey();
+    if (key !== this.anonKey) {
+      this.anonVersion++;
+      this.anonKey = key;
+      this.anonRenders.set(this.anonVersion, actions);
+      for (const v of this.anonRenders.keys()) if (v <= this.anonVersion - KEEP_RENDERS) this.anonRenders.delete(v);
+    }
+    return body.version(this.anonVersion);
+  }
+
+  private renderWith(ctx: FaceContext, forceNewVersion: boolean, forWatcher = false): Snapshot {
+    const live = ctx.authed && !ctx.killed;
+    if (!live) return this.renderAnon(ctx);
     const actions: ActionMap = new Map();
     const body = new Snapshot();
-    const live = ctx.authed && !ctx.killed;
-    if (!live && this.state.mode !== "lock") this.state = { mode: "lock", pageBack: 0, seenLines: 0, notice: this.state.notice, noticeAt: this.state.noticeAt };
+    // A live owner whose state still says lock (just signed in elsewhere) starts on the wall.
+    if (this.state.mode === "lock") this.state.mode = "wall";
     if (this.state.mode === "chat" && !ctx.bridge.store.jobs.has(this.state.focus ?? "")) this.state.mode = "wall";
 
     const mode = this.state.mode;
     body.mode(mode);
-    if (mode === "lock") this.renderLock(body, actions, ctx);
-    else {
-      this.renderCommon(body, actions, ctx);
-      if (mode === "wall") this.renderWall(body, actions, ctx);
-      else this.renderChat(body, actions, ctx);
-    }
+    this.renderCommon(body, actions, ctx);
+    if (mode === "wall") this.renderWall(body, actions, ctx);
+    else this.renderChat(body, actions, ctx);
 
     const key = body.contentKey();
+    if (forWatcher) return body; // a watcher's render never maps presses
     if (forceNewVersion || key !== this.lastKey) {
       this.version++;
       this.lastKey = key;
@@ -321,7 +410,9 @@ export class MissionControlFace implements Face {
     s.prompt("BtnSignIn", "Mission Control passphrase (it shows on screen as you type)");
     actions.set("BtnSignIn", "signin");
     s.text("TxLock", label(["Press SIGN IN and type", "your passphrase."]));
-    s.text("TxStatus", this.statusLine(ctx, "Kosmos sends nothing about you; the passphrase is the only key."));
+    const n = this.anonNotice;
+    const fallback = "Kosmos sends nothing about you; the passphrase is the only key.";
+    s.text("TxStatus", clipWidth(n && Date.now() - n.at < 20000 ? n.text : fallback, W.status));
   }
 
   private renderCommon(s: Snapshot, actions: ActionMap, ctx: FaceContext): void {
@@ -342,6 +433,12 @@ export class MissionControlFace implements Face {
     s.text("TxStatus", this.statusLine(ctx, `Signed in  |  ${running.length}/${ctx.bridge.config.maxJobs} jobs  |  Stop at the PC: npm run kill`));
     s.visible("BtnSignOut", true);
     actions.set("BtnSignOut", "signout");
+
+    // Group watching: off by default; the code shows only while it is on.
+    const code = ctx.bridge.watch.current;
+    s.text("TxWatch", code ? `Group can watch  |  code ${code.slice(0, 3)} ${code.slice(3)}` : "Let my group watch: off");
+    s.visible("BtnWatch", true);
+    actions.set("BtnWatch", "watch");
 
     // Start a job (left).
     const project = this.project(ctx);
@@ -543,6 +640,36 @@ export class MissionControlFace implements Face {
     s.visible("BtnWhy", true);
     actions.set("BtnWhy", `why:${a.id}`);
   }
+}
+
+const PRESS_WORDS: Record<string, string> = {
+  BtnApprove: "Approve",
+  BtnDeny: "Deny",
+  BtnWhy: "Ask why",
+  BtnStop: "Stop",
+  BtnBack: "Back to wall",
+  BtnKeep: "Keep going",
+  BtnSimple: "Explain simply",
+  BtnSummary: "Stop + summarize",
+  BtnReply: "Reply",
+  BtnTests: "Run all tests",
+  BtnPrs: "Review open PRs",
+  BtnToday: "Summarize today",
+  BtnNotes: "Draft release notes",
+  BtnNewTask: "New task",
+  BtnProject: "Change project",
+  BtnPageUp: "Page up",
+  BtnPageDown: "Page down",
+  BtnWatch: "Group watch",
+};
+
+/** What a watcher is told the owner pressed: the button's words, never anything typed. */
+export function pressLabel(node: string): string {
+  if (PRESS_WORDS[node]) return PRESS_WORDS[node] as string;
+  if (/^Card[A-D]$/.test(node)) return "a job card";
+  if (/^Need[A-C]$/.test(node)) return "a Needs you item";
+  if (/^Rail[A-D]$/.test(node)) return "a job on the rail";
+  return "a button";
 }
 
 /** "kosmos-registry" reads "registry" on the slim rail. */

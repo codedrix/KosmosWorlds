@@ -108,7 +108,8 @@ function jobSummary(j: Job, now: number) {
 
 export function createServer(bridge: Bridge, faces: Map<string, Face>, opts: ServerOptions): http.Server {
   const log = opts.log ?? ((l: string) => console.log(l));
-  const bucket = new Bucket(opts.rate?.perSecond ?? 10, opts.rate?.burst ?? 30);
+  // Watchers long-poll too, so the global bucket leaves room for a group of them.
+  const bucket = new Bucket(opts.rate?.perSecond ?? 20, opts.rate?.burst ?? 60);
   const publicHost = opts.publicHost?.toLowerCase();
   const hostAllowed = (host: string, localPort: number | undefined): boolean =>
     host === `127.0.0.1:${localPort}` || host === `localhost:${localPort}` || (publicHost !== undefined && (host === publicHost || host === `${publicHost}:443`));
@@ -215,6 +216,7 @@ export function createServer(bridge: Bridge, faces: Map<string, Face>, opts: Ser
         signIn: (pass) => (killed ? { ok: false, reason: "locked" } : bridge.auth.signIn(pass)),
         signOut: () => {
           bridge.auth.signOut();
+          bridge.watch.close();
           for (const f of faces.values()) f.reset();
           bridge.store.poke();
         },
@@ -265,6 +267,7 @@ export function createServer(bridge: Bridge, faces: Map<string, Face>, opts: Ser
 
     if (p === "/v1/session/end") {
       bridge.auth.signOut();
+          bridge.watch.close();
       for (const f of faces.values()) f.reset();
       json(res, 200, { ok: true });
       return 200;

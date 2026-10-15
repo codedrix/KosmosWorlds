@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { TEXT_NODES, BUTTON_NODES, SHOW_NODES } from "../src/faces/mission-control/layout.js";
+import { TEXT_NODES, BUTTON_NODES, SHOW_NODES, WORLD_ONLY_NODES } from "../src/faces/mission-control/layout.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const nodesFile = path.resolve(here, "..", "..", "..", "mission-control", "nodes.json");
@@ -13,10 +13,11 @@ test("the world's nodes.json is the face's layout, name for name", () => {
   assert.deepEqual(j.text, [...TEXT_NODES]);
   assert.deepEqual(j.buttons, [...BUTTON_NODES]);
   assert.deepEqual(j.show, [...SHOW_NODES]);
+  assert.deepEqual(j.world, [...WORLD_ONLY_NODES]);
 });
 
 test("node names follow the device rules", () => {
-  const all = [...TEXT_NODES, ...BUTTON_NODES, ...SHOW_NODES];
+  const all = [...TEXT_NODES, ...BUTTON_NODES, ...SHOW_NODES, ...WORLD_ONLY_NODES];
   assert.equal(new Set(all).size, all.length, "no duplicates");
   for (const n of all) {
     // The client strips a trailing _<digit>; k_node_find wants plain names.

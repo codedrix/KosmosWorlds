@@ -31,6 +31,7 @@ export const TEXT_NODES = [
   "TxPage",
   "TxAskA",
   "TxAskB",
+  "TxWatch",
 ] as const;
 
 /** Nodes the visitor presses. Each button's words are part of its own mesh. */
@@ -57,6 +58,7 @@ export const BUTTON_NODES = [
   "BtnReply",
   "BtnPageUp",
   "BtnPageDown",
+  "BtnWatch",
 ] as const;
 
 /** Nodes the face only shows, hides, scales or copies. */
@@ -88,5 +90,31 @@ export const W = {
 
 /** The conversation's left edge, relative to the conversation anchors' centre line. */
 export const CONV_LEFT_M = -1.2;
+
+/**
+ * Nodes only the WORLD touches; the face never names them. Listed here so nodes.json
+ * stays the one list the Blender script builds and the world script finds.
+ *   McSeal       the unmarked spot on the throne seat: the ritual's press
+ *   McWatchJoin  the Watch button by the throne (visible to every visitor)
+ *   McClose      closes the panel (signs out first)
+ *   McMove*      the handle buttons: closer, farther, left, right, up, down
+ *   Mc*Frame     the panels' static frames (moved and hidden with the panel)
+ *   McPageDock   the reserved spot for the pinned web page (DB-043), right of the panel
+ */
+export const WORLD_ONLY_NODES = [
+  "McSeal",
+  "McWatchJoin",
+  "McClose",
+  "McMoveCloser",
+  "McMoveFarther",
+  "McMoveLeft",
+  "McMoveRight",
+  "McMoveUp",
+  "McMoveDown",
+  "McCenterFrame",
+  "McLeftFrame",
+  "McRightFrame",
+  "McPageDock",
+] as const;
 /** Copies of the done chip the shelf can show. */
 export const MAX_CHIPS = 12;

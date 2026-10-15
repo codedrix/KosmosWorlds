@@ -32,7 +32,8 @@
     "TxConvL",
     "TxPage",
     "TxAskA",
-    "TxAskB"
+    "TxAskB",
+    "TxWatch"
   ],
   "buttons": [
     "BtnSignIn",
@@ -64,7 +65,8 @@
     "BtnSummary",
     "BtnReply",
     "BtnPageUp",
-    "BtnPageDown"
+    "BtnPageDown",
+    "BtnWatch"
   ],
   "show": [
     "LockPanel",
@@ -101,5 +103,20 @@
     "RailSelB",
     "RailSelC",
     "RailSelD"
+  ],
+  "world": [
+    "McSeal",
+    "McWatchJoin",
+    "McClose",
+    "McMoveCloser",
+    "McMoveFarther",
+    "McMoveLeft",
+    "McMoveRight",
+    "McMoveUp",
+    "McMoveDown",
+    "McCenterFrame",
+    "McLeftFrame",
+    "McRightFrame",
+    "McPageDock"
   ]
 }

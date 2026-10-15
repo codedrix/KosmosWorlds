@@ -108,15 +108,24 @@ Snapshot (text/plain, one record a line, integers only):
 about once a second) or after 6.5 s with `S`. `press` names a node and the version: the bridge resolves
 what that node meant in that snapshot, and refuses a stale one.
 
-## 5. Planned in this lane (Mission Control inside the Lobby)
+## 5. Mission Control inside the Lobby
 
-- **Watch codes** (group watching, off by default): `POST /v1/watch/open {"tok"}` -> `{"code","expires_in"}`
-  (owner only, while signed in); `POST /v1/watch/close {"tok"}`; and the face op
-  `POST /v1/faces/mission-control/watch` with `watch <code>` instead of `tok`: a read-only snapshot
-  (the panel, the chat, and the last thing the owner pressed). A watch code can never approve, type,
-  start or stop anything, and dies at sign-out, at toggle-off and after 10 idle minutes. **planned**
-- **Zero calls before the ritual:** the Lobby program makes no network call until the chair ritual
-  and the sign-in press, or a group watch code arriving through group state. **planned** (world side)
+- **The ritual's sign-in** (built): `POST /v1/faces/mission-control/signin` with the passphrase as the
+  body's text (after `---`). No snapshot version is needed, so it can be a world's first call. The
+  answer is the owner's wall with a `K <token>` record, or the lock screen with `E refused`.
+- **Group watching** (built; off by default): the owner presses `BtnWatch` on the panel; the bridge
+  makes a six-digit code and the panel shows it (`TxWatch`). A group member's world calls
+  `POST /v1/faces/mission-control/watch` with a `watch <code>` line instead of `tok`, and gets a
+  read-only copy of the owner's wall: no token, no typing-sheet records, no watch toggle, and the
+  status line names the last button the owner pressed (its words, never anything typed). It is a long
+  poll like `view`, on its own version numbers. A watch code can never approve, type, start or stop
+  anything (the watch op maps no presses). It dies at toggle-off, sign-out, the kill switch, 2 hours,
+  or 20 s after the owner's own wall stopped asking for updates (the owner left). At most 10 wrong
+  codes a minute across everyone.
+- **Anonymous callers** get the lock screen from their own version space and press map; nothing they
+  send touches the owner's wall.
+- **Zero calls before the ritual** (world side): the Lobby program makes no network call until the
+  ritual's sign-in, or until a visitor types a watch code at the Watch button.
 
 ## 6. Limits a client must respect
 

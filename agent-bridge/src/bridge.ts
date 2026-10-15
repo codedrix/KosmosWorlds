@@ -12,6 +12,7 @@
 
 import fs from "node:fs";
 import { AuthGate } from "./auth.js";
+import { WatchGate } from "./watch.js";
 import { type BridgeConfig, verifyPassphrase } from "./config.js";
 import { type Decision, type Job, JobStore } from "./jobs.js";
 import { isKilled } from "./killswitch.js";
@@ -33,6 +34,8 @@ export interface Actions {
 export class Bridge {
   readonly store: JobStore;
   readonly auth: AuthGate;
+  /** Group watching (off until the owner turns it on from the panel). */
+  readonly watch: WatchGate;
   private stopping = false;
 
   constructor(
@@ -42,6 +45,7 @@ export class Bridge {
   ) {
     this.store = new JobStore(now);
     this.auth = new AuthGate((p) => verifyPassphrase(p, this.config.passphrase), () => !!this.config.passphrase, now);
+    this.watch = new WatchGate(now);
   }
 
   get killed(): boolean {
@@ -54,6 +58,7 @@ export class Bridge {
     this.stopping = true;
     try {
       this.auth.signOut();
+      this.watch.close();
       this.store.cancelApprovals();
       await this.adapter.stopAll();
       this.store.poke();

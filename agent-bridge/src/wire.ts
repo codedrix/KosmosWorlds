@@ -144,6 +144,11 @@ export class Snapshot {
     this.lines.push(`Z ${n}`);
     return this;
   }
+  /** Remove every typing-sheet record (a watcher's copy of the wall must never open one). */
+  dropPrompts(): this {
+    this.lines = this.lines.filter((l) => !l.startsWith("P "));
+    return this;
+  }
   same(): this {
     this.lines.push("S");
     return this;
