@@ -1,13 +1,15 @@
 AB1
-V 4
+V 3
 M chat
 U LockPanel 0
 U BtnSignIn 0
 X TxLock
 Z 3
-T TxTicker 3 working  |  1 needs you  |  2 done today  |  20:48
+T TxTicker 3 working  |  1 needs you  |  2 done today  |  22:00
 T TxStatus Signed in  |  3/4 jobs  |  Stop at the PC: npm run kill
 U BtnSignOut 1
+T TxWatch Let my group watch: off
+U BtnWatch 1
 T TxProject Project: kosmos-registry
 U BtnProject 1
 U BtnTests 1

@@ -35,7 +35,7 @@ import { Snapshot, type WorldRequest } from "../../wire.js";
 import type { Face, FaceContext, FaceReply } from "../types.js";
 import { BUTTON_NODES, CARD_SLOTS, CONV_LEFT_M, CONV_SLOTS, MAX_CHIPS, NEED_SLOTS, RAIL_SLOTS, SHOW_NODES, TEXT_NODES, W } from "./layout.js";
 
-export const WORLD_ADDRESS = "world://mission-control.micknerks";
+export const WORLD_ADDRESS = "world://lobby.micknerks";
 /** A long poll waits at most this long for a change (the headset gives up at 10 s). */
 export const LONG_POLL_MS = 6500;
 /** Snapshots kept for press lookups. */
@@ -152,6 +152,8 @@ export class MissionControlFace implements Face {
     const owner = { ...ctx, authed: ctx.bridge.auth.signedIn };
     const body = this.renderWith(owner, false, true);
     body.dropPrompts();
+    // Overrides replace the owner's records, so the owner's watch line (with its code) never reaches a watcher.
+    for (const n of ["BtnWatch", "BtnSignOut", "TxWatch", "TxStatus"]) body.forget(n);
     body.visible("BtnWatch", false);
     body.visible("BtnSignOut", false);
     const pressed = this.lastPress ? `  |  pressed: ${pressLabel(this.lastPress.node)} ${formatElapsed(Date.now() - this.lastPress.at)} ago` : "";

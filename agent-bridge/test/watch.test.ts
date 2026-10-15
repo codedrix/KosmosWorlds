@@ -45,6 +45,7 @@ test("watching: off by default; the owner turns it on; a watcher gets a read-onl
   assert.equal(w.visible.get("BtnSignOut"), false);
   assert.match(w.text.get("TxStatus") ?? "", /pressed: Run all tests/);
   assert.equal(w.text.get("TxWatch"), "Watching (read-only)");
+  assert.ok(!w.raw.includes(m[1] + " " + m[2]), "the owner's watch line never reaches a watcher");
 });
 
 test("a watch code can't act: a press carrying it and no token is refused", async () => {

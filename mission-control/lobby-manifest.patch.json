@@ -1,0 +1,13 @@
+{
+  "$note": "What Mission Control adds to the Lobby's live manifest. mission-control-tools/lobby/package_lobby.mjs applies it; set-bridge-host.mjs edits network.connect and privacy_url. The purpose is written for every Lobby visitor: the program makes no network call unless the owner signs in or a visitor types a watch code.",
+  "version": "1.2.0",
+  "add_capabilities": ["scene_read", "scene_write", "transform", "events", "ui_basic", "player_write", "network"],
+  "requires_host_api": 4,
+  "add_audio": ["audio/chime.wav"],
+  "network": {
+    "connect": ["https://bridge-host-not-set.invalid"],
+    "purpose": "The Lobby owner's private work panel. Nothing is sent unless the owner signs in or you type a watch code the owner shared.",
+    "privacy_url": "https://bridge-host-not-set.invalid/privacy",
+    "required": false
+  }
+}

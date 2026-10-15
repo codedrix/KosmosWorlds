@@ -109,5 +109,14 @@ save("wall", await view());
 await press("CardA");
 save("chat", await view());
 
+// The owner lets the group watch; a member's world asks with the code (no token).
+await press("BtnWatch");
+const code = bridge.watch.current;
+const ownerTok = tok;
+tok = "";
+const watchBody = await op("watch", { watch: code });
+tok = ownerTok;
+save("watch", watchBody);
+
 await bridge.shutdown();
 process.exit(0);

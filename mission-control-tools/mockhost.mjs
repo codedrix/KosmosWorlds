@@ -1,18 +1,23 @@
-// mockhost.mjs -- runs the BUILT world.wasm against the REAL bridge, end to end, without a headset.
+// mockhost.mjs -- runs the BUILT Lobby program against the REAL bridge, end to end, without a headset.
 //
 // @kosmos-system Content (KosmosWorlds) -- Mission Control (DB-044)
 // @kosmos-owner  Content lane
 //
-// A Node stand-in for the Kosmos host: it implements every kosmos.* import the
-// world uses (nodes, world text, visibility, transforms, clones, events, the
+// A Node stand-in for the Kosmos host: it implements every kosmos.* import the program
+// uses (nodes, world text, visibility, transforms and rotations, clones, events, the
 // typing sheet, haptics, audio, k_log, and k_net_* over real HTTP to a bridge on
-// 127.0.0.1 with the fake adapter). Then it plays a visit: sign in, start a
-// preset, wait for the approval (and check the buzz + chime), approve, watch the
-// job finish, go back to the wall.
+// 127.0.0.1 with the scripted fake adapter). It runs TWO copies of the program, each with
+// its own memory, the way two headsets would:
 //
-// It checks the world's wire client against the bridge's face. It does NOT
-// check the headset: rendering, the real typing sheet and haptics are the device
-// checkpoint's job.
+//   the owner:   the Lobby loads (music starts, zero network calls), the ritual (press the
+//                seal, type the passphrase), the wall, a preset, the approval with two
+//                pulses and a chime, Approve, the job finishes, Group watch on;
+//   a watcher:   presses the Watch button, types the code, gets the read-only copy turned
+//                to face the hall; its presses send nothing; it never buzzes;
+//   the owner:   Close parks the panel; the watcher's next update is refused.
+//
+// It checks the program against the bridge. It does NOT check the headset: rendering, the
+// real typing sheet and real haptics are the device checkpoint's job.
 //
 // Usage (after `npm run build` in agent-bridge and building world.wasm):
 //   node mission-control-tools/mockhost.mjs
@@ -20,16 +25,17 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { pathToFileURL, fileURLToPath } from "node:url";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 process.env.AGENT_BRIDGE_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "mc-mockhost-"));
-const bridgeDist = path.join(repo, "agent-bridge", "dist", "src");
-const { Bridge } = await import(new URL(`file:///${path.join(bridgeDist, "bridge.js")}`).href);
-const { FakeAdapter } = await import(new URL(`file:///${path.join(bridgeDist, "adapters", "fake.js")}`).href);
-const { createServer } = await import(new URL(`file:///${path.join(bridgeDist, "server.js")}`).href);
-const { MissionControlFace } = await import(new URL(`file:///${path.join(bridgeDist, "faces", "mission-control", "index.js")}`).href);
-const { hashPassphrase, defaultConfig } = await import(new URL(`file:///${path.join(bridgeDist, "config.js")}`).href);
+const dist = path.join(repo, "agent-bridge", "dist", "src");
+const load = (p) => import(pathToFileURL(path.join(dist, p)).href);
+const { Bridge } = await load("bridge.js");
+const { FakeAdapter } = await load("adapters/fake.js");
+const { createServer } = await load("server.js");
+const { MissionControlFace } = await load("faces/mission-control/index.js");
+const { hashPassphrase, defaultConfig } = await load("config.js");
 
 // --- the bridge -------------------------------------------------------------
 const PASS = "mock host passphrase";
@@ -42,169 +48,170 @@ const server = createServer(bridge, new Map([[face.name, face]]), { port: 0, log
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
 const port = server.address().port;
 
-// --- the host ---------------------------------------------------------------
 const nodes = JSON.parse(fs.readFileSync(path.join(repo, "mission-control", "nodes.json"), "utf8"));
-const names = [...nodes.text, ...nodes.buttons, ...nodes.show];
-const handleOf = new Map(names.map((n, i) => [n, i + 1]));
-const nameOf = new Map(names.map((n, i) => [i + 1, n]));
-const text = new Map();
-const visible = new Map();
-const scale = new Map();
-const position = new Map();
-const created = new Map();
-const subs = new Map(); // handle -> fn index (OnInteract)
-const globals = new Map(); // event name -> fn index
-const log = { haptic: [], audio: [], klog: [], prompts: [] };
-const net = { pending: [], done: [], bodies: new Map() };
-let nextHandle = 1000;
-let mem;
-let table;
-const memory = new WebAssembly.Memory({ initial: 17, maximum: 128 });
-const bytes = (p, l) => new Uint8Array(memory.buffer, p, l);
-const str = (p, l) => new TextDecoder().decode(bytes(p, l));
-
-const kosmos = {
-  k_node_find: (p, l) => handleOf.get(str(p, l)) ?? 0,
-  k_node_set_visible: (h, v) => (visible.set(nameOf.get(h) ?? h, v !== 0), 0),
-  k_node_clone: (src, _parent, p, l) => {
-    const h = nextHandle++;
-    created.set(h, str(p, l));
-    return h;
-  },
-  k_node_destroy: (h) => (created.delete(h), 0),
-  k_transform_get_position: (h, x, y, z) => {
-    const dv = new DataView(memory.buffer);
-    const [px, py, pz] = position.get(h) ?? [2.9, 1.5, 0];
-    dv.setFloat32(x, px, true);
-    dv.setFloat32(y, py, true);
-    dv.setFloat32(z, pz, true);
-    return 0;
-  },
-  k_transform_set_position: (h, x, y, z) => (position.set(h, [x, y, z]), 0),
-  k_transform_set_scale: (h, x, y, z) => (scale.set(nameOf.get(h), [x, y, z]), 0),
-  k_ui_show_world_text: (h, p, l) => {
-    if (l > 128) return -7;
-    text.set(nameOf.get(h), str(p, l));
-    return 0;
-  },
-  k_ui_hide_world_text: (h) => (text.delete(nameOf.get(h)), 0),
-  k_ui_prompt: (qp, ql, out, cap, id) => {
-    log.prompts.push({ q: str(qp, ql), out, cap, id });
-    return 0;
-  },
-  k_event_subscribe: (p, l, h, fn) => (subs.set(h, fn), 1),
-  k_event_subscribe_global: (p, l, fn) => (globals.set(str(p, l), fn), 1),
-  k_haptic_pulse: (hand, intensity, ms) => (log.haptic.push({ hand, intensity, ms, at: Date.now() }), 0),
-  k_audio_play: (n, p, l) => (log.audio.push(str(p, l)), 0),
-  k_log: (lv, p, l) => (log.klog.push(str(p, l)), 0),
-  k_net_status: () => 1,
-  k_net_fetch: (method, up, ul, bp, bl, flags, id) => {
-    const url = str(up, ul);
-    const body = Buffer.from(bytes(bp, bl));
-    if (bl > 16384) return -5;
-    if (net.pending.length >= 4) return -6;
-    // The world calls https://<bridge host>/...; the mock sends it to the local bridge.
-    const local = url.replace(/^https:\/\/[^/]+/, `http://127.0.0.1:${port}`);
-    const p = fetch(local, { method: method === 1 ? "POST" : "GET", body: method === 1 ? body : undefined, headers: { "X-World-Address": "mission-control.micknerks", "Content-Type": "text/plain" } })
-      .then(async (r) => ({ id, status: r.status, body: Buffer.from(await r.arrayBuffer()) }))
-      .catch(() => ({ id, status: 0, body: Buffer.alloc(0) }));
-    net.pending.push(p);
-    p.then((res) => {
-      net.pending.splice(net.pending.indexOf(p), 1);
-      net.done.push(res);
-    });
-    return 0;
-  },
-  k_net_read: (id, out, cap) => {
-    const b = net.bodies.get(id);
-    if (!b) return -7;
-    if (cap === 0) return b.length;
-    const n = Math.min(cap, b.length);
-    bytes(out, n).set(b.subarray(0, n));
-    return n;
-  },
-};
-
+const names = [...nodes.text, ...nodes.buttons, ...nodes.show, ...nodes.world];
 const wasm = fs.readFileSync(path.join(repo, "mission-control", "world.wasm"));
-const { instance } = await WebAssembly.instantiate(wasm, { env: { memory }, kosmos });
-table = instance.exports.__indirect_function_table;
-mem = memory;
-const call = (fn, ...args) => table.get(fn)(...args);
-
-function tick(dt = 0.05) {
-  // Deliver finished requests one per tick, then k_tick (a body lives until the next tick).
-  net.bodies.clear();
-  for (const res of net.done.splice(0)) {
-    net.bodies.set(res.id, res.body);
-    call(globals.get("OnNetResult"), 0, 0, res.id, res.status);
-  }
-  instance.exports.k_tick(dt);
-}
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-async function run(ms) {
-  const end = Date.now() + ms;
-  while (Date.now() < end) {
-    tick();
-    await sleep(20);
-  }
+
+/** One headset: its own memory, scene state and network queue. */
+async function headset(label) {
+  const handleOf = new Map(names.map((n, i) => [n, i + 1]));
+  const nameOf = new Map(names.map((n, i) => [i + 1, n]));
+  const hs = {
+    label,
+    text: new Map(),
+    visible: new Map(),
+    position: new Map(),
+    rotation: new Map(),
+    created: new Map(),
+    subs: new Map(),
+    globals: new Map(),
+    log: { haptic: [], audio: [], music: [], klog: [], prompts: [], fetches: [] },
+    net: { pending: 0, done: [], bodies: new Map() },
+  };
+  let nextHandle = 1000;
+  const memory = new WebAssembly.Memory({ initial: 17, maximum: 256 });
+  const bytes = (p, l) => new Uint8Array(memory.buffer, p, l);
+  const str = (p, l) => new TextDecoder().decode(bytes(p, l));
+  const f32 = (p, v) => new DataView(memory.buffer).setFloat32(p, v, true);
+  const kosmos = {
+    k_node_find: (p, l) => handleOf.get(str(p, l)) ?? 0,
+    k_node_set_visible: (h, v) => (hs.visible.set(nameOf.get(h) ?? h, v !== 0), 0),
+    k_node_clone: (_s, _p, p, l) => (hs.created.set(nextHandle, str(p, l)), nextHandle++),
+    k_node_destroy: (h) => (hs.created.delete(h), 0),
+    k_transform_get_position: (h, x, y, z) => {
+      // Authored parked: 200 m below a Lobby-like spot in front of the throne.
+      f32(x, 11.9);
+      f32(y, 3.0 - 200);
+      f32(z, 0);
+      return 0;
+    },
+    k_transform_set_position: (h, x, y, z) => (hs.position.set(nameOf.get(h) ?? h, [x, y, z]), 0),
+    k_transform_set_scale: () => 0,
+    k_transform_get_rotation: (h, p, y, r) => (f32(p, 0), f32(y, 180), f32(r, 0), 0),
+    k_transform_set_rotation: (h, p, y, r) => (hs.rotation.set(nameOf.get(h) ?? h, [p, y, r]), 0),
+    k_ui_show_world_text: (h, p, l) => (l > 128 ? -7 : (hs.text.set(nameOf.get(h), str(p, l)), 0)),
+    k_ui_hide_world_text: (h) => (hs.text.delete(nameOf.get(h)), 0),
+    k_ui_prompt: (qp, ql, out, cap, id) => (hs.log.prompts.push({ q: str(qp, ql), out, cap, id }), 0),
+    k_event_subscribe: (_p, _l, h, fn) => (hs.subs.set(h, fn), 1),
+    k_event_subscribe_global: (p, l, fn) => (hs.globals.set(str(p, l), fn), 1),
+    k_haptic_pulse: (hand, intensity, ms) => (hs.log.haptic.push({ hand, intensity, ms }), 0),
+    k_audio_play: (_n, p, l) => (hs.log.audio.push(str(p, l)), 0),
+    k_audio_play_ex: (_n, p, l, vol) => (hs.log.music.push([str(p, l), Math.round(vol * 100) / 100]), 0),
+    k_audio_stop: () => 0,
+    k_log: (_lv, p, l) => (hs.log.klog.push(str(p, l)), 0),
+    k_net_status: () => 1,
+    k_net_fetch: (method, up, ul, bp, bl, _flags, id) => {
+      const url = str(up, ul);
+      const body = Buffer.from(bytes(bp, bl));
+      if (bl > 16384) return -5;
+      if (hs.net.pending >= 4) return -6;
+      hs.log.fetches.push(url.replace(/^https:\/\/[^/]+/, ""));
+      const local = url.replace(/^https:\/\/[^/]+/, `http://127.0.0.1:${port}`);
+      hs.net.pending++;
+      fetch(local, { method: method === 1 ? "POST" : "GET", body: method === 1 ? body : undefined, headers: { "X-World-Address": "lobby.micknerks", "Content-Type": "text/plain" } })
+        .then(async (r) => ({ id, status: r.status, body: Buffer.from(await r.arrayBuffer()) }))
+        .catch(() => ({ id, status: 0, body: Buffer.alloc(0) }))
+        .then((res) => {
+          hs.net.pending--;
+          hs.net.done.push(res);
+        });
+      return 0;
+    },
+    k_net_read: (id, out, cap) => {
+      const b = hs.net.bodies.get(id);
+      if (!b) return -7;
+      if (cap === 0) return b.length;
+      const n = Math.min(cap, b.length);
+      bytes(out, n).set(b.subarray(0, n));
+      return n;
+    },
+  };
+  const { instance } = await WebAssembly.instantiate(wasm, { env: { memory }, kosmos });
+  const table = instance.exports.__indirect_function_table;
+  hs.call = (fn, ...a) => table.get(fn)(...a);
+  hs.tick = (dt = 0.05) => {
+    hs.net.bodies.clear();
+    for (const res of hs.net.done.splice(0)) {
+      hs.net.bodies.set(res.id, res.body);
+      hs.call(hs.globals.get("OnNetResult"), 0, 0, res.id, res.status);
+    }
+    instance.exports.k_tick(dt);
+  };
+  hs.press = (name) => hs.call(hs.subs.get(handleOf.get(name)), 0, handleOf.get(name), 0, 0);
+  hs.answer = (s) => {
+    const p = hs.log.prompts.at(-1);
+    const b = new TextEncoder().encode(s);
+    bytes(p.out, b.length).set(b);
+    hs.call(hs.globals.get("OnPromptResult"), 0, 0, p.id, b.length);
+  };
+  instance.exports.k_init();
+  return hs;
 }
-async function until(pred, what, ms = 8000) {
+
+async function until(hss, pred, what, ms = 8000) {
   const end = Date.now() + ms;
   while (Date.now() < end) {
-    tick();
+    for (const h of hss) h.tick();
     if (pred()) return;
     await sleep(20);
   }
-  throw new Error(`timed out waiting for ${what}; ticker=${text.get("TxTicker")} status=${text.get("TxStatus")}`);
-}
-function press(name) {
-  call(subs.get(handleOf.get(name)), 0, handleOf.get(name), 0, 0);
-}
-function answerPrompt(answer) {
-  const p = log.prompts.at(-1);
-  const b = new TextEncoder().encode(answer);
-  bytes(p.out, b.length).set(b);
-  call(globals.get("OnPromptResult"), 0, 0, p.id, b.length);
+  throw new Error(`timed out waiting for ${what}`);
 }
 
 // --- the visit ----------------------------------------------------------------
-instance.exports.k_init();
-assert.equal(text.get("TxLock"), "Connecting to the bridge\non the PC...");
-await until(() => visible.get("BtnSignIn") === true, "the lock screen from the bridge");
-console.log("1. lock screen:", JSON.stringify(text.get("TxLock")));
 
-press("BtnSignIn");
-assert.match(log.prompts.at(-1).q, /passphrase/);
-answerPrompt(PASS);
-await until(() => /working/.test(text.get("TxTicker") ?? ""), "the wall after sign-in");
-console.log("2. signed in, ticker:", text.get("TxTicker"));
 
-press("BtnTests");
-await until(() => /Run all tests/.test(text.get("TxHeader") ?? ""), "the chat for the preset");
-console.log("3. chat open:", text.get("TxHeader"));
+const owner = await headset("owner");
+assert.deepEqual(owner.log.music[0], ["lobby_ypsilon_01.ogg", 0.4], "the Lobby's music starts as before");
+for (let i = 0; i < 60; i++) owner.tick();
+assert.equal(owner.log.fetches.length, 0, "a Lobby visitor's program makes no network call");
+console.log("1. Lobby loaded: music on, panel parked, zero network calls");
 
-await until(() => visible.get("BtnApprove") === true, "the inline approval");
-await run(400);
-assert.equal(log.audio.filter((a) => a === "chime.wav").length, 1, "one chime");
-assert.equal(log.haptic.length, 2, "two pulses");
-assert.ok(log.haptic.every((h) => h.hand === 2), "both controllers");
-console.log("4. approval:", JSON.stringify(text.get("TxAskA")), "| haptic pulses:", log.haptic.length, "| chime:", log.audio.length);
-const conv = names.filter((n) => n.startsWith("TxConv")).map((n) => text.get(n)).filter(Boolean);
-assert.ok(conv.some((l) => l.startsWith("Claude: ")), "Claude's words on the wall");
-assert.ok([...position.keys()].length > 0, "conversation lines were shifted to read left-aligned");
+owner.press("McSeal");
+assert.match(owner.log.prompts.at(-1).q, /passphrase/);
+owner.answer(PASS);
+assert.equal(owner.log.fetches[0], "/v1/faces/mission-control/signin", "the first call is the sign-in");
+await until([owner], () => /working/.test(owner.text.get("TxTicker") ?? ""), "the wall after the ritual");
+assert.equal(owner.position.get("TxTicker")[1], 3.0, "the panel rose 200 m to its place");
+console.log("2. ritual + sign-in: the panel rose; ticker:", owner.text.get("TxTicker"));
 
-press("BtnApprove");
-await until(() => /DONE/.test(text.get("TxHeader") ?? ""), "the job to finish");
-console.log("5. finished:", text.get("TxHeader"));
+owner.press("BtnTests");
+await until([owner], () => owner.visible.get("BtnApprove") === true, "the inline approval");
+await until([owner], () => owner.log.haptic.length >= 2, "the second pulse");
+assert.equal(owner.log.audio.filter((a) => a === "chime.wav").length, 1);
+assert.ok(owner.log.haptic.every((h) => h.hand === 2));
+console.log("3. approval:", JSON.stringify(owner.text.get("TxAskA")), "| pulses:", owner.log.haptic.length, "| chime: 1");
+owner.press("BtnApprove");
+await until([owner], () => /DONE/.test(owner.text.get("TxHeader") ?? ""), "the job to finish");
+owner.press("BtnBack");
+await until([owner], () => owner.visible.get("WallPanel") === true, "the wall");
+owner.press("BtnWatch");
+await until([owner], () => /code \d{3} \d{3}/.test(owner.text.get("TxWatch") ?? ""), "the watch code");
+const code = /code (\d{3}) (\d{3})/.exec(owner.text.get("TxWatch")).slice(1).join("");
+console.log("4. done; group watch on:", owner.text.get("TxWatch"));
 
-press("BtnBack");
-await until(() => visible.get("WallPanel") === true, "the wall");
-assert.match(text.get("TxDone") ?? "", /^Done today: 1/);
-assert.equal(created.size, 0, "one done job shows the authored chip only (no copies)");
-console.log("6. back on the wall:", JSON.stringify(text.get("TxDone")));
+const watcher = await headset("watcher");
+watcher.press("McWatchJoin");
+watcher.answer(code.slice(0, 3) + " " + code.slice(3));
+await until([owner, watcher], () => watcher.text.get("TxWatch") === "Watching (read-only)", "the watcher's copy");
+assert.ok(watcher.log.fetches.every((f) => f === "/v1/faces/mission-control/watch"), "a watcher only ever asks to watch");
+assert.equal(watcher.rotation.get("TxTicker")?.[1], 360, "turned 180 degrees to face the hall");
+const before = watcher.log.fetches.length;
+watcher.press("BtnTests");
+watcher.tick();
+assert.equal(watcher.log.fetches.length, before, "a watcher's press sends nothing");
+assert.equal(watcher.log.haptic.length, 0, "a watcher never buzzes");
+console.log("5. watcher:", JSON.stringify(watcher.text.get("TxStatus")));
 
-for (const [n, t] of text) assert.ok(Buffer.byteLength(t) <= 128, `${n} over 128 bytes`);
-console.log(`PASS: the built world.wasm drove the real bridge end to end (${log.klog.length} k_log lines, ${text.size} labels showing).`);
+owner.press("McClose");
+for (let i = 0; i < 5; i++) owner.tick();
+assert.equal(owner.position.get("TxTicker")[1], 3.0 - 200, "Close parks the panel again");
+await until([watcher], () => /Nobody is sharing|owner has left/.test(watcher.text.get("TxStatus") ?? ""), "the watcher refused after the owner left", 12000);
+console.log("6. owner closed (signed out, parked); watcher told:", JSON.stringify(watcher.text.get("TxStatus")));
+
+for (const h of [owner, watcher]) for (const [n, t] of h.text) assert.ok(Buffer.byteLength(t) <= 128, `${h.label} ${n} over 128 bytes`);
+console.log("PASS: two copies of the built Lobby program drove the real bridge end to end.");
 server.close();
 await bridge.shutdown();
 process.exit(0);

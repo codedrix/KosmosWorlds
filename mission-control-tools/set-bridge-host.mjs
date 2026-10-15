@@ -5,7 +5,7 @@
 //
 // Usage:  node mission-control-tools/set-bridge-host.mjs bridge.example.dev
 //
-// Writes bridge-origin.txt (compiled into world.wasm) and the manifest's
+// Writes bridge-origin.txt (compiled into world.wasm, the Lobby program) and the Lobby manifest patch
 // network.connect + privacy_url, which must name the same origin. Then rebuild:
 //   powershell -NoProfile -ExecutionPolicy Bypass -File mission-control-tools\build_wasm.ps1
 //
@@ -34,11 +34,11 @@ if (problems.length) {
 
 const origin = `https://${host}`;
 fs.writeFileSync(path.join(pkg, "bridge-origin.txt"), origin + "\n");
-const mf = path.join(pkg, "manifest.json");
+const mf = path.join(pkg, "lobby-manifest.patch.json");
 const m = JSON.parse(fs.readFileSync(mf, "utf8"));
 m.network.connect = [origin];
 m.network.privacy_url = `${origin}/privacy`;
 fs.writeFileSync(mf, JSON.stringify(m, null, 2) + "\n");
 console.log(`Mission Control now calls ${origin}`);
-console.log("Next: rebuild world.wasm (mission-control-tools\\build_wasm.ps1), then bundle and validate WITHOUT --offline");
+console.log("Next: rebuild world.wasm (mission-control-tools\\build_wasm.ps1), run lobby\\package_lobby.mjs, then validate WITHOUT --offline");
 console.log(`so the publisher fetches ${origin}/.well-known/world-network.json from the running bridge.`);

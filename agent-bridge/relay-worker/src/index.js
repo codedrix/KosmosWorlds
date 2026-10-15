@@ -22,14 +22,14 @@
  * Settings (wrangler secrets, never in the repo):
  *   BRIDGE_ORIGIN   https://<the tunnel's host>   e.g. the Tailscale Funnel name
  *   RELAY_SECRET    a long random string; the same value goes in the bridge's config.json
- * Var (wrangler.toml): WORLDS = "world://mission-control.micknerks" (comma-separated)
+ * Var (wrangler.toml): WORLDS = "world://lobby.micknerks" (comma-separated)
  */
 
 const PRIVACY = [
   "Mission Control bridge - privacy",
   "",
   "This server relays requests to one person's own computer and serves one person: its owner, who",
-  "signs in with a passphrase inside the Kosmos world world://mission-control.micknerks.",
+  "signs in with a passphrase inside the Kosmos world world://lobby.micknerks.",
   "It receives the buttons the owner presses and the words the owner types, and returns short",
   "summaries of the owner's own Claude Code jobs. File contents, command output and diffs never",
   "leave the computer. Nothing about anyone else is kept; the headset sends no identity.",

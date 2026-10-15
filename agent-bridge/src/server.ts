@@ -49,7 +49,7 @@ export const PRIVACY_TEXT = [
   "Mission Control bridge - privacy",
   "",
   "This server runs on its owner's own computer and serves one person: the owner, who signs in",
-  "with a passphrase inside the Kosmos world world://mission-control.micknerks.",
+  "with a passphrase inside the Kosmos world world://lobby.micknerks.",
   "",
   "What it receives: the buttons the owner presses on the wall and the words the owner types.",
   "What it sends back: short summaries of the owner's own Claude Code jobs (titles, status,",

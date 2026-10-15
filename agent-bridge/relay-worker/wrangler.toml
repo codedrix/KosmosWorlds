@@ -1,10 +1,13 @@
 # The bridge's always-on front door (DB-044). The CEO deploys it: `npx wrangler deploy` from
-# this folder, after `npx wrangler secret put BRIDGE_ORIGIN` and `npx wrangler secret put RELAY_SECRET`.
+# this folder, then `npx wrangler secret put BRIDGE_ORIGIN` (the tunnel address) and, from agent-bridge,
+# `npm run make-relay-secret` (it sets RELAY_SECRET without ever showing it).
 # No account id here: wrangler uses the signed-in account. Never put a secret in this file.
+# WORLDS: the worlds this origin opts in to in /.well-known/world-network.json
+# (Mission Control in the Lobby; More Room, VR and MR). Adding one is a redeploy, nothing else.
 name = "kosmos-agent-bridge"
 main = "src/index.js"
 compatibility_date = "2026-09-01"
 workers_dev = true
 
 [vars]
-WORLDS = "world://mission-control.micknerks"
+WORLDS = "world://lobby.micknerks,world://more-room.micknerks,world://more-room-mr.micknerks"

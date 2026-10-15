@@ -16,7 +16,7 @@ export function tempHome(): string {
 }
 
 export const PASS = "correct horse battery staple";
-export const WORLD = "mission-control.micknerks";
+export const WORLD = "lobby.micknerks";
 
 export async function startBridge(stepMs = 5, longPollMs = 300, rate = { perSecond: 1000, burst: 1000 }) {
   const { Bridge } = await import("../src/bridge.js");

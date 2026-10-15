@@ -8,7 +8,7 @@ import { loadFaces } from "../src/faces/registry.js";
 test("faces are found by folder; Mission Control is one of them", async () => {
   const faces = await loadFaces();
   assert.ok(faces.has("mission-control"));
-  assert.deepEqual([...(faces.get("mission-control")?.worlds ?? [])], ["world://mission-control.micknerks"]);
+  assert.deepEqual([...(faces.get("mission-control")?.worlds ?? [])], ["world://lobby.micknerks"]);
 });
 
 test("a new room is a new folder, nothing else", async () => {

@@ -1,5 +1,5 @@
 AB1
-V 1
+V 1000001
 M lock
 X TxProject
 X TxCardA
@@ -30,6 +30,7 @@ X TxConvL
 X TxPage
 X TxAskA
 X TxAskB
+X TxWatch
 U BtnSignOut 0
 U BtnTests 0
 U BtnPrs 0
@@ -59,6 +60,7 @@ U BtnSummary 0
 U BtnReply 0
 U BtnPageUp 0
 U BtnPageDown 0
+U BtnWatch 0
 U WallPanel 0
 U ChatPanel 0
 U AskPanel 0

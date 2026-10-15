@@ -1,47 +1,59 @@
 """
-build_world.py -- builds world://mission-control.micknerks and renders its lit review.
+build_panel.py -- builds the Mission Control panel for world://lobby.micknerks, and its lit review.
 
 @kosmos-system  Content (KosmosWorlds) -- Mission Control (DB-044)
 @kosmos-owner   Content lane
 
+Mission Control lives INSIDE the Lobby (the CEO, 2026-10-14). The owner stands on the
+throne facing the hall, points at an unmarked spot on the front of the seat and
+presses A; the system typing sheet asks for the bridge's passphrase; the panel then
+rises in front of him. Leaving the Lobby closes it.
+
 Run headless (no window, no editor):
 
-    "E:/Blender/blender-5.1/Blender Foundation/Blender 5.1/blender.exe" -b -P mission-control/blender/build_world.py
-    ... -- --no-render        export world.glb only
+    "E:/Blender/blender-5.1/Blender Foundation/Blender 5.1/blender.exe" -b -P mission-control/blender/build_panel.py
+    ... -- --no-render        export mc_assembly.glb only
 
 Writes:
-    world.glb            the scene, every scripted node carrying an extra
-    review/*.jpg         lit renders: the lock screen, the wall, the chat, a close read, the room
+    mc_assembly.glb      the panel PARKED 200 m below the Lobby floor, the seal on the
+                         throne seat and the Watch button on the dais; merged into the
+                         live Lobby scene by mission-control-tools/lobby/merge_glb.mjs
+    review/*.jpg         lit renders inside the live Lobby scene
+
+WHY PARKED. Every visitor's headset runs the Lobby's program, and only the owner's
+(after the ritual) ever raises the panel. Authoring it 200 m down means that if the
+program fails to load, nobody ever sees a stray panel in the Lobby.
+
+PLACEMENT. The panel is designed around a viewer at the origin facing +X (the old
+standalone wall), then turned 180 degrees and set on the throne seat: the owner
+stands at STAND (Lobby Blender coordinates; seat top 1.46 m, measured from the live
+scene by mission-control-tools/lobby/measure_throne.py), facing -X into the hall.
 
 THE NODE CONTRACT. Every name the script finds is in ../nodes.json, which the
-bridge generates from its face layout (agent-bridge/scripts/write-nodes-json.mjs).
+bridge generates from its face layout (agent-bridge/scripts/write-nodes-json.mjs),
+including the world-only nodes (seal, Watch button, move handles, frames, page dock).
 This script builds exactly those nodes and asserts it built them all.
 
 DEVICE RULES this file follows (memory notes, 2026-08 to 2026-10):
   1. No node name ends in a digit (the client strips a trailing `_<digit>`).
-  2. `k_node_find` sees only nodes WITH A MESH: every text anchor is a 1 cm stud.
+  2. `k_node_find` sees only nodes WITH A MESH: every text anchor is a mesh.
   3. The publisher's merge stage bakes childless, extras-less meshes away, so
-     every scripted node carries an extra (`interactable` on buttons,
-     `script_node` on the rest).
+     every node the script moves carries an extra (`interactable` on buttons,
+     `script_node` on the rest), the frames included.
   4. A button is ONE mesh with its words merged in: `k_node_set_visible` turns
      collision off only on the node itself, so a separate label child would keep
      blocking the laser after its button hid.
   5. World text is white, 8 cm Roboto, centred on its anchor and bottom-aligned,
      depth-tested. Every anchor is a 3 cm x 3 cm x 2 mm PLAQUE parallel to its
      panel: the client prints text on a thin plane's face, a hair in front, and
-     never turns it (KWorldTextPool.cpp, Build 1009: "A plane: the thinnest local
-     extent at most a fifth of the next one", next one > 1 cm). Text that turns
-     toward the eye instead swings a long line's far end into the panel (the
-     net-check 1.0.0 defect, and this world's own first review). Plaques sit 3-4
-     cm in front of the surface behind them.
-  6. Node rotations are baked to identity, and each progress bar's origin is its
+     never turns it (KWorldTextPool.cpp, Build 1009). Plaques keep their rotation
+     on the node (the client judges "thin" from local bounds).
+  6. Other nodes' rotations are baked to identity; each progress bar's origin is its
      left end, so `k_transform_set_scale(bar, 1, f, 1)` grows it to the right.
 
-THE REVIEW applies review/<lock|wall|chat>.snapshot (captured from the real
-bridge by agent-bridge/scripts/capture-review-snapshots.mjs) exactly as
-src/lib.rs applies a snapshot: visibility, gauges, copies, offsets, and the
-world text drawn as white Roboto at 8 cm facing the camera. The light is a
-stand-in for the client's pawn rig plus `sky: "night"`; it reviews composition
+THE REVIEW applies review/<lock|wall|chat>.snapshot (captured from the real bridge by
+agent-bridge/scripts/capture-review-snapshots.mjs) exactly as src/lib.rs applies a
+snapshot, with the panel raised, inside the live Lobby scene. It reviews composition
 and legibility, not photometry. Pixels on the headset are the real check.
 """
 
@@ -62,7 +74,21 @@ ARGS = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 
 EYE = 1.6
 TEXT_SIZE = 0.08          # KWorldTextPool.cpp WorldTextSizeCm
-LOBBY_URL = "world://lobby.micknerks"
+
+# Where the owner stands on the throne (Lobby Blender coordinates): the seat's centre,
+# seat top 1.46 m, facing -X into the hall. Mirrored in src/lib.rs (the move limits).
+STAND = (14.8, 0.0, 1.46)
+# How far below the Lobby floor the panel is authored ("parked"). Mirrored in src/lib.rs.
+PARK_DROP = 200.0
+# The ritual's spot: the front of the seat, between the feet of someone standing on it
+# and facing the hall (seat x 14.2-15.4, y -0.8..0.8).
+SEAL_AT = (14.42, 0.0, 1.462)
+# The Watch button: on the dais, to the throne's right as seen from the hall (y < 0),
+# clear of the right arm (y -1.0) and the pier.
+WATCH_AT = (14.3, -1.75, 0.9)
+LOBBY_GLB = os.environ.get(
+    "LOBBY_GLB", "E:/Kosmos_Integration/mission-control-door/lobby_1.1.1_live/scene.glb"
+)
 
 # Panel frames: (azimuth degrees, radius to the panel surface). +azimuth is the
 # visitor's left (Blender +Y); the spawn faces +X (UE forward at yaw 0).
@@ -267,100 +293,38 @@ def materials():
     mat("greenFace", (0.03, 0.14, 0.07), rough=0.8)
     mat("amberFace", (0.22, 0.11, 0.02), rough=0.8)
     mat("barBg", (0.02, 0.025, 0.04), rough=0.85)
-    mat("portal", (0.08, 0.30, 0.45), emit=(0.10, 0.45, 0.70))
+    mat("seal", (0.16, 0.16, 0.16), rough=0.9)  # a stone inlay, close to the seat's own grey
 
 
-def build_room():
-    # Floor: a disc, with a faint ring where the visitor stands.
-    bpy.ops.mesh.primitive_cylinder_add(vertices=64, radius=3.5, depth=0.1, location=(0, 0, -0.05))
-    floor = bpy.context.active_object
-    floor.name = "Floor"
-    floor.data.materials.append(MATS["floor"])
-    bpy.ops.mesh.primitive_torus_add(major_radius=1.15, minor_radius=0.012, major_segments=64, minor_segments=6, location=(0, 0, 0.004))
-    ring = bpy.context.active_object
-    ring.name = "StandRing"
-    ring.scale = (1, 1, 0.3)
-    ring.data.materials.append(MATS["cyan"])
-    bake(ring)
+LOBBY_FRAME = (0.0, 0.0)  # identity: Lobby Blender coordinates as they are
 
-    # The curved wall behind the panels: 200 degrees of a 3.4 m cylinder.
-    segs = 40
-    verts, faces = [], []
-    a0, a1 = math.radians(-100), math.radians(100)
-    for i in range(segs + 1):
-        a = a0 + (a1 - a0) * i / segs
-        for z in (0.0, 3.7):
-            verts.append((3.4 * math.cos(a), 3.4 * math.sin(a), z))
-    for i in range(segs):
-        b = i * 2
-        faces.append((b, b + 2, b + 3, b + 1))
-    me = bpy.data.meshes.new("BackWallMesh")
-    me.from_pydata(verts, [], faces)
-    wall = bpy.data.objects.new("BackWall", me)
-    bpy.context.collection.objects.link(wall)
-    wall.data.materials.append(MATS["wall"])
-    sol = wall.modifiers.new("Thick", "SOLIDIFY")
-    sol.thickness = 0.1
-    select_only([wall])
-    bpy.ops.object.modifier_apply(modifier="Thick")
-    # Two thin light lines along the wall: arcs on the wall only, never across the open sky.
-    for z, nm in ((3.45, "WallLineHigh"), (0.25, "WallLineLow")):
-        lv, lf = [], []
-        for i in range(segs + 1):
-            a = a0 + (a1 - a0) * i / segs
-            for dz in (-0.012, 0.012):
-                lv.append((3.33 * math.cos(a), 3.33 * math.sin(a), z + dz))
-        for i in range(segs):
-            b = i * 2
-            lf.append((b, b + 1, b + 3, b + 2))
-        lm = bpy.data.meshes.new(nm + "Mesh")
-        lm.from_pydata(lv, [], lf)
-        line = bpy.data.objects.new(nm, lm)
-        bpy.context.collection.objects.link(line)
-        line.data.materials.append(MATS["cyan"])
 
-    # A low parapet behind the visitor closes the room, open to the night sky above. It is an
-    # open ARC, never a closed ring: the publisher reads a closed shell as one solid collision
-    # box over the floor (GLTF_007), which would trap the visitor.
-    pv, pf = [], []
-    p0, p1 = math.radians(100), math.radians(260)
-    psegs = 32
-    for i in range(psegs + 1):
-        a = p0 + (p1 - p0) * i / psegs
-        for z in (0.0, 0.9):
-            pv.append((3.4 * math.cos(a), 3.4 * math.sin(a), z))
-    for i in range(psegs):
-        b = i * 2
-        pf.append((b, b + 2, b + 3, b + 1))
-    pm = bpy.data.meshes.new("ParapetMesh")
-    pm.from_pydata(pv, [], pf)
-    par = bpy.data.objects.new("Parapet", pm)
-    bpy.context.collection.objects.link(par)
-    par.data.materials.append(MATS["wall"])
-    sol = par.modifiers.new("Thick", "SOLIDIFY")
-    sol.thickness = 0.12
-    select_only([par])
-    bpy.ops.object.modifier_apply(modifier="Thick")
+def build_fixtures():
+    """The two pieces that stay in the Lobby for every visitor (never parked).
 
-    # The door home: a declarative link (no program, no capability), behind the visitor.
-    back = (180.0, 3.0)
-    arch_parts = [
-        box("_ArchL", back, (0, 0.62, 1.15), (0.12, 0.12, 2.3), MATS["frame"]),
-        box("_ArchR", back, (0, -0.62, 1.15), (0.12, 0.12, 2.3), MATS["frame"]),
-        box("_ArchTop", back, (0, 0, 2.35), (0.12, 1.36, 0.12), MATS["frame"]),
-        mesh_text("_ArchWord", back, (-0.07, 0, 2.62), "LOBBY", 0.16, MATS["label"]),
+    McSeal: an unmarked inlay on the front of the throne seat, the ritual's press.
+    It is a hidden door, not a lock: anyone who watches can repeat the gesture. The
+    sign-in after it is the lock. Standing on the seat facing the hall puts it just
+    in front of your feet; from the floor it sits below the seat's front edge line.
+
+    McWatchJoin: a small "Watch" plaque on the dais, right of the throne as seen from
+    the hall. A group member types the owner's watch code there. Visible to every
+    visitor; it does nothing (and the program makes no network call) without a code.
+    """
+    sx, sy, sz = SEAL_AT
+    bpy.ops.mesh.primitive_cylinder_add(vertices=32, radius=0.09, depth=0.006, location=(sx, sy, sz))
+    seal = bpy.context.active_object
+    seal.data.materials.append(MATS["seal"])
+    node("McSeal", seal, "button")
+
+    wx, wy, wz = WATCH_AT
+    f = LOBBY_FRAME
+    parts = [
+        box("_WatchPost", f, (wx, wy, wz + 0.5), (0.05, 0.05, 1.0), MATS["frame"]),
+        box("_WatchPlate", f, (wx, wy, wz + 1.08), (0.04, 0.42, 0.17), MATS["button"], bevel=0.01),
+        mesh_text("_WatchWord", f, (wx - 0.025, wy, wz + 1.08), "Watch", 0.075, MATS["label"]),
     ]
-    join("DoorArch", arch_parts, to_world(back, (0, 0, 0)))
-    door = box("DoorLobby", back, (0.02, 0, 1.1), (0.04, 1.1, 2.2), MATS["portal"])
-    set_origin(door, to_world(back, (0, 0, 1.1)))
-    door["link"] = LOBBY_URL
-    door["link_label"] = "Lobby"
-
-    bpy.ops.mesh.primitive_cube_add(size=0.01, location=(0, 0, -0.02))
-    sp = bpy.context.active_object
-    sp.name = "spawn_point"
-    sp["spawn_point"] = True
-    sp.data.materials.append(MATS["stud"])
+    node("McWatchJoin", join("McWatchJoin", parts, (wx, wy, wz + 1.08)), "button")
 
 
 # ---------------------------------------------------------------------------
@@ -375,8 +339,9 @@ def build_center():
         box("_CTicker", c, (-0.02, 0, 3.07), (0.06, 3.7, 0.26), MATS["inset"], bevel=0.01),
         box("_CTickerLine", c, (-0.055, 0, 2.935), (0.01, 3.7, 0.012), MATS["cyan"]),
         box("_CStatus", c, (-0.02, 0, 0.44), (0.05, 3.4, 0.16), MATS["inset"], bevel=0.01),
+        box("_CControls", c, (0.03, 0, 0.21), (0.06, 3.8, 0.26), MATS["frame"], bevel=0.015),
     ]
-    join("CenterFrame", parts, to_world(c, (0, 0, 0)))
+    node("McCenterFrame", join("McCenterFrame", parts, to_world(c, (0, 0, 0))), "show")
 
     # Lock screen.
     lock = [
@@ -472,6 +437,27 @@ def build_center():
     anchor("TxStatus", c, (-0.08, 0, 0.38))
     anchor("TxLock", c, (-0.05, 0, 1.5))
 
+    # The controls row under the wall: group watching, the move handles, Close.
+    row = 0.21
+    button("BtnWatch", c, (-0.02, 1.55, row), 0.56, 0.17, "Group watch", MATS["button"], text_size=0.055)
+    anchor("TxWatch", c, (-0.02, 0.62, row - 0.04))
+    handles = (
+        ("McMoveLeft", "<", -0.05), ("McMoveUp", "^", -0.25), ("McMoveDown", "v", -0.45),
+        ("McMoveRight", ">", -0.65), ("McMoveCloser", "Near", -0.88), ("McMoveFarther", "Far", -1.17),
+    )
+    for name, words, y in handles:
+        w = 0.17 if len(words) == 1 else 0.25
+        button(name, c, (-0.02, y, row), w, 0.17, words, MATS["button"], text_size=0.07 if len(words) == 1 else 0.055)
+    button("McClose", c, (-0.02, -1.6, row), 0.38, 0.17, "Close", MATS["redFace"], text_size=0.06)
+
+
+def build_page_dock():
+    """The reserved spot for the pinned web page (DB-043, the page brief): right of the
+    viewer, about 1 m from the head, facing the viewer. A plain plaque until the page
+    brief's PAGE_001 exists; then it gains `page_dock = true` (the brief's proposed
+    contract). Hidden, and so ignored by the page, until the panel opens."""
+    return anchor("McPageDock", (0.0, 0.0), (0.85, -0.85, 1.5))
+
 
 def build_left():
     f = LEFT
@@ -481,7 +467,7 @@ def build_left():
         mesh_text("_LHead", f, (-0.03, 0, 2.66), "START A JOB", 0.08, MATS["title"], weight="Bold"),
         box("_LLine", f, (-0.03, 0, 2.58), (0.01, 1.2, 0.006), MATS["cyan"]),
     ]
-    join("LeftFrame", parts, to_world(f, (0, 0, 0)))
+    node("McLeftFrame", join("McLeftFrame", parts, to_world(f, (0, 0, 0))), "show")
     anchor("TxProject", f, (-0.05, 0, 2.38))
     button("BtnProject", f, (-0.04, 0, 2.22), 1.2, 0.15, "CHANGE PROJECT", MATS["button"], text_size=0.05)
     for i, (name, words) in enumerate((("BtnTests", "Run all tests"), ("BtnPrs", "Review open PRs"), ("BtnToday", "Summarize today"), ("BtnNotes", "Draft release notes"))):
@@ -498,7 +484,7 @@ def build_right():
         mesh_text("_RHead", f, (-0.03, 0, 2.66), "NEEDS YOU", 0.08, MATS["amber"], weight="Bold"),
         box("_RLine", f, (-0.03, 0, 2.58), (0.01, 1.2, 0.006), MATS["amber"]),
     ]
-    join("RightFrame", parts, to_world(f, (0, 0, 0)))
+    node("McRightFrame", join("McRightFrame", parts, to_world(f, (0, 0, 0))), "show")
     for slot, z in zip("ABC", (2.2, 1.6, 1.0)):
         body = box("_Need" + slot, f, (-0.04, 0, z), (0.05, 1.25, 0.54), MATS["amberFill"], bevel=0.015)
         edge = box("_NeedEdge" + slot, f, (-0.068, 0.6, z), (0.01, 0.02, 0.48), MATS["amber"])
@@ -511,7 +497,7 @@ def build_right():
 # ---------------------------------------------------------------------------
 
 def check_contract():
-    want = set(NODES["text"]) | set(NODES["buttons"]) | set(NODES["show"])
+    want = set(NODES["text"]) | set(NODES["buttons"]) | set(NODES["show"]) | set(NODES["world"])
     have = set(built)
     missing, extra = sorted(want - have), sorted(have - want)
     assert not missing and not extra, f"nodes.json mismatch: missing {missing}, extra {extra}"
@@ -520,8 +506,26 @@ def check_contract():
     print(f"[mission-control] built all {len(have)} scripted nodes")
 
 
+def place_panel(objs, dz=0.0):
+    """Turn the viewer-at-origin design 180 degrees and stand it on the throne seat.
+
+    Plaques keep their rotation on the node (rule 5); everything else is baked back
+    to identity rotation (rule 6)."""
+    m = Matrix.Translation((STAND[0], STAND[1], STAND[2] + dz)) @ Matrix.Rotation(math.pi, 4, "Z")
+    for o in objs:
+        o.matrix_world = m @ o.matrix_world
+        if o.name not in ANCHOR_FRAME:
+            select_only([o])
+            bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
+
+
+def move_all(objs, dz):
+    for o in objs:
+        o.location.z += dz
+
+
 def export_glb():
-    path = os.path.join(PKG, "world.glb")
+    path = os.path.join(PKG, "mc_assembly.glb")
     bpy.ops.export_scene.gltf(
         filepath=path,
         export_format="GLB",
@@ -538,7 +542,7 @@ def export_glb():
 
 
 # ---------------------------------------------------------------------------
-# The review: apply a snapshot as src/lib.rs does, then render
+# The review: inside the live Lobby, apply a snapshot as src/lib.rs does, render
 # ---------------------------------------------------------------------------
 
 def parse_snapshot(path):
@@ -546,8 +550,7 @@ def parse_snapshot(path):
     for line in open(path, encoding="utf-8").read().split("\n"):
         if not line or line == "AB1":
             continue
-        parts = line.split(" ", 2)
-        recs.append(parts)
+        recs.append(line.split(" ", 2))
     return recs
 
 
@@ -564,6 +567,11 @@ def unescape(s):
 
 
 REVIEW_OBJS = []
+PANEL = []  # the panel objects (main fills it), for the watcher review
+# The world's own nodes that show whenever the panel is open (src/lib.rs OPEN_SHOWS).
+OPEN_SHOWS = ("McCenterFrame", "McLeftFrame", "McRightFrame", "McClose", "McMoveCloser", "McMoveFarther",
+              "McMoveLeft", "McMoveRight", "McMoveUp", "McMoveDown")
+ALWAYS_SHOWN = ("McSeal", "McWatchJoin")
 
 
 def clear_review():
@@ -572,8 +580,10 @@ def clear_review():
     REVIEW_OBJS.clear()
 
 
-def world_text(anchor_obj, text, cam_loc, dx_m=0.0):
-    """White Roboto at 8 cm, centred, bottom-aligned, printed on the anchor plaque's face (KWorldTextPool rule 1)."""
+def world_text(anchor_obj, text, dx_m=0.0):
+    """White Roboto at 8 cm, centred, bottom-aligned, printed on the plaque's face (KWorldTextPool rule 1).
+
+    The world shifts conversation anchors along the panel's right (src/lib.rs `shift`)."""
     cu = bpy.data.curves.new("WT", type="FONT")
     cu.body = text
     cu.font = font("Regular")
@@ -582,51 +592,49 @@ def world_text(anchor_obj, text, cam_loc, dx_m=0.0):
     cu.align_y = "BOTTOM"
     o = bpy.data.objects.new("WT_" + anchor_obj.name, cu)
     bpy.context.collection.objects.link(o)
-    # The world shifts conversation anchors along wasm +z, which is Blender -Y.
-    fr = ANCHOR_FRAME[anchor_obj.name]
+    rot = anchor_obj.matrix_world.to_3x3().normalized()
+    normal = rot @ Vector((-1, 0, 0))   # out of the panel, toward the viewer
+    right = rot @ Vector((0, -1, 0))    # the viewer's right
     face = Matrix(((0, 0, -1, 0), (-1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 0, 1)))
-    rot = frame_matrix(fr).to_3x3()
-    normal = rot @ Vector((-1, 0, 0))
-    # A hair in front of the plaque: its half-thickness plus 0.5 cm.
-    loc = anchor_obj.matrix_world.translation + Vector((0, -dx_m, 0)) + normal * 0.006
-    o.matrix_world = Matrix.Translation(loc) @ frame_matrix((fr[0], 0.0)) @ face
+    loc = anchor_obj.matrix_world.translation + right * dx_m + normal * 0.006
+    o.matrix_world = Matrix.Translation(loc) @ rot.to_4x4() @ face
     o.data.materials.append(MATS["worldText"])
     REVIEW_OBJS.append(o)
 
 
-def apply_snapshot(name, cam_loc):
+def apply_snapshot(name, open_panel=True):
     clear_review()
-    # The world starts by hiding everything but the lock panel; the snapshot then sets every node.
     for n, o in built.items():
-        o.hide_render = n not in ("LockPanel",)
+        o.hide_render = not (n in ALWAYS_SHOWN or (open_panel and n in OPEN_SHOWS))
         if n.startswith("Bar"):
             o.scale = (1, 1, 1)
-    for n in NODES["text"]:
-        built[n].hide_render = True  # studs are 1 cm; hide them for clean review frames
     texts, offsets, copies = {}, {}, {}
-    for r in parse_snapshot(os.path.join(REVIEW, name + ".snapshot")):
-        k = r[0]
-        if k == "T":
-            texts[r[1]] = unescape(r[2] if len(r) > 2 else "")
-        elif k == "X":
-            texts.pop(r[1], None)
-        elif k == "U":
-            built[r[1]].hide_render = r[2] != "1"
-        elif k == "G":
-            # Raw UE relative scale (1, f, 1): UE Y is Blender's Y axis line.
-            built[r[1]].scale = (1, max(0.02, int(r[2]) / 1000.0), 1)
-        elif k == "O":
-            offsets[r[1]] = int(r[2]) / 1000.0
-        elif k == "C":
-            copies[r[1]] = int(r[2])
+    if open_panel:
+        for r in parse_snapshot(os.path.join(REVIEW, name + ".snapshot")):
+            k = r[0]
+            if k == "T":
+                texts[r[1]] = unescape(r[2] if len(r) > 2 else "")
+            elif k == "X":
+                texts.pop(r[1], None)
+            elif k == "U":
+                built[r[1]].hide_render = r[2] != "1"
+            elif k == "G":
+                built[r[1]].scale = (1, max(0.02, int(r[2]) / 1000.0), 1)
+            elif k == "O":
+                offsets[r[1]] = int(r[2]) / 1000.0
+            elif k == "C":
+                copies[r[1]] = int(r[2])
+    for n in NODES["text"]:
+        built[n].hide_render = True  # the plaques themselves are 3 cm; keep the frames clean
     for n, t in texts.items():
-        world_text(built[n], t, cam_loc, offsets.get(n, 0.0))
+        world_text(built[n], t, offsets.get(n, 0.0))
     for n, count in copies.items():
         src = built[n]
         for i in range(1, count):
             dup = src.copy()
             dup.data = src.data
-            dup.location = src.location + Vector((0, -0.085 * i, 0))
+            # Copies step along the viewer's right: Blender +Y here (src/lib.rs CHIP_STEP_M along wasm -z).
+            dup.location = src.location + Vector((0, 0.085 * i, 0))
             dup.hide_render = src.hide_render
             bpy.context.collection.objects.link(dup)
             REVIEW_OBJS.append(dup)
@@ -649,49 +657,26 @@ def setup_render():
     s.cycles.use_denoising = True
     s.render.resolution_x = 1920
     s.render.resolution_y = 1080
-    s.render.image_settings.file_format = "JPEG"  # a tenth of the PNG size in the repo
+    s.render.image_settings.file_format = "JPEG"
     s.render.image_settings.quality = 90
     s.view_settings.view_transform = "AgX"
-    try:
-        s.view_settings.look = "AgX - Medium High Contrast"
-    except TypeError:
-        pass
-
     mat("worldText", (1, 1, 1), emit=(1, 1, 1))
-    # Review only, after export: Cycles mirrors the white text in the panels in a way the
-    # headset's mobile renderer does not. (Exporting this would add KHR_materials_specular,
-    # which the publisher strips anyway: GLTF_019.)
+    # Review only: Cycles mirrors white text in glossy panels in a way the headset's mobile
+    # renderer does not. (Exported, this would be KHR_materials_specular, stripped anyway.)
     for m in MATS.values():
         b = m.node_tree.nodes["Principled BSDF"]
         if b.inputs["Emission Strength"].default_value == 0.0 or tuple(b.inputs["Emission Color"].default_value)[:3] == (0.0, 0.0, 0.0):
             b.inputs["Specular IOR Level"].default_value = 0.08
-
-    w = bpy.data.worlds.new("NightSky")
+    # The Lobby is a day world (`sky: "day"`): a soft sky plus a sun, as the client's pawn rig lights it.
+    w = bpy.data.worlds.new("LobbyDay")
     w.use_nodes = True
-    nt = w.node_tree
-    bg = nt.nodes["Background"]
-    bg.inputs[1].default_value = 0.35
-    # A star field: thresholded noise over a deep blue gradient (the client's `sky: "night"` stand-in).
-    noise = nt.nodes.new("ShaderNodeTexNoise")
-    noise.inputs["Scale"].default_value = 900.0
-    ramp = nt.nodes.new("ShaderNodeValToRGB")
-    ramp.color_ramp.elements[0].position = 0.72
-    ramp.color_ramp.elements[0].color = (0.004, 0.007, 0.02, 1)
-    ramp.color_ramp.elements[1].position = 0.76
-    ramp.color_ramp.elements[1].color = (0.8, 0.85, 1.0, 1)
-    nt.links.new(noise.outputs["Fac"], ramp.inputs["Fac"])
-    nt.links.new(ramp.outputs["Color"], bg.inputs["Color"])
+    w.node_tree.nodes["Background"].inputs[0].default_value = (0.55, 0.65, 0.8, 1)
+    w.node_tree.nodes["Background"].inputs[1].default_value = 0.6
     s.world = w
-
-    # The client's pawn carries its own sun, sky and fill (memory: reference_pawn_light_tuning).
-    bpy.ops.object.light_add(type="SUN", location=(0, 0, 6))
+    bpy.ops.object.light_add(type="SUN", location=(10, 0, 20))
     sun = bpy.context.active_object
-    sun.data.energy = 1.2
-    sun.rotation_euler = (math.radians(55), 0, math.radians(200))
-    bpy.ops.object.light_add(type="AREA", location=(0.5, 0, 3.4))
-    fill = bpy.context.active_object
-    fill.data.energy = 60
-    fill.data.size = 3.5
+    sun.data.energy = 2.0
+    sun.rotation_euler = (math.radians(50), 0, math.radians(160))
 
 
 def camera(name, loc, look_at, fov_deg):
@@ -700,8 +685,7 @@ def camera(name, loc, look_at, fov_deg):
     cam = bpy.data.objects.new(name, cam_data)
     bpy.context.collection.objects.link(cam)
     cam.location = Vector(loc)
-    direction = Vector(look_at) - Vector(loc)
-    cam.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
+    cam.rotation_euler = (Vector(look_at) - Vector(loc)).to_track_quat("-Z", "Y").to_euler()
     return cam
 
 
@@ -715,39 +699,57 @@ def render(cam, out_name):
 
 def review():
     os.makedirs(REVIEW, exist_ok=True)
+    bpy.ops.import_scene.gltf(filepath=LOBBY_GLB)
     setup_render()
-    eye = Vector((0, 0, EYE))
-    spawn = camera("CamSpawn", eye, (2.9, 0, 1.55), 96)
-    close = camera("CamClose", (1.15, -0.05, 1.62), (2.9, -0.15, 1.7), 62)
-    room = camera("CamRoom", (-3.9, 2.4, 3.6), (1.8, 0, 1.3), 70)
-    door = camera("CamDoor", (1.6, 0.4, 1.6), (-3.0, 0, 1.3), 70)
-    look_left = camera("CamLeft", eye, tuple(to_world(LEFT, (0, 0, 1.6))), 80)
-    look_right = camera("CamRight", eye, tuple(to_world(RIGHT, (0, 0, 1.6))), 80)
+    eye = (STAND[0], STAND[1], STAND[2] + EYE)
+    ahead = (STAND[0] - 2.9, STAND[1], STAND[2] + 1.55)
+    owner = camera("CamOwner", eye, ahead, 96)
+    close = camera("CamClose", (STAND[0] - 1.15, 0.05, STAND[2] + 1.62), (STAND[0] - 2.9, 0.15, STAND[2] + 1.7), 62)
+    hall = camera("CamHall", (8.6, -2.4, 2.3), (13.2, 0.0, 2.7), 70)
+    seal = camera("CamSeal", (14.95, 0.15, 2.65), (14.42, 0.0, 1.46), 70)
+    watch = camera("CamWatch", (11.6, -2.6, 2.4), (14.3, -1.2, 1.6), 60)
 
-    apply_snapshot("lock", eye)
-    render(spawn, "lock.jpg")
-    apply_snapshot("wall", eye)
-    render(spawn, "wall.jpg")
-    render(look_left, "wall_left.jpg")
-    render(look_right, "wall_right.jpg")
-    apply_snapshot("wall", Vector(room.location))
-    render(room, "room.jpg")
-    render(door, "door.jpg")
-    apply_snapshot("chat", eye)
-    render(spawn, "chat.jpg")
-    apply_snapshot("chat", Vector(close.location))
+    apply_snapshot("lock", open_panel=False)
+    render(seal, "ritual_seal.jpg")
+    render(watch, "watch_button.jpg")
+    apply_snapshot("lock")
+    render(owner, "lock.jpg")
+    apply_snapshot("wall")
+    render(owner, "wall.jpg")
+    render(hall, "hall_view.jpg")
+    apply_snapshot("chat")
+    render(owner, "chat.jpg")
     render(close, "chat_close.jpg")
+
+    # A watcher's copy: turned 180 degrees about the centre panel's vertical axis and lowered
+    # to the hall floor (src/lib.rs `place`, WATCH_PIVOT_X / WATCH_LOWER_M), seen from the hall.
+    pivot_x = STAND[0] - 2.9
+    turn = Matrix.Translation((pivot_x, 0, -(STAND[2] - 0.03))) @ Matrix.Rotation(math.pi, 4, "Z") @ Matrix.Translation((-pivot_x, 0, 0))
+    saved = {o.name: o.matrix_world.copy() for o in PANEL}
+    for o in PANEL:
+        o.matrix_world = turn @ o.matrix_world
+    watcher = camera("CamWatcher", (pivot_x - 3.0, 0.0, 1.65), (pivot_x, 0.0, 1.75), 90)
+    apply_snapshot("watch")
+    render(watcher, "watcher.jpg")
+    for o in PANEL:
+        o.matrix_world = saved[o.name]
 
 
 def main():
     wipe()
     materials()
-    build_room()
     build_center()
     build_left()
     build_right()
+    build_page_dock()
+    panel = [o for o in bpy.data.objects]
+    PANEL.extend(panel)
+    place_panel(panel)
+    build_fixtures()
     check_contract()
+    move_all(panel, -PARK_DROP)
     export_glb()
+    move_all(panel, PARK_DROP)
     if "--no-render" not in ARGS:
         review()
 

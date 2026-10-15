@@ -10,7 +10,7 @@ const { kill, unkill } = await import("../src/killswitch.js");
 test("the opt-in file lists the world and is served without a sign-in", async () => {
   const r = await call(b.port, "/.well-known/world-network.json", { method: "GET" });
   assert.equal(r.status, 200);
-  assert.deepEqual(JSON.parse(r.text), { world_network: 1, worlds: ["world://mission-control.micknerks"] });
+  assert.deepEqual(JSON.parse(r.text), { world_network: 1, worlds: ["world://lobby.micknerks"] });
 });
 
 test("the privacy page is served, plain text, without a sign-in", async () => {

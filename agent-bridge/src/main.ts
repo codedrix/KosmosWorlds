@@ -21,6 +21,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { Bridge } from "./bridge.js";
 import { MIN_PASSPHRASE_CHARS, bridgeHome, configPath, hashPassphrase, loadConfig, normalizePassphrase, saveConfig } from "./config.js";
 import { clearHardLock, isHardLocked, isKilled, kill, stopFile, unkill } from "./killswitch.js";
@@ -108,13 +110,25 @@ async function main(): Promise<void> {
     }
     case "make-relay-secret": {
       // The shared secret between the relay Worker and this bridge (DB-044 option A).
+      // It is never printed: it goes to the bridge's config file and, through stdin, straight to
+      // `wrangler secret put` (sign in with `npx wrangler login` first; deploy the Worker once first).
       const secret = crypto.randomBytes(32).toString("base64url");
+      const relayDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "relay-worker");
+      const put = spawnSync("npx", ["wrangler", "secret", "put", "RELAY_SECRET"], {
+        cwd: relayDir,
+        input: secret,
+        shell: true,
+        stdio: ["pipe", "inherit", "inherit"],
+        env: { ...process.env, NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --dns-result-order=ipv4first`.trim() },
+      });
+      if (put.status !== 0) {
+        console.error("wrangler did not take the secret, so the bridge's config is unchanged. Run `npx wrangler login`, deploy the Worker, and try again.");
+        process.exitCode = 1;
+        return;
+      }
       config.relaySecret = secret;
       saveConfig(config);
-      console.log("Saved to the bridge's config. Now give the SAME value to the relay Worker, once:");
-      console.log("  cd agent-bridge/relay-worker && npx wrangler secret put RELAY_SECRET");
-      console.log("and paste this when it asks (it is shown only now):");
-      console.log(`  ${secret}`);
+      console.log("Done: the relay Worker and this bridge now share a new key (never shown). Restart the bridge.");
       return;
     }
     case "kill":

@@ -11,22 +11,31 @@ const SECRET = "relay-secret-for-tests-0123456789";
 const b = await startBridge(5, 300);
 b.bridge.config.relaySecret = SECRET;
 after(() => b.close());
-const env = { BRIDGE_ORIGIN: `http://127.0.0.1:${b.port}`, RELAY_SECRET: SECRET, WORLDS: "world://mission-control.micknerks" };
+const env = { BRIDGE_ORIGIN: `http://127.0.0.1:${b.port}`, RELAY_SECRET: SECRET, WORLDS: "world://lobby.micknerks" };
 const W = "https://kosmos-agent-bridge.example.workers.dev";
 
 test("the relay serves the opt-in file and the privacy page itself (up when the PC is off)", async () => {
   const off = { ...env, BRIDGE_ORIGIN: "http://127.0.0.1:1" };
   const wk = await relay.fetch(new Request(`${W}/.well-known/world-network.json`), off);
   assert.equal(wk.status, 200);
-  assert.deepEqual(await wk.json(), { world_network: 1, worlds: ["world://mission-control.micknerks"] });
+  assert.deepEqual(await wk.json(), { world_network: 1, worlds: ["world://lobby.micknerks"] });
   assert.equal((await relay.fetch(new Request(`${W}/privacy`), off)).status, 200);
   const down = await relay.fetch(new Request(`${W}/v1/faces/mission-control/view`, { method: "POST", body: "AB1\n" }), off);
   assert.equal(down.status, 502);
 });
 
+test("the deployed config opts in the Lobby and both More Room worlds", async () => {
+  const fs = await import("node:fs");
+  const toml = fs.readFileSync(new URL("../../relay-worker/wrangler.toml", import.meta.url), "utf8");
+  const m = /^WORLDS = "([^"]*)"$/m.exec(toml);
+  assert.ok(m);
+  const wk = await relay.fetch(new Request(`${W}/.well-known/world-network.json`), { ...env, WORLDS: m[1] ?? "" });
+  assert.deepEqual((await wk.json()).worlds, ["world://lobby.micknerks", "world://more-room.micknerks", "world://more-room-mr.micknerks"]);
+});
+
 test("the relay forwards a world's call with the secret; the bridge refuses calls without it", async () => {
   const r = await relay.fetch(
-    new Request(`${W}/v1/session`, { method: "POST", body: JSON.stringify({ passphrase: PASS }), headers: { "Content-Type": "application/json", "X-World-Address": "mission-control.micknerks" } }),
+    new Request(`${W}/v1/session`, { method: "POST", body: JSON.stringify({ passphrase: PASS }), headers: { "Content-Type": "application/json", "X-World-Address": "lobby.micknerks" } }),
     env,
   );
   assert.equal(r.status, 200);

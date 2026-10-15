@@ -149,6 +149,14 @@ export class Snapshot {
     this.lines = this.lines.filter((l) => !l.startsWith("P "));
     return this;
   }
+  /** Remove every earlier record for <node>, so an override is the only one that leaves the PC. */
+  forget(node: string): this {
+    this.lines = this.lines.filter((l) => {
+      const parts = l.split(" ");
+      return parts.length < 2 || parts[1] !== node || parts[0] === "Z";
+    });
+    return this;
+  }
   same(): this {
     this.lines.push("S");
     return this;
