@@ -1,9 +1,9 @@
-//! lobby + Mission Control -- the program of `world://lobby.micknerks` (DB-044).
+//! lobby + Mission Control v2 -- the program of `world://lobby.micknerks` (DB-044 addendum).
 //!
 //! @kosmos-system  Content (KosmosWorlds) -- the Lobby, with Mission Control inside
 //! @kosmos-owner   Content lane
 //! @kosmos-level   host API level 4 (`k_net_*`, `OnNetResult`); level 3 for
-//!                 `k_haptic_pulse`, `k_node_clone`, `k_node_destroy`, `k_log`
+//!                 `k_haptic_pulse`, `k_log`; level 2 for `k_ui_prompt`
 //!
 //! Two jobs:
 //!
@@ -12,23 +12,33 @@
 //!    alternating, volume 0.4, a failed start retried up to three times a second apart,
 //!    stopped at shutdown.
 //!
-//! 2. **Mission Control**, the CEO's Claude Code jobs on a wall (agent-bridge on the CEO's
-//!    PC). It is closed for every visitor, and **makes no network call at all**, until:
-//!      - the ritual: stand on the throne facing the hall, point at the unmarked spot on
-//!        the front of the seat (`McSeal`), press A, type the bridge's passphrase on the
-//!        system typing sheet. The first call is that sign-in. (A hidden door, not a lock:
-//!        anyone who watches can repeat the gesture; the passphrase is the lock.)
-//!      - or the Watch button by the throne (`McWatchJoin`) and a watch code the owner
-//!        shared. A watcher gets a read-only copy of the owner's wall; this program never
-//!        sends a watcher's presses.
-//!    The panel is authored 200 m below the floor (`PARK_DROP_M`) and raised in front of
-//!    the throne on open; Close (or leaving the Lobby) parks it again.
+//! 2. **Mission Control v2** (the contract: ../V2_CONTRACT.md). It is closed for every
+//!    visitor and **makes no network call at all** until:
+//!      - the owner presses the seal on the throne seat (`McSeal`): the Pairing Seal rises
+//!        to eye height, the first call mints a pairing, the ring shows a short code, and
+//!        the owner approves it AT THE PC. Nothing secret is typed in the headset. A small
+//!        "Use passphrase" button (`BtnSealType`) keeps the typed passphrase as a fallback.
+//!      - or a visitor presses the Watch post (`McWatchJoin`) and types a watch code the
+//!        owner shared: a read-only copy of the owner's arc, turned to face the hall.
+//!    Signed in, the owner sees a ledge of glass job cubes and the decision puck on the
+//!    throne's left armrest. Pressing a cube unfolds a three-panel arc (jobs | that job's
+//!    conversation | the browser spot); Fold folds it back into the cube.
+//!    Everything is authored 200 m below the floor (`PARK_DROP_M`) and raised on open;
+//!    Close (or leaving the Lobby) parks it again.
 //!
-//! The wall itself is dumb on purpose: the bridge decides every word and sends AB1
-//! snapshots (agent-bridge `src/wire.ts`); this program applies them and reports presses
-//! (the node name plus the snapshot version on screen). A new approval buzzes both
-//! controllers twice and chimes, for the owner only. The bridge may only name the face's
-//! nodes; the world's own nodes (seal, Watch button, handles, frames) are never its to move.
+//! The bridge decides every word and every colour (AB1 snapshots, agent-bridge
+//! `src/wire.ts`); this program decides WHERE things are and WHEN its groups show:
+//!
+//!   - **Two-layer visibility.** A node shows when the snapshot wants it (`U`, `T` and `H`
+//!     stored per node) AND its group (seal, ledge, puck, arc) is on for the current stage
+//!     and mode. A tween keeps its group on for its duration.
+//!   - **One text function** (`show`) and **one colour function** (`paint`). DB-045 (the
+//!     visual pack) replaces the bodies of those two functions and nothing else.
+//!   - **Animations** run every frame in `k_tick`, touching only the moving group's nodes.
+//!
+//! A new approval buzzes both controllers twice and chimes, for the signed-in owner only.
+//! The bridge may only name the face's nodes (and colour the `hue` bases); the world's own
+//! nodes (seal, Watch post, handles, frames, ledge, puck body) are never its to move.
 //!
 //! Node names mirror ../nodes.json (generated from the bridge's face layout); a test pins it.
 
@@ -53,8 +63,6 @@ mod host {
     extern "C" {
         pub fn k_node_find(name_ptr: i32, name_len: i32) -> i32;
         pub fn k_node_set_visible(node: i32, visible: i32) -> i32;
-        pub fn k_node_clone(src: i32, parent: i32, name_ptr: i32, name_len: i32) -> i32;
-        pub fn k_node_destroy(node: i32) -> i32;
         pub fn k_transform_get_position(node: i32, x_ptr: i32, y_ptr: i32, z_ptr: i32) -> i32;
         pub fn k_transform_set_position(node: i32, x: f32, y: f32, z: f32) -> i32;
         pub fn k_transform_set_scale(node: i32, x: f32, y: f32, z: f32) -> i32;
@@ -74,39 +82,97 @@ mod host {
         pub fn k_net_read(request_id: i32, out_ptr: i32, out_cap: i32) -> i32;
         pub fn k_net_status() -> i32;
     }
+
+    /// A node's authored position (read once per node).
+    pub fn position_of(h: i32) -> Option<[f32; 3]> {
+        let mut p = [0.0f32; 3];
+        let rc = unsafe {
+            k_transform_get_position(h, &mut p[0] as *mut f32 as i32, &mut p[1] as *mut f32 as i32, &mut p[2] as *mut f32 as i32)
+        };
+        if rc == 0 { Some(p) } else { None }
+    }
+
+    /// A node's authored rotation (pitch, yaw, roll; raw UE degrees).
+    pub fn rotation_of(h: i32) -> Option<[f32; 3]> {
+        let mut r = [0.0f32; 3];
+        let rc = unsafe {
+            k_transform_get_rotation(h, &mut r[0] as *mut f32 as i32, &mut r[1] as *mut f32 as i32, &mut r[2] as *mut f32 as i32)
+        };
+        if rc == 0 { Some(r) } else { None }
+    }
 }
 
-/// Host-side stand-ins so `cargo test` links. Calls are counted, so the tests can prove a
-/// closed Mission Control makes no network call.
+/// Host-side stand-ins so `cargo test` links and the tests can see what the program did.
+/// Every call is counted (`CALLS`), so a test can bound the host calls per tick. Handles are
+/// handed out in `k_node_find` order (the program finds its nodes in index order), so node
+/// `i` is handle `i + 1` after `reset_host()`.
 #[cfg(not(target_arch = "wasm32"))]
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, static_mut_refs)]
 mod host {
+    pub const MAX_H: usize = 256;
+    pub static mut CALLS: u32 = 0;
     pub static mut FETCHES: i32 = 0;
+    pub static mut LAST_FETCH_ID: i32 = 0;
     pub static mut PROMPTS: i32 = 0;
     pub static mut AUDIO_PLAYS: i32 = 0;
-    // A stable non-zero handle per name (its length plus a salt) is enough for these tests.
-    pub unsafe fn k_node_find(p: i32, l: i32) -> i32 { (p % 997).abs() * 64 + l }
-    pub unsafe fn k_node_set_visible(_n: i32, _v: i32) -> i32 { 0 }
-    pub unsafe fn k_node_clone(_s: i32, _p: i32, _n: i32, _l: i32) -> i32 { -1 }
-    pub unsafe fn k_node_destroy(_n: i32) -> i32 { 0 }
-    pub unsafe fn k_transform_get_position(_n: i32, _x: i32, _y: i32, _z: i32) -> i32 { -1 }
-    pub unsafe fn k_transform_set_position(_n: i32, _x: f32, _y: f32, _z: f32) -> i32 { 0 }
-    pub unsafe fn k_transform_set_scale(_n: i32, _x: f32, _y: f32, _z: f32) -> i32 { 0 }
-    pub unsafe fn k_transform_get_rotation(_n: i32, _p: i32, _y: i32, _r: i32) -> i32 { -1 }
-    pub unsafe fn k_transform_set_rotation(_n: i32, _p: f32, _y: f32, _r: f32) -> i32 { 0 }
-    pub unsafe fn k_ui_show_world_text(_n: i32, _p: i32, _l: i32, _o: f32) -> i32 { 0 }
-    pub unsafe fn k_ui_hide_world_text(_n: i32) -> i32 { 0 }
-    pub unsafe fn k_ui_prompt(_p: i32, _l: i32, _o: i32, _c: i32, _r: i32) -> i32 { PROMPTS += 1; 0 }
-    pub unsafe fn k_event_subscribe(_p: i32, _l: i32, _n: i32, _c: i32) -> i32 { 1 }
-    pub unsafe fn k_event_subscribe_global(_p: i32, _l: i32, _c: i32) -> i32 { 1 }
-    pub unsafe fn k_haptic_pulse(_h: i32, _i: f32, _d: i32) -> i32 { 0 }
-    pub unsafe fn k_audio_play(_n: i32, _p: i32, _l: i32) -> i32 { 0 }
-    pub unsafe fn k_audio_play_ex(_n: i32, _p: i32, _l: i32, _v: f32, _pi: f32, _lo: i32) -> i32 { AUDIO_PLAYS += 1; 0 }
-    pub unsafe fn k_audio_stop(_s: i32) -> i32 { 0 }
-    pub unsafe fn k_log(_lv: i32, _p: i32, _l: i32) -> i32 { 0 }
-    pub unsafe fn k_net_fetch(_m: i32, _u: i32, _ul: i32, _b: i32, _bl: i32, _f: i32, _r: i32) -> i32 { FETCHES += 1; 0 }
-    pub unsafe fn k_net_read(_r: i32, _o: i32, _c: i32) -> i32 { -7 }
-    pub unsafe fn k_net_status() -> i32 { 1 }
+    pub static mut CHIMES: i32 = 0;
+    pub static mut HAPTICS: i32 = 0;
+    pub static mut NEXT_FIND: i32 = 0;
+    pub static mut POS: [[f32; 3]; MAX_H] = [[0.0; 3]; MAX_H];
+    pub static mut SCALE: [f32; MAX_H] = [1.0; MAX_H];
+    pub static mut YAW: [f32; MAX_H] = [0.0; MAX_H];
+    pub static mut VIS: [i8; MAX_H] = [-1; MAX_H];
+    pub static mut TEXT_ON: [bool; MAX_H] = [false; MAX_H];
+
+    pub fn reset_host() {
+        unsafe {
+            CALLS = 0;
+            FETCHES = 0;
+            LAST_FETCH_ID = 0;
+            PROMPTS = 0;
+            CHIMES = 0;
+            HAPTICS = 0;
+            NEXT_FIND = 0;
+            POS = [[0.0; 3]; MAX_H];
+            SCALE = [1.0; MAX_H];
+            YAW = [0.0; MAX_H];
+            VIS = [-1; MAX_H];
+            TEXT_ON = [false; MAX_H];
+        }
+    }
+    fn c() {
+        unsafe { CALLS += 1 }
+    }
+    fn hi(n: i32) -> usize {
+        (n.max(0) as usize).min(MAX_H - 1)
+    }
+    /// Authored (parked) positions: a distinct spot per handle, 200 m down.
+    pub fn position_of(h: i32) -> Option<[f32; 3]> {
+        c();
+        Some([12.0 + h as f32 * 0.01, 3.0 - 200.0, h as f32 * -0.01])
+    }
+    pub fn rotation_of(_h: i32) -> Option<[f32; 3]> {
+        c();
+        Some([0.0, 180.0, 0.0])
+    }
+    pub unsafe fn k_node_find(_p: i32, _l: i32) -> i32 { c(); NEXT_FIND += 1; NEXT_FIND }
+    pub unsafe fn k_node_set_visible(n: i32, v: i32) -> i32 { c(); VIS[hi(n)] = v as i8; 0 }
+    pub unsafe fn k_transform_set_position(n: i32, x: f32, y: f32, z: f32) -> i32 { c(); POS[hi(n)] = [x, y, z]; 0 }
+    pub unsafe fn k_transform_set_scale(n: i32, x: f32, _y: f32, _z: f32) -> i32 { c(); SCALE[hi(n)] = x; 0 }
+    pub unsafe fn k_transform_set_rotation(n: i32, _p: f32, y: f32, _r: f32) -> i32 { c(); YAW[hi(n)] = y; 0 }
+    pub unsafe fn k_ui_show_world_text(n: i32, _p: i32, _l: i32, _o: f32) -> i32 { c(); TEXT_ON[hi(n)] = true; 0 }
+    pub unsafe fn k_ui_hide_world_text(n: i32) -> i32 { c(); TEXT_ON[hi(n)] = false; 0 }
+    pub unsafe fn k_ui_prompt(_p: i32, _l: i32, _o: i32, _c: i32, _r: i32) -> i32 { c(); PROMPTS += 1; 0 }
+    pub unsafe fn k_event_subscribe(_p: i32, _l: i32, _n: i32, _c: i32) -> i32 { c(); 1 }
+    pub unsafe fn k_event_subscribe_global(_p: i32, _l: i32, _c: i32) -> i32 { c(); 1 }
+    pub unsafe fn k_haptic_pulse(_h: i32, _i: f32, _d: i32) -> i32 { c(); HAPTICS += 1; 0 }
+    pub unsafe fn k_audio_play(_n: i32, _p: i32, _l: i32) -> i32 { c(); CHIMES += 1; 0 }
+    pub unsafe fn k_audio_play_ex(_n: i32, _p: i32, _l: i32, _v: f32, _pi: f32, _lo: i32) -> i32 { c(); AUDIO_PLAYS += 1; 0 }
+    pub unsafe fn k_audio_stop(_s: i32) -> i32 { c(); 0 }
+    pub unsafe fn k_log(_lv: i32, _p: i32, _l: i32) -> i32 { c(); 0 }
+    pub unsafe fn k_net_fetch(_m: i32, _u: i32, _ul: i32, _b: i32, _bl: i32, _f: i32, r: i32) -> i32 { c(); FETCHES += 1; LAST_FETCH_ID = r; 0 }
+    pub unsafe fn k_net_read(_r: i32, _o: i32, _c: i32) -> i32 { c(); -7 }
+    pub unsafe fn k_net_status() -> i32 { c(); 1 }
 }
 
 // ---------------------------------------------------------------------------
@@ -196,79 +262,105 @@ const PATH_VIEW: &str = "/v1/faces/mission-control/view";
 const PATH_PRESS: &str = "/v1/faces/mission-control/press";
 const PATH_SIGNIN: &str = "/v1/faces/mission-control/signin";
 const PATH_WATCH: &str = "/v1/faces/mission-control/watch";
+const PATH_PAIR: &str = "/v1/faces/mission-control/pair";
 
 const METHOD_POST: i32 = 1;
 const HOST_TEXT_MAX_BYTES: usize = 128;
 const READ_BUF_BYTES: usize = 16 * 1024;
-/// A poll is never sent sooner than this after the last one (the host refills 1 a second).
+/// A poll (view, watch or pair) is never sent sooner than this after the last one (the host
+/// refills one call a second).
 const VIEW_MIN_GAP_S: f32 = 1.1;
 /// After a failure (no answer, refused, rate limited), wait this long before the next poll.
 const RETRY_GAP_S: f32 = 3.0;
 const STATUS_POLL_S: f32 = 1.0;
 /// The panel is authored this far below the Lobby floor (blender/build_panel.py PARK_DROP).
 const PARK_DROP_M: f32 = 200.0;
-/// The panel's right, as the owner on the throne sees it: wasm -z (the throne faces -x).
+/// The owner's right, as the owner on the throne sees it: wasm -z (the throne faces -x).
 const RIGHT: [f32; 3] = [0.0, 0.0, -1.0];
-/// Toward the owner: wasm +x (the panel stands in front of the throne, at smaller x).
+/// Toward the owner: wasm +x (everything stands in front of the throne, at smaller x).
 const TOWARD: [f32; 3] = [1.0, 0.0, 0.0];
-/// A watcher stands in the hall, not on the throne, so a watcher's copy of the panel is
-/// turned 180 degrees about the centre panel's vertical axis (wasm x = 11.9, z = 0; the
-/// owner's layout puts the centre panel 2.9 m in front of the seat at x 14.8) and lowered
-/// to the hall floor (seat top 1.46 m, floor 0.03 m). Its right and "toward" flip too.
-const WATCH_PIVOT_X: f32 = 11.9;
+/// A watcher stands in the hall, not on the throne, so a watcher's copy of the ARC is turned
+/// 180 degrees about the centre panel's vertical axis and lowered to the hall floor.
+/// v2 arc: the centre panel's surface is 1.70 m in front of the owner's eye, and the owner
+/// stands at the seat's centre (STAND x 14.8), so the axis is x = 14.8 - 1.70 = 13.1 (z 0).
+/// The lowering is the seat top (1.46) minus the hall floor (0.03): the watcher's eye then
+/// meets the arc at the height the owner's does. Its right and "toward" flip too.
+const WATCH_PIVOT_X: f32 = 13.1;
 const WATCH_LOWER_M: f32 = 1.43;
 const RIGHT_WATCH: [f32; 3] = [0.0, 0.0, 1.0];
 const TOWARD_WATCH: [f32; 3] = [-1.0, 0.0, 0.0];
 const MOVE_STEP_M: f32 = 0.15;
-/// Limits of the owner's adjustments: nearer, farther, up/down, sideways (metres).
-const MOVE_NEAR: f32 = 1.2;
+/// Limits of the viewer's adjustments to the arc: nearer, farther, up/down, sideways (metres).
+/// The arc is 1.7 m away, so it can come 0.6 m nearer at most (it stays clear of the ledge).
+const MOVE_NEAR: f32 = 0.6;
 const MOVE_FAR: f32 = 1.0;
-const MOVE_UPDOWN: f32 = 0.9;
-const MOVE_SIDE: f32 = 1.5;
-/// Copies of the done chip step this far along the panel's right.
-const CHIP_STEP_M: f32 = 0.085;
-const MAX_CHIPS: usize = 12;
+const MOVE_UPDOWN: f32 = 0.6;
+const MOVE_SIDE: f32 = 1.2;
 const CHIME: &str = "chime.wav";
+
+/// Animation lengths (contract section 6), seconds.
+const SEAL_RISE_S: f32 = 0.6;
+const LOCK_HOLD_S: f32 = 0.6;
+const SEAL_SHRINK_S: f32 = 0.35;
+const GROW_S: f32 = 0.4;
+const UNFOLD_S: f32 = 0.5;
+const FOLD_S: f32 = 0.4;
+/// The smallest scale a tween starts or ends at.
+const SCALE_MIN: f32 = 0.02;
+/// A cube press older than this is not taken as the unfold's origin (the ledge centre is).
+const PRESS_ORIGIN_S: f32 = 10.0;
 
 const SEAL_QUESTION: &str = "Mission Control passphrase (it shows on screen as you type)";
 const WATCH_QUESTION: &str = "Watch code: the 6 digits the owner shared with the group";
 
-pub const NODES_TEXT: [&str; 33] = [
-    "TxTicker", "TxStatus", "TxLock", "TxProject", "TxCardA", "TxCardB", "TxCardC", "TxCardD", "TxNeedA", "TxNeedB", "TxNeedC",
-    "TxDone", "TxRailA", "TxRailB", "TxRailC", "TxRailD", "TxHeader", "TxConvA", "TxConvB", "TxConvC", "TxConvD", "TxConvE",
-    "TxConvF", "TxConvG", "TxConvH", "TxConvI", "TxConvJ", "TxConvK", "TxConvL", "TxPage", "TxAskA", "TxAskB", "TxWatch",
+pub const NODES_TEXT: [&str; 31] = [
+    "TxTicker", "TxStatus", "TxProject", "TxRailA", "TxRailB", "TxRailC", "TxRailD", "TxDone", "TxHeader", "TxConvA", "TxConvB",
+    "TxConvC", "TxConvD", "TxConvE", "TxConvF", "TxConvG", "TxConvH", "TxConvI", "TxConvJ", "TxPage", "TxAskA", "TxAskB",
+    "TxWatch", "TxPageSpot", "TxCubeA", "TxCubeB", "TxCubeC", "TxCubeD", "TxPuck", "TxSeal", "TxSealHint",
 ];
 pub const NODES_BUTTON: [&str; 31] = [
-    "BtnSignIn", "BtnSignOut", "BtnTests", "BtnPrs", "BtnToday", "BtnNotes", "BtnNewTask", "BtnProject", "CardA", "CardB",
-    "CardC", "CardD", "NeedA", "NeedB", "NeedC", "RailA", "RailB", "RailC", "RailD", "BtnStop", "BtnBack", "BtnApprove",
-    "BtnDeny", "BtnWhy", "BtnKeep", "BtnSimple", "BtnSummary", "BtnReply", "BtnPageUp", "BtnPageDown", "BtnWatch",
+    "RailA", "RailB", "RailC", "RailD", "BtnTests", "BtnPrs", "BtnToday", "BtnNotes", "BtnNewTask", "BtnProject", "BtnFold",
+    "BtnStop", "BtnApprove", "BtnDeny", "BtnWhy", "BtnKeep", "BtnSimple", "BtnSummary", "BtnReply", "BtnPageUp",
+    "BtnPageDown", "BtnWatch", "BtnSignOut", "CubeA", "CubeB", "CubeC", "CubeD", "CubePlus", "BtnPuckApprove",
+    "BtnPuckDeny", "BtnSealType",
 ];
-pub const NODES_SHOW: [&str; 34] = [
-    "LockPanel", "WallPanel", "ChatPanel", "AskPanel", "DoneShelf", "ChipDone", "PillRunA", "PillWaitA", "PillIdleA", "GlowA",
-    "BarBgA", "BarA", "PillRunB", "PillWaitB", "PillIdleB", "GlowB", "BarBgB", "BarB", "PillRunC", "PillWaitC", "PillIdleC",
-    "GlowC", "BarBgC", "BarC", "PillRunD", "PillWaitD", "PillIdleD", "GlowD", "BarBgD", "BarD", "RailSelA", "RailSelB",
-    "RailSelC", "RailSelD",
-];
-pub const NODES_WORLD: [&str; 13] = [
+pub const NODES_SHOW: [&str; 5] = ["AskPanel", "RailSelA", "RailSelB", "RailSelC", "RailSelD"];
+pub const NODES_WORLD: [&str; 33] = [
     "McSeal", "McWatchJoin", "McClose", "McMoveCloser", "McMoveFarther", "McMoveLeft", "McMoveRight", "McMoveUp", "McMoveDown",
-    "McCenterFrame", "McLeftFrame", "McRightFrame", "McPageDock",
+    "McCenterFrame", "McLeftFrame", "McRightFrame", "McPageDock", "McLedge", "Puck", "SealRing", "McSealCancel", "CubeACalm",
+    "CubeANeed", "CubeAIdle", "CubeBCalm", "CubeBNeed", "CubeBIdle", "CubeCCalm", "CubeCNeed", "CubeCIdle", "CubeDCalm",
+    "CubeDNeed", "CubeDIdle", "PuckCalm", "PuckNeed", "SealRingArmed", "SealRingLocked",
 ];
-/// World nodes shown whenever the panel is open (the snapshot sets the face's nodes).
-const OPEN_SHOWS: [&str; 11] = [
-    "McCenterFrame", "McLeftFrame", "McRightFrame", "McClose", "McMoveCloser", "McMoveFarther", "McMoveLeft", "McMoveRight",
-    "McMoveUp", "McMoveDown", "McPageDock",
+/// The `hue` bases and their states (nodes.json `hue`). Each state is a pre-built variant
+/// node `<base><State>` in NODES_WORLD.
+pub const HUE_BASES: [&str; 6] = ["CubeA", "CubeB", "CubeC", "CubeD", "Puck", "SealRing"];
+pub const HUE_STATES: [&[&str]; 6] = [
+    &["calm", "need", "idle"],
+    &["calm", "need", "idle"],
+    &["calm", "need", "idle"],
+    &["calm", "need", "idle"],
+    &["calm", "need"],
+    &["armed", "locked"],
 ];
+const N_HUE: usize = HUE_BASES.len();
+const MAX_STATES: usize = 3;
+/// "No colour": every variant hidden.
+const OFF: u8 = u8::MAX;
+const NONE: usize = usize::MAX;
+
 const N_TEXT: usize = NODES_TEXT.len();
 const N_BUTTON: usize = NODES_BUTTON.len();
 const N_SHOW: usize = NODES_SHOW.len();
 const N_FACE: usize = N_TEXT + N_BUTTON + N_SHOW;
 const N_ALL: usize = N_FACE + NODES_WORLD.len();
 
-/// Clone names: no digits (the client strips a trailing `_<digit>`).
-const CHIP_NAMES: [&str; MAX_CHIPS] = [
-    "ChipCopyA", "ChipCopyB", "ChipCopyC", "ChipCopyD", "ChipCopyE", "ChipCopyF", "ChipCopyG", "ChipCopyH", "ChipCopyI", "ChipCopyJ",
-    "ChipCopyK", "ChipCopyL",
-];
+/// The groups the world shows and moves together (contract section 3).
+const G_FIXTURE: u8 = 0;
+const G_SEAL: u8 = 1;
+const G_LEDGE: u8 = 2;
+const G_PUCK: u8 = 3;
+const G_ARC: u8 = 4;
+const N_GROUPS: usize = 5;
 
 fn node_name(i: usize) -> &'static str {
     if i < N_TEXT {
@@ -290,20 +382,36 @@ fn idx(name: &str) -> usize {
     node_index(name.as_bytes()).unwrap_or(0)
 }
 
-/// The two fixtures every visitor sees; everything else is the panel (parked when closed).
-fn is_fixture(i: usize) -> bool {
-    let n = node_name(i);
-    n == "McSeal" || n == "McWatchJoin"
+/// A node's group, by its name alone (the bridge needn't know):
+///   seal:  SealRing*, TxSeal, TxSealHint, BtnSealType, McSealCancel
+///   ledge: McLedge, Cube*, TxCube*
+///   puck:  Puck*, BtnPuck*, TxPuck
+///   arc:   every other panel node
+/// The fixtures McSeal and McWatchJoin are visible to every visitor and never move.
+fn group_by_name(n: &str) -> u8 {
+    if n == "McSeal" || n == "McWatchJoin" {
+        G_FIXTURE
+    } else if n.starts_with("SealRing") || n.starts_with("TxSeal") || n == "BtnSealType" || n == "McSealCancel" {
+        G_SEAL
+    } else if n == "McLedge" || n.starts_with("Cube") || n.starts_with("TxCube") {
+        G_LEDGE
+    } else if n.starts_with("Puck") || n.starts_with("BtnPuck") || n == "TxPuck" {
+        G_PUCK
+    } else {
+        G_ARC
+    }
 }
 
-/// Nodes a press is sent for: the face's buttons (never the world's own controls).
+/// Nodes a press is sent to the bridge for: the face's buttons. (BtnSealType is a face
+/// button the world handles itself: it opens the typing sheet for the fallback sign-in.)
 fn is_face_button(i: usize) -> bool {
     (N_TEXT..N_TEXT + N_BUTTON).contains(&i)
 }
 
-/// World nodes that are pressed (not the frames or the page dock).
+/// World nodes that are pressed: the fixtures, Close, the move handles and Cancel.
 fn is_world_control(i: usize) -> bool {
-    i >= N_FACE && !node_name(i).ends_with("Frame") && node_name(i) != "McPageDock"
+    let n = node_name(i);
+    i >= N_FACE && (n == "McSeal" || n == "McWatchJoin" || n == "McClose" || n == "McSealCancel" || n.starts_with("McMove"))
 }
 
 // ---------------------------------------------------------------------------
@@ -317,8 +425,33 @@ enum Mode {
     Watcher,
 }
 
+/// The owner's stages: the seal up (pairing or typing), then the lock animation (the ring
+/// holds `locked`, shrinks away, the ledge and puck grow in), then signed in.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Stage {
+    Seal,
+    Hold,
+    Shrink,
+    Grow,
+    Signed,
+}
+
+/// One group's animation: every node of the group moves from `from` (a placed point) to its
+/// own place and scales from SCALE_MIN to 1 as `k` runs 0 -> 1 (`dir` +1), or back (-1).
+#[derive(Clone, Copy)]
+struct Tween {
+    active: bool,
+    k: f32,
+    dir: f32,
+    dur: f32,
+    from: [f32; 3],
+}
+
+const NO_TWEEN: Tween = Tween { active: false, k: 1.0, dir: 1.0, dur: 1.0, from: [0.0; 3] };
+
 const REQ_VIEW: i32 = 1;
 const REQ_SIGNIN: i32 = 2;
+const REQ_PAIR_MINT: i32 = 3;
 const REQ_PRESS_FIRST: i32 = 100;
 const REQ_PROMPT_SEAL: i32 = 8001;
 const REQ_PROMPT_WATCH: i32 = 8002;
@@ -326,28 +459,58 @@ const REQ_PROMPT_BASE: i32 = 9000;
 const MAX_PROMPTS: usize = 4;
 
 static mut MODE: Mode = Mode::Closed;
+static mut STAGE: Stage = Stage::Seal;
 static mut HANDLES: [i32; N_ALL] = [0; N_ALL];
+static mut GROUP: [u8; N_ALL] = [G_ARC; N_ALL];
+/// For a variant node: its hue base's slot; else OFF.
+static mut VARIANT_OF: [u8; N_ALL] = [OFF; N_ALL];
+/// Each hue base's node index and its variants' node indices (NONE past its states).
+static mut HUE_BASE_IDX: [usize; N_HUE] = [NONE; N_HUE];
+static mut HUE_VARIANT: [[usize; MAX_STATES]; N_HUE] = [[NONE; MAX_STATES]; N_HUE];
+/// Each hue base's state: an index into HUE_STATES, or OFF.
+static mut HUE_STATE: [u8; N_HUE] = [OFF; N_HUE];
+
+/// Layer one: what the snapshot wants. U for buttons and show nodes; a stored text for text
+/// nodes. The world's own nodes are wanted whenever their group is on.
+static mut WANT: [bool; N_ALL] = [false; N_ALL];
+static mut TEXT_STORE: [[u8; HOST_TEXT_MAX_BYTES]; N_TEXT] = [[0; HOST_TEXT_MAX_BYTES]; N_TEXT];
+static mut TEXT_LEN: [u8; N_TEXT] = [0; N_TEXT];
 /// FNV-1a of each label's text as last shown; 0 = not shown / unknown, 1 = known hidden.
 static mut TEXT_HASH: [u32; N_TEXT] = [0; N_TEXT];
 /// -1 unknown, 0 hidden, 1 shown.
 static mut VISIBLE: [i8; N_ALL] = [-1; N_ALL];
+/// True when a node's scale is not 1 (a tween left it small).
+static mut SCALED: [bool; N_ALL] = [false; N_ALL];
 static mut BASE_POS: [[f32; 3]; N_ALL] = [[0.0; 3]; N_ALL];
 static mut BASE_KNOWN: [bool; N_ALL] = [false; N_ALL];
-/// Each node's sideways shift along the panel's right (`O` records), metres.
+/// Each node's sideways shift along the viewer's right (`O` records), metres.
 static mut SHIFT: [f32; N_ALL] = [0.0; N_ALL];
 /// The panel's offset from where it is authored: zero when parked.
 static mut DELTA: [f32; 3] = [0.0; 3];
-/// The owner's own adjustments (toward, up, right), metres.
+/// The viewer's own adjustments to the arc (toward, up, right), metres.
 static mut ADJUST: [f32; 3] = [0.0; 3];
-static mut CHIPS: [i32; MAX_CHIPS] = [0; MAX_CHIPS];
-/// Each node's authored rotation (pitch, yaw, roll; raw UE degrees), to turn a watcher's copy.
 static mut BASE_ROT: [[f32; 3]; N_ALL] = [[0.0; 3]; N_ALL];
 static mut BASE_ROT_KNOWN: [bool; N_ALL] = [false; N_ALL];
-/// True while the panel nodes are turned for a watcher.
+/// True while the arc is turned for a watcher.
 static mut TURNED: bool = false;
+
+static mut TWEENS: [Tween; N_GROUPS] = [NO_TWEEN; N_GROUPS];
+static mut HOLD_UNTIL: f32 = 0.0;
+/// The arc as the snapshot wants it (`M arc`), and as the world shows it.
+static mut M_ARC: bool = false;
+static mut ARC_SHOWN: bool = false;
+/// The cube the arc unfolded from (hidden while the arc is open), and the point it folds to.
+static mut PICKED: usize = NONE;
+static mut FOLD_TO: [f32; 3] = [0.0; 3];
+static mut PRESSED_CUBE: usize = NONE;
+static mut PRESSED_AT: f32 = -100.0;
 
 static mut TOKEN: [u8; 96] = [0; 96];
 static mut TOKEN_LEN: usize = 0;
+/// The pending pairing's id (32 lowercase hex), echoed as `pair <id>` while waiting.
+static mut PAIR_ID: [u8; 32] = [0; 32];
+static mut PAIR_LEN: usize = 0;
+static mut MINT_IN_FLIGHT: bool = false;
 static mut WATCH_CODE: [u8; 6] = [0; 6];
 static mut VERSION: u32 = 0;
 static mut LAST_Z: i64 = -1;
@@ -361,8 +524,10 @@ static mut NEXT_PRESS_ID: i32 = REQ_PRESS_FIRST;
 static mut STATUS_ACC: f32 = 0.0;
 static mut LAST_NET: i32 = i32::MIN;
 static mut SECOND_BUZZ_AT: f32 = -1.0;
+/// The last path a call went to (for the host tests and the log).
+static mut LAST_PATH: &str = "";
 
-static mut PROMPT_NODE: [usize; MAX_PROMPTS] = [usize::MAX; MAX_PROMPTS];
+static mut PROMPT_NODE: [usize; MAX_PROMPTS] = [NONE; MAX_PROMPTS];
 static mut PROMPT_Q: [[u8; 220]; MAX_PROMPTS] = [[0; 220]; MAX_PROMPTS];
 static mut PROMPT_Q_LEN: [usize; MAX_PROMPTS] = [0; MAX_PROMPTS];
 /// The request id of the typing sheet that is open (0 = none). The host writes the answer LATER.
@@ -377,8 +542,28 @@ fn mode() -> Mode {
     unsafe { MODE }
 }
 
+fn stage() -> Stage {
+    unsafe { STAGE }
+}
+
+fn signed_in() -> bool {
+    mode() == Mode::Owner && unsafe { TOKEN_LEN } > 0
+}
+
 fn origin() -> &'static str {
     ORIGIN.trim()
+}
+
+fn group(i: usize) -> u8 {
+    unsafe { GROUP[i] }
+}
+
+fn is_fixture(i: usize) -> bool {
+    group(i) == G_FIXTURE
+}
+
+fn is_variant(i: usize) -> bool {
+    (unsafe { VARIANT_OF[i] }) != OFF
 }
 
 // ---------------------------------------------------------------------------
@@ -392,11 +577,21 @@ pub extern "C" fn k_init() {
     for i in 0..N_ALL {
         let name = node_name(i);
         let h = unsafe { host::k_node_find(name.as_ptr() as i32, name.len() as i32) };
-        unsafe { HANDLES[i] = h; }
+        unsafe {
+            HANDLES[i] = h;
+            GROUP[i] = group_by_name(name);
+            VARIANT_OF[i] = OFF;
+            // The world's own nodes are wanted whenever their group is on; the face's wait for U/T.
+            WANT[i] = i >= N_FACE;
+            BASE_KNOWN[i] = false;
+            BASE_ROT_KNOWN[i] = false;
+            SCALED[i] = false;
+        }
         if h != 0 {
             found += 1;
         }
     }
+    init_hues();
     let ev = "OnInteract";
     for i in 0..N_ALL {
         let h = unsafe { HANDLES[i] };
@@ -409,21 +604,52 @@ pub extern "C" fn k_init() {
     let ev = "OnPromptResult";
     unsafe { host::k_event_subscribe_global(ev.as_ptr() as i32, ev.len() as i32, on_prompt_result as usize as i32); }
 
-    // Every panel node: remember where it is authored (parked), and hide it.
+    // Every panel node: remember where it is authored (parked), and hide it. The seal's
+    // fixture is read too: the ring rises from it.
     for i in 0..N_ALL {
+        base_of(i);
         if !is_fixture(i) {
-            base_of(i);
             base_rot_of(i);
             set_visible(i, false);
         }
     }
     let mut t = TextBuf::new();
-    t.push("mission control: ");
+    t.push("mission control v2: ");
     t.push_i32(found);
     t.push("/");
     t.push_i32(N_ALL as i32);
     t.push(" parts, closed");
     log(2, t.as_str());
+}
+
+fn init_hues() {
+    let mut name = [0u8; 40];
+    for k in 0..N_HUE {
+        let base = HUE_BASES[k];
+        unsafe {
+            HUE_BASE_IDX[k] = node_index(base.as_bytes()).unwrap_or(NONE);
+            HUE_STATE[k] = OFF;
+        }
+        for (j, st) in HUE_STATES[k].iter().enumerate() {
+            // `<base><State>`: the state with its first letter upper-cased.
+            let mut n = 0;
+            for &b in base.as_bytes() {
+                name[n] = b;
+                n += 1;
+            }
+            for (q, &b) in st.as_bytes().iter().enumerate() {
+                name[n] = if q == 0 { b.to_ascii_uppercase() } else { b };
+                n += 1;
+            }
+            let v = node_index(&name[..n]).unwrap_or(NONE);
+            unsafe {
+                HUE_VARIANT[k][j] = v;
+                if v != NONE {
+                    VARIANT_OF[v] = k as u8;
+                }
+            }
+        }
+    }
 }
 
 #[no_mangle]
@@ -452,10 +678,19 @@ pub extern "C" fn k_tick(delta: f32) {
             host::k_haptic_pulse(2, 0.8, 140);
         }
     }
+    if mode() == Mode::Owner && stage() == Stage::Hold && unsafe { NOW_S >= HOLD_UNTIL } {
+        // The ring has shown `locked`: it shrinks away into itself.
+        unsafe { STAGE = Stage::Shrink; }
+        let from = placed(idx("SealRing"));
+        start_tween(G_SEAL, -1.0, SEAL_SHRINK_S, from);
+        sync_all(); // the code and the hint hide at once
+    }
+    tick_tweens(d);
     let ready = unsafe { !POLL_IN_FLIGHT && NOW_S >= NEXT_POLL_AT && LAST_NET == 1 };
     if ready {
         match mode() {
             Mode::Owner if unsafe { TOKEN_LEN } > 0 => send_poll(PATH_VIEW),
+            Mode::Owner if unsafe { PAIR_LEN } > 0 => send_poll(PATH_PAIR),
             Mode::Watcher if unsafe { !WATCH_ENDED } => send_poll(PATH_WATCH),
             _ => {}
         }
@@ -471,7 +706,7 @@ pub extern "C" fn k_shutdown() {
 // Presses and typing
 // ---------------------------------------------------------------------------
 
-/// OnInteract: the seal, the Watch button, the panel's own controls, or a face button.
+/// OnInteract: the seal, the Watch post, the world's own controls, or a face button.
 #[no_mangle]
 pub extern "C" fn on_press(_event_type: i32, node: i32, _p1: i32, _p2: i32) {
     if node == 0 {
@@ -481,27 +716,43 @@ pub extern "C" fn on_press(_event_type: i32, node: i32, _p1: i32, _p2: i32) {
         return;
     };
     match node_name(i) {
-        "McSeal" => {
-            // Closed: the ritual. Open but not signed in (a sign-in that never got an answer):
-            // the seal asks again, so the owner is never stuck on a dead lock screen.
-            if mode() == Mode::Closed || (mode() == Mode::Owner && unsafe { TOKEN_LEN } == 0) {
-                open_sheet(SEAL_QUESTION, REQ_PROMPT_SEAL);
+        "McSeal" => match mode() {
+            // Closed: the seal rises and the FIRST network call mints a pairing.
+            Mode::Closed => {
+                open_panel(Mode::Owner);
+                to_seal_stage();
+                mint_pairing();
             }
-        }
+            // Up, not signed in, nothing pending (expired, refused, or no answer): mint again.
+            Mode::Owner if unsafe { TOKEN_LEN == 0 && PAIR_LEN == 0 && !MINT_IN_FLIGHT } => mint_pairing(),
+            _ => {}
+        },
         "McWatchJoin" => match mode() {
             Mode::Closed => open_sheet(WATCH_QUESTION, REQ_PROMPT_WATCH),
             Mode::Watcher => close_panel(),
             Mode::Owner => local_status("You are the owner here: the watch code is for your group."),
         },
-        "McClose" => close_panel(),
+        "McClose" | "McSealCancel" => close_panel(),
         "McMoveCloser" => nudge(0, MOVE_STEP_M),
         "McMoveFarther" => nudge(0, -MOVE_STEP_M),
         "McMoveUp" => nudge(1, MOVE_STEP_M),
         "McMoveDown" => nudge(1, -MOVE_STEP_M),
         "McMoveRight" => nudge(2, MOVE_STEP_M),
         "McMoveLeft" => nudge(2, -MOVE_STEP_M),
+        "BtnSealType" => {
+            // The fallback: the old typed passphrase, on the system typing sheet.
+            if mode() == Mode::Owner && unsafe { TOKEN_LEN } == 0 {
+                open_sheet(SEAL_QUESTION, REQ_PROMPT_SEAL);
+            }
+        }
         _ if is_face_button(i) => match mode() {
-            Mode::Owner => {
+            Mode::Owner if signed_in() => {
+                if node_name(i).starts_with("Cube") {
+                    unsafe {
+                        PRESSED_CUBE = i;
+                        PRESSED_AT = NOW_S;
+                    }
+                }
                 if let Some(slot) = prompt_slot(i) {
                     let q = unsafe { &PROMPT_Q[slot][..PROMPT_Q_LEN[slot]] };
                     let q = core::str::from_utf8(q).unwrap_or("Type here");
@@ -511,7 +762,7 @@ pub extern "C" fn on_press(_event_type: i32, node: i32, _p1: i32, _p2: i32) {
                 }
             }
             Mode::Watcher => local_status("You are watching: only the owner can press."),
-            Mode::Closed => {}
+            _ => {}
         },
         _ => {}
     }
@@ -555,14 +806,10 @@ pub extern "C" fn on_prompt_result(_event_type: i32, _node: i32, request_id: i32
     let text = unsafe { core::slice::from_raw_parts(core::ptr::addr_of!(PROMPT_ANSWER) as *const u8, n) };
     match request_id {
         REQ_PROMPT_SEAL => {
-            // The ritual's answer: open the panel and make the FIRST network call, the sign-in.
-            // A retry from the seat (the panel already open, no token) keeps the panel where it is.
-            if mode() != Mode::Owner {
-                open_panel(Mode::Owner, "Signing in...");
-            } else {
+            if mode() == Mode::Owner && unsafe { TOKEN_LEN } == 0 {
                 local_status("Signing in...");
+                send_signin(text);
             }
-            send_signin(text);
         }
         REQ_PROMPT_WATCH => {
             let mut code = [0u8; 6];
@@ -573,15 +820,16 @@ pub extern "C" fn on_prompt_result(_event_type: i32, _node: i32, request_id: i32
                     k += 1;
                 }
             }
-            if k != 6 {
+            if k != 6 || mode() != Mode::Closed {
                 return; // not a code: nothing opens, nothing is sent
             }
             unsafe { WATCH_CODE = code; }
-            open_panel(Mode::Watcher, "Joining...");
+            open_panel(Mode::Watcher);
+            local_status("Joining...");
         }
         _ => {
             let i = (request_id - REQ_PROMPT_BASE) as usize;
-            if mode() == Mode::Owner && i < N_ALL && is_face_button(i) {
+            if signed_in() && i < N_ALL && is_face_button(i) {
                 send_press(i, text);
             }
         }
@@ -593,71 +841,172 @@ fn prompt_slot(node: usize) -> Option<usize> {
 }
 
 // ---------------------------------------------------------------------------
-// Opening, closing and moving the panel
+// Opening, closing, stages
 // ---------------------------------------------------------------------------
 
-fn open_panel(m: Mode, first_line: &str) {
+fn open_panel(m: Mode) {
     unsafe {
         MODE = m;
         WATCH_ENDED = false;
         VERSION = 0;
         LAST_Z = -1;
         POLL_IN_FLIGHT = false;
+        MINT_IN_FLIGHT = false;
         NEXT_POLL_AT = NOW_S;
         DELTA = [0.0, PARK_DROP_M, 0.0];
         ADJUST = [0.0; 3];
+        M_ARC = false;
+        ARC_SHOWN = false;
+        PICKED = NONE;
+        PRESSED_CUBE = NONE;
+        TWEENS = [NO_TWEEN; N_GROUPS];
     }
     turn_for_watcher(m == Mode::Watcher);
-    apply_positions();
-    for name in OPEN_SHOWS {
-        set_visible(idx(name), true);
-    }
-    set_visible(idx("LockPanel"), true);
-    show(idx("TxTicker"), "MISSION CONTROL");
-    show(idx("TxLock"), first_line);
+    sync_all();
     refresh_network(true);
 }
 
 fn close_panel() {
-    if mode() == Mode::Owner && unsafe { TOKEN_LEN } > 0 {
+    if signed_in() {
         // Sign out on the way out (best effort): the bridge also ends idle sign-ins itself.
         send_press(idx("BtnSignOut"), &[]);
     }
-    for i in 0..N_ALL {
-        if is_fixture(i) {
-            continue;
-        }
-        if i < N_TEXT {
-            hide_text(i);
-        }
-        set_visible(i, false);
-    }
     unsafe {
         MODE = Mode::Closed;
+        STAGE = Stage::Seal;
         TOKEN_LEN = 0;
+        PAIR_LEN = 0;
+        MINT_IN_FLIGHT = false;
         WATCH_CODE = [0; 6];
-        PROMPT_NODE = [usize::MAX; MAX_PROMPTS];
+        PROMPT_NODE = [NONE; MAX_PROMPTS];
         DELTA = [0.0; 3];
         ADJUST = [0.0; 3];
         SHIFT = [0.0; N_ALL];
-        TEXT_HASH = [0; N_TEXT];
+        TWEENS = [NO_TWEEN; N_GROUPS];
+        M_ARC = false;
+        ARC_SHOWN = false;
+        PICKED = NONE;
+        HUE_STATE = [OFF; N_HUE];
+        for i in 0..N_ALL {
+            WANT[i] = i >= N_FACE;
+        }
+        TEXT_LEN = [0; N_TEXT];
     }
-    set_chips(0);
+    sync_all();
     turn_for_watcher(false);
-    apply_positions();
+    // Park every node where it was authored, at its own size.
+    for i in 0..N_ALL {
+        put(i);
+    }
 }
 
-/// Turn every panel node 180 degrees of yaw for a watcher's copy, or back.
+/// Back to the seal (closed -> owner, or the owner's sign-in ended): the ring rises from the
+/// seal on the seat. Pairing state is cleared; the ledge, the puck and the arc are not shown.
+fn to_seal_stage() {
+    unsafe {
+        STAGE = Stage::Seal;
+        TOKEN_LEN = 0;
+        PAIR_LEN = 0;
+        M_ARC = false;
+        ARC_SHOWN = false;
+        PICKED = NONE;
+        TWEENS = [NO_TWEEN; N_GROUPS];
+    }
+    reset_scales();
+    let from = placed(idx("McSeal"));
+    start_tween(G_SEAL, 1.0, SEAL_RISE_S, from);
+    sync_all();
+}
+
+/// A token arrived while the seal was up: the lock animation (hold, shrink, grow).
+fn begin_lock() {
+    unsafe {
+        STAGE = Stage::Hold;
+        HOLD_UNTIL = NOW_S + LOCK_HOLD_S;
+        PAIR_LEN = 0;
+        MINT_IN_FLIGHT = false;
+        TWEENS[G_SEAL as usize] = NO_TWEEN;
+    }
+    reset_scales();
+    // The ring stands at its place, full size, while it shows locked.
+    for i in 0..N_ALL {
+        if group(i) == G_SEAL && presented(i) {
+            put(i);
+        }
+    }
+    if let Some(k) = hue_slot(b"SealRing") {
+        paint_slot(k, state_index(k, b"locked"));
+    }
+}
+
+/// Called whenever a tween ends.
+fn tween_done(g: u8) {
+    if mode() != Mode::Owner {
+        return;
+    }
+    match (stage(), g) {
+        (Stage::Shrink, G_SEAL) => {
+            unsafe { STAGE = Stage::Grow; }
+            start_tween(G_LEDGE, 1.0, GROW_S, placed(idx("McLedge")));
+            start_tween(G_PUCK, 1.0, GROW_S, placed(idx("Puck")));
+            sync_all();
+        }
+        (Stage::Grow, _) => {
+            let busy = unsafe { TWEENS[G_LEDGE as usize].active || TWEENS[G_PUCK as usize].active };
+            if !busy {
+                unsafe { STAGE = Stage::Signed; }
+                update_arc();
+            }
+        }
+        (Stage::Signed, G_ARC) => {
+            if unsafe { !ARC_SHOWN } {
+                // Folded: the picked cube (and the labels) come back.
+                unsafe { PICKED = NONE; }
+                sync_all();
+            }
+            update_arc(); // a fold or unfold may have been asked for meanwhile
+        }
+        _ => {}
+    }
+}
+
+/// Signed in: unfold or fold the arc to match `M`.
+fn update_arc() {
+    if mode() != Mode::Owner || stage() != Stage::Signed {
+        return;
+    }
+    let (want, shown) = unsafe { (M_ARC, ARC_SHOWN) };
+    if want == shown {
+        return;
+    }
+    if want {
+        // Unfold from the pressed cube (or CubePlus), else from the ledge's centre.
+        let (pc, at) = unsafe { (PRESSED_CUBE, PRESSED_AT) };
+        let pick = if pc != NONE && unsafe { NOW_S } - at <= PRESS_ORIGIN_S { pc } else { NONE };
+        let from = if pick != NONE { placed(pick) } else { placed(idx("McLedge")) };
+        unsafe {
+            ARC_SHOWN = true;
+            PICKED = pick;
+            FOLD_TO = from;
+            PRESSED_CUBE = NONE;
+        }
+        start_tween(G_ARC, 1.0, UNFOLD_S, from);
+    } else {
+        unsafe { ARC_SHOWN = false; }
+        let from = unsafe { FOLD_TO };
+        start_tween(G_ARC, -1.0, FOLD_S, from);
+    }
+    sync_all();
+}
+
+/// Turn every arc node 180 degrees of yaw for a watcher's copy, or back.
 fn turn_for_watcher(turn: bool) {
     if unsafe { TURNED } == turn {
         return;
     }
     for i in 0..N_ALL {
-        if is_fixture(i) {
-            continue;
-        }
         let h = unsafe { HANDLES[i] };
-        if h == 0 {
+        if h == 0 || group(i) != G_ARC {
             continue;
         }
         if let Some(r) = base_rot_of(i) {
@@ -669,6 +1018,7 @@ fn turn_for_watcher(turn: bool) {
 }
 
 /// One of the handle buttons: axis 0 toward/away, 1 up/down, 2 right/left (the viewer's).
+/// The handles move the arc only: the ledge and the puck belong to the throne.
 fn nudge(axis: usize, by: f32) {
     if mode() == Mode::Closed {
         return;
@@ -681,7 +1031,11 @@ fn nudge(axis: usize, by: f32) {
     unsafe {
         ADJUST[axis] = clamp(ADJUST[axis] + by, lo, hi);
     }
-    apply_positions();
+    for i in 0..N_ALL {
+        if group(i) == G_ARC && presented(i) {
+            put(i);
+        }
+    }
 }
 
 fn clamp(v: f32, lo: f32, hi: f32) -> f32 {
@@ -694,51 +1048,261 @@ fn clamp(v: f32, lo: f32, hi: f32) -> f32 {
     }
 }
 
-/// Where an authored (parked) point goes now, `s` metres along the viewer's right:
-/// parked when closed; raised in front of the throne for the owner; turned to face the
-/// hall and lowered to its floor for a watcher. The viewer's handle adjustments apply to both.
-fn place(p: [f32; 3], s: f32) -> [f32; 3] {
-    if mode() == Mode::Closed {
-        return p;
+// ---------------------------------------------------------------------------
+// Where things go: place, tweens
+// ---------------------------------------------------------------------------
+
+/// Where an authored (parked) point of group `g` goes now, `s` metres along the viewer's right:
+/// parked when closed; raised in front of the throne for the owner (the arc also takes the
+/// handle adjustments); for a watcher, the arc turned to face the hall and lowered to its
+/// floor, and every other group left parked.
+fn place(g: u8, p: [f32; 3], s: f32) -> [f32; 3] {
+    match mode() {
+        Mode::Closed => p,
+        Mode::Watcher if g != G_ARC => p,
+        m => {
+            let (d, a) = unsafe { (DELTA, ADJUST) };
+            let watcher = m == Mode::Watcher;
+            let (right, toward) = if watcher { (RIGHT_WATCH, TOWARD_WATCH) } else { (RIGHT, TOWARD) };
+            let mut q = [p[0] + d[0], p[1] + d[1], p[2] + d[2]];
+            if watcher {
+                q = [2.0 * WATCH_PIVOT_X - q[0], q[1] - WATCH_LOWER_M, -q[2]];
+            }
+            let arc = g == G_ARC;
+            for k in 0..3 {
+                q[k] += right[k] * s;
+                if arc {
+                    q[k] += a[0] * toward[k] + a[2] * right[k] + if k == 1 { a[1] } else { 0.0 };
+                }
+            }
+            q
+        }
     }
-    let (d, a) = unsafe { (DELTA, ADJUST) };
-    let watcher = mode() == Mode::Watcher;
-    let (right, toward) = if watcher { (RIGHT_WATCH, TOWARD_WATCH) } else { (RIGHT, TOWARD) };
-    let mut q = [p[0] + d[0], p[1] + d[1], p[2] + d[2]];
-    if watcher {
-        q = [2.0 * WATCH_PIVOT_X - q[0], q[1] - WATCH_LOWER_M, -q[2]];
-    }
-    for k in 0..3 {
-        q[k] += a[0] * toward[k] + a[2] * right[k] + right[k] * s + if k == 1 { a[1] } else { 0.0 };
-    }
-    q
 }
 
-/// One node at its place now, with its own shift along the viewer's right.
-fn position_one(i: usize) {
+/// A node's place now (its group's rules, its own shift), ignoring any tween.
+fn placed(i: usize) -> [f32; 3] {
+    let p = base_of(i).unwrap_or([0.0; 3]);
+    if is_fixture(i) {
+        return p;
+    }
+    place(group(i), p, unsafe { SHIFT[i] })
+}
+
+fn ease(k: f32) -> f32 {
+    let k = clamp(k, 0.0, 1.0);
+    if k < 0.5 {
+        4.0 * k * k * k
+    } else {
+        let u = -2.0 * k + 2.0;
+        1.0 - u * u * u / 2.0
+    }
+}
+
+/// Sets one node's transform to what it should be this frame: its place, or, while its
+/// group's tween runs, between the tween's point and its place, scaled down. Text anchors
+/// never scale (their words are hidden while their group moves).
+fn put(i: usize) {
     let h = unsafe { HANDLES[i] };
     if h == 0 || is_fixture(i) {
         return;
     }
-    if let Some(p) = base_of(i) {
-        let q = place(p, unsafe { SHIFT[i] });
-        unsafe { host::k_transform_set_position(h, q[0], q[1], q[2]); }
+    if base_of(i).is_none() {
+        return;
+    }
+    let target = placed(i);
+    let tw = unsafe { TWEENS[group(i) as usize] };
+    if tw.active && i >= N_TEXT {
+        let e = ease(tw.k);
+        let q = [tw.from[0] + (target[0] - tw.from[0]) * e, tw.from[1] + (target[1] - tw.from[1]) * e, tw.from[2] + (target[2] - tw.from[2]) * e];
+        let s = SCALE_MIN + (1.0 - SCALE_MIN) * e;
+        unsafe {
+            host::k_transform_set_position(h, q[0], q[1], q[2]);
+            host::k_transform_set_scale(h, s, s, s);
+            SCALED[i] = true;
+        }
+    } else {
+        unsafe {
+            host::k_transform_set_position(h, target[0], target[1], target[2]);
+            if SCALED[i] {
+                host::k_transform_set_scale(h, 1.0, 1.0, 1.0);
+                SCALED[i] = false;
+            }
+        }
     }
 }
 
-/// Every panel node (and every done-chip copy) where it belongs now.
-fn apply_positions() {
-    for i in 0..N_ALL {
-        position_one(i);
+/// Starts (or turns around) group `g`'s tween. A tween already running keeps its progress,
+/// so a fold asked for mid-unfold reverses from where it is.
+fn start_tween(g: u8, dir: f32, dur: f32, from: [f32; 3]) {
+    unsafe {
+        let t = &mut TWEENS[g as usize];
+        if !t.active {
+            t.k = if dir > 0.0 { 0.0 } else { 1.0 };
+        }
+        t.active = true;
+        t.dir = dir;
+        t.dur = dur;
+        t.from = from;
     }
-    if let Some(p) = base_of(idx("ChipDone")) {
-        for k in 0..MAX_CHIPS {
-            let h = unsafe { CHIPS[k] };
-            if h > 0 {
-                let q = place(p, CHIP_STEP_M * (k as f32 + 1.0));
-                unsafe { host::k_transform_set_position(h, q[0], q[1], q[2]); }
+    // Every shown node of the group starts from the tween's point this frame.
+    for i in 0..N_ALL {
+        if group(i) == g && unsafe { VISIBLE[i] } == 1 {
+            put(i);
+        }
+    }
+}
+
+/// Every frame: advance each running tween and move ONLY its group's shown nodes.
+fn tick_tweens(dt: f32) {
+    for g in 1..N_GROUPS {
+        let done = unsafe {
+            let t = &mut TWEENS[g];
+            if !t.active {
+                continue;
+            }
+            t.k = clamp(t.k + t.dir * dt / t.dur, 0.0, 1.0);
+            (t.dir > 0.0 && t.k >= 1.0) || (t.dir < 0.0 && t.k <= 0.0)
+        };
+        if !done {
+            for i in 0..N_ALL {
+                if group(i) == g as u8 && unsafe { VISIBLE[i] } == 1 {
+                    put(i);
+                }
+            }
+            continue;
+        }
+        let grew = unsafe { TWEENS[g].dir > 0.0 };
+        unsafe { TWEENS[g].active = false; }
+        if grew {
+            // Everything at its place, full size; then the words show (sync).
+            for i in 0..N_ALL {
+                if group(i) == g as u8 && unsafe { VISIBLE[i] } == 1 {
+                    put(i);
+                }
+            }
+            sync_all();
+        } else {
+            // Folded or shrunk away: hide first, then give back the full size (no move: a
+            // hidden node is placed when it shows again).
+            sync_all();
+            for i in 0..N_ALL {
+                if group(i) == g as u8 && unsafe { SCALED[i] } {
+                    let h = unsafe { HANDLES[i] };
+                    unsafe {
+                        host::k_transform_set_scale(h, 1.0, 1.0, 1.0);
+                        SCALED[i] = false;
+                    }
+                }
             }
         }
+        tween_done(g as u8);
+    }
+}
+
+/// Every node back to scale 1 (an animation was cut short).
+fn reset_scales() {
+    for i in 0..N_ALL {
+        if unsafe { SCALED[i] } {
+            let h = unsafe { HANDLES[i] };
+            unsafe {
+                host::k_transform_set_scale(h, 1.0, 1.0, 1.0);
+                SCALED[i] = false;
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Two-layer visibility
+// ---------------------------------------------------------------------------
+
+/// Layer two: is group `g` on for the current mode and stage (or kept on by its tween)?
+fn group_on(g: u8) -> bool {
+    if unsafe { TWEENS[g as usize].active } {
+        return true;
+    }
+    match mode() {
+        Mode::Closed => false,
+        Mode::Watcher => g == G_ARC,
+        Mode::Owner => match stage() {
+            Stage::Seal | Stage::Hold => g == G_SEAL,
+            Stage::Shrink => false,
+            Stage::Grow => g == G_LEDGE || g == G_PUCK,
+            Stage::Signed => g == G_LEDGE || g == G_PUCK || (g == G_ARC && unsafe { ARC_SHOWN }),
+        },
+    }
+}
+
+/// Things that stay hidden whatever the snapshot wants:
+///   - words while their group moves (texts appear only when an animation ends);
+///   - the picked cube while the arc is open or moving (it became the arc);
+///   - the cube labels while the arc is open or moving: seen from the throne they would sit
+///     over the centre panel's bottom rows (the left panel lists the jobs instead).
+fn held_back(i: usize) -> bool {
+    let g = group(i);
+    if i < N_TEXT && unsafe { TWEENS[g as usize].active } {
+        return true;
+    }
+    let arc_up = unsafe { ARC_SHOWN || TWEENS[G_ARC as usize].active };
+    if arc_up && g == G_LEDGE {
+        let n = node_name(i);
+        if n.starts_with("TxCube") {
+            return true;
+        }
+        let p = unsafe { PICKED };
+        if p != NONE && i == p {
+            return true;
+        }
+    }
+    false
+}
+
+/// Is node `i` shown now (both layers)? Variants follow their base (see `paint`).
+fn shown(i: usize) -> bool {
+    if is_fixture(i) {
+        return true;
+    }
+    let want = if i < N_TEXT { (unsafe { TEXT_LEN[i] }) > 0 } else { unsafe { WANT[i] } };
+    want && group_on(group(i)) && !held_back(i)
+}
+
+/// A node that is on screen: a shown mesh, or a plaque whose words show.
+fn presented(i: usize) -> bool {
+    unsafe { VISIBLE[i] == 1 || (i < N_TEXT && TEXT_HASH[i] > 1) }
+}
+
+fn sync_node(i: usize) {
+    if is_fixture(i) || is_variant(i) {
+        return;
+    }
+    let on = shown(i);
+    if i < N_TEXT {
+        // A plaque is never shown itself (3 cm studs); its words are.
+        if on {
+            if unsafe { TEXT_HASH[i] } <= 1 {
+                put(i);
+            }
+            let n = unsafe { TEXT_LEN[i] } as usize;
+            let text = unsafe { core::str::from_utf8_unchecked(&TEXT_STORE[i][..n]) };
+            show(i, text);
+        } else {
+            hide_text(i);
+        }
+    } else {
+        if on && unsafe { VISIBLE[i] } != 1 {
+            put(i);
+        }
+        set_visible(i, on);
+    }
+}
+
+fn sync_all() {
+    for i in 0..N_ALL {
+        sync_node(i);
+    }
+    for k in 0..N_HUE {
+        paint_slot(k, unsafe { HUE_STATE[k] });
     }
 }
 
@@ -758,8 +1322,9 @@ fn url(path: &str) -> &'static str {
     unsafe { core::str::from_utf8_unchecked(&buf[..n]) }
 }
 
-/// Writes an AB1 request into REQ_BUF; returns its length. A watcher's carries the watch
-/// code and never a token, a press or typed text.
+/// Writes an AB1 request into REQ_BUF; returns its length. The owner's carries the token, or
+/// (no token yet) the pending pairing's id. A watcher's carries the watch code and never a
+/// token, a pairing id, a press or typed text.
 fn build_request(press: Option<usize>, text: &[u8]) -> usize {
     let buf = unsafe { &mut *core::ptr::addr_of_mut!(REQ_BUF) };
     let mut w = Writer { buf, n: 0 };
@@ -769,12 +1334,18 @@ fn build_request(press: Option<usize>, text: &[u8]) -> usize {
         w.push(b"watch ");
         w.push(unsafe { &*core::ptr::addr_of!(WATCH_CODE) });
         w.push(b"\n");
-    } else {
+    } else if owner {
         let tl = unsafe { TOKEN_LEN };
+        let pl = unsafe { PAIR_LEN };
         if tl > 0 {
             w.push(b"tok ");
             let token = unsafe { &*core::ptr::addr_of!(TOKEN) };
             w.push(&token[..tl]);
+            w.push(b"\n");
+        } else if pl > 0 {
+            w.push(b"pair ");
+            let id = unsafe { &*core::ptr::addr_of!(PAIR_ID) };
+            w.push(&id[..pl]);
             w.push(b"\n");
         }
     }
@@ -793,17 +1364,33 @@ fn build_request(press: Option<usize>, text: &[u8]) -> usize {
     w.n
 }
 
-fn fetch(path: &str, len: usize, id: i32) -> i32 {
+fn fetch(path: &'static str, len: usize, id: i32) -> i32 {
     if mode() == Mode::Closed {
         return -2; // never a call while closed
     }
+    unsafe { LAST_PATH = path; }
     let u = url(path);
     let body = core::ptr::addr_of!(REQ_BUF) as *const u8;
     unsafe { host::k_net_fetch(METHOD_POST, u.as_ptr() as i32, u.len() as i32, body as i32, len as i32, 0, id) }
 }
 
+/// The pairing's first call: no `pair` field, so the bridge mints one.
+fn mint_pairing() {
+    unsafe { PAIR_LEN = 0; }
+    let len = build_request(None, &[]);
+    let rc = fetch(PATH_PAIR, len, REQ_PAIR_MINT);
+    if rc == 0 {
+        unsafe {
+            MINT_IN_FLIGHT = true;
+            NEXT_POLL_AT = NOW_S + VIEW_MIN_GAP_S;
+        }
+        local_status("Asking the bridge for a code...");
+    } else {
+        local_status(if rc == -6 { "Too fast: press the seal again in a second." } else { "The headset refused the call: network off for this world?" });
+    }
+}
+
 fn send_signin(passphrase: &[u8]) {
-    unsafe { TOKEN_LEN = 0; }
     let len = build_request(None, passphrase);
     let rc = fetch(PATH_SIGNIN, len, REQ_SIGNIN);
     if rc != 0 {
@@ -811,7 +1398,7 @@ fn send_signin(passphrase: &[u8]) {
     }
 }
 
-fn send_poll(path: &str) {
+fn send_poll(path: &'static str) {
     let len = build_request(None, &[]);
     let rc = fetch(path, len, REQ_VIEW);
     if rc == 0 {
@@ -828,8 +1415,8 @@ fn send_poll(path: &str) {
 }
 
 fn send_press(i: usize, text: &[u8]) {
-    if mode() != Mode::Owner {
-        return;
+    if !signed_in() {
+        return; // a watcher, or nobody signed in: a press is never sent
     }
     let len = build_request(Some(i), text);
     let id = unsafe {
@@ -852,6 +1439,9 @@ fn send_press(i: usize, text: &[u8]) {
 pub extern "C" fn on_net_result(_event_type: i32, _node: i32, request_id: i32, status: i32) {
     if request_id == REQ_VIEW {
         unsafe { POLL_IN_FLIGHT = false; }
+    }
+    if request_id == REQ_PAIR_MINT {
+        unsafe { MINT_IN_FLIGHT = false; }
     }
     if mode() == Mode::Closed {
         return; // a late answer after Close changes nothing
@@ -894,6 +1484,8 @@ pub fn apply_snapshot(body: &[u8]) {
         return;
     }
     let watcher = mode() == Mode::Watcher;
+    let mut lost_token = false;
+    let mut got_token = false;
     for line in lines {
         if line.is_empty() {
             continue;
@@ -904,24 +1496,45 @@ pub fn apply_snapshot(body: &[u8]) {
         match kind {
             b'V' => unsafe { VERSION = parse_u32(name) },
             b'M' => {
-                if name == b"lock" && !watcher {
-                    unsafe { TOKEN_LEN = 0; }
-                    set_chips(0);
+                if !watcher {
+                    if name == b"lock" && unsafe { TOKEN_LEN } > 0 {
+                        lost_token = true;
+                    }
+                    unsafe { M_ARC = name == b"arc"; }
                 }
             }
             b'K' => {
-                if !watcher {
+                if !watcher && mode() == Mode::Owner {
                     let n = name.len().min(96);
+                    if n > 0 {
+                        unsafe {
+                            TOKEN[..n].copy_from_slice(&name[..n]);
+                            TOKEN_LEN = n;
+                            LAST_Z = -1;
+                            PAIR_LEN = 0;
+                        }
+                        lost_token = false;
+                        got_token = true;
+                    }
+                }
+            }
+            b'I' => {
+                // A pairing id: 32 lowercase hex, kept in memory only while there is no token.
+                let ok = name.len() == 32 && name.iter().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(b));
+                if ok && !watcher && mode() == Mode::Owner && unsafe { TOKEN_LEN } == 0 {
                     unsafe {
-                        TOKEN[..n].copy_from_slice(&name[..n]);
-                        TOKEN_LEN = n;
-                        LAST_Z = -1;
+                        (*core::ptr::addr_of_mut!(PAIR_ID)).copy_from_slice(name);
+                        PAIR_LEN = 32;
                     }
                 }
             }
             b'E' => {
-                if name == b"signed_out" && !watcher {
-                    unsafe { TOKEN_LEN = 0; }
+                if !watcher {
+                    match name {
+                        b"signed_out" if unsafe { TOKEN_LEN } > 0 => lost_token = true,
+                        b"paired" | b"pair_expired" | b"pair_refused" => unsafe { PAIR_LEN = 0 },
+                        _ => {}
+                    }
                 }
                 if name == b"watch_refused" && watcher {
                     unsafe { WATCH_ENDED = true; }
@@ -931,35 +1544,35 @@ pub fn apply_snapshot(body: &[u8]) {
                 if let Some(i) = face_node(name) {
                     let mut t = TextBuf::new();
                     unescape_into(arg, &mut t);
-                    show(i, t.as_str());
+                    store_text(i, t.as_str());
                 }
             }
             b'X' => {
                 if let Some(i) = face_node(name) {
-                    hide_text(i);
+                    store_text(i, "");
                 }
             }
             b'U' => {
                 if let Some(i) = face_node(name) {
-                    set_visible(i, arg == b"1");
+                    if i >= N_TEXT {
+                        unsafe { WANT[i] = arg == b"1"; }
+                    }
                 }
             }
-            b'G' => {
-                if let Some(i) = face_node(name) {
-                    let f = (parse_u32(arg).min(1000) as f32 / 1000.0).max(0.02);
-                    // Raw UE relative scale: the bar runs along its own Y, origin at its left end.
-                    unsafe { host::k_transform_set_scale(HANDLES[i], 1.0, f, 1.0); }
+            b'H' => {
+                if let Some(k) = hue_slot(name) {
+                    let st = if arg == b"off" { Some(OFF) } else { find_state(k, arg) };
+                    if let Some(st) = st {
+                        unsafe { HUE_STATE[k] = st; }
+                    }
                 }
             }
             b'O' => {
                 if let Some(i) = face_node(name) {
-                    unsafe { SHIFT[i] = parse_i32(arg) as f32 / 1000.0; }
-                    position_one(i);
-                }
-            }
-            b'C' => {
-                if name == b"ChipDone" {
-                    set_chips(parse_u32(arg) as usize);
+                    unsafe { SHIFT[i] = clamp(parse_i32(arg) as f32 / 1000.0, -2.0, 2.0); }
+                    if presented(i) {
+                        put(i);
+                    }
                 }
             }
             b'P' => {
@@ -970,7 +1583,7 @@ pub fn apply_snapshot(body: &[u8]) {
             b'Z' => {
                 let z = parse_u32(name) as i64;
                 let last = unsafe { LAST_Z };
-                if last >= 0 && z > last && !watcher {
+                if last >= 0 && z > last && !watcher && signed_in() {
                     buzz();
                 }
                 unsafe { LAST_Z = z; }
@@ -978,11 +1591,46 @@ pub fn apply_snapshot(body: &[u8]) {
             _ => {}
         }
     }
+    if mode() == Mode::Owner {
+        if lost_token {
+            to_seal_stage();
+        } else if got_token && stage() == Stage::Seal {
+            begin_lock();
+        }
+    }
+    sync_all();
+    update_arc();
 }
 
 /// A node the bridge may name: the face's nodes only, never the world's own (seal, handles...).
 fn face_node(name: &[u8]) -> Option<usize> {
     node_index(name).filter(|&i| i < N_FACE)
+}
+
+fn hue_slot(name: &[u8]) -> Option<usize> {
+    (0..N_HUE).find(|&k| HUE_BASES[k].as_bytes() == name)
+}
+
+fn find_state(k: usize, st: &[u8]) -> Option<u8> {
+    HUE_STATES[k].iter().position(|s| s.as_bytes() == st).map(|j| j as u8)
+}
+
+fn state_index(k: usize, st: &[u8]) -> u8 {
+    find_state(k, st).unwrap_or(OFF)
+}
+
+fn store_text(i: usize, s: &str) {
+    if i >= N_TEXT {
+        return;
+    }
+    let mut end = s.len().min(HOST_TEXT_MAX_BYTES);
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    unsafe {
+        TEXT_STORE[i][..end].copy_from_slice(&s.as_bytes()[..end]);
+        TEXT_LEN[i] = end as u8;
+    }
 }
 
 fn split_once(s: &[u8]) -> (&[u8], &[u8]) {
@@ -1025,7 +1673,7 @@ fn unescape_into(s: &[u8], t: &mut TextBuf) {
 }
 
 fn set_prompt(node: usize, q: &[u8]) {
-    let slot = prompt_slot(node).or_else(|| (0..MAX_PROMPTS).find(|&s| unsafe { PROMPT_NODE[s] } == usize::MAX));
+    let slot = prompt_slot(node).or_else(|| (0..MAX_PROMPTS).find(|&s| unsafe { PROMPT_NODE[s] } == NONE));
     let Some(s) = slot else { return };
     let mut t = TextBuf::new();
     unescape_into(q, &mut t);
@@ -1047,9 +1695,11 @@ fn buzz() {
 }
 
 // ---------------------------------------------------------------------------
-// Scene helpers
+// The two functions DB-045 (the visual pack) replaces: `show` places words, `paint` colours
 // ---------------------------------------------------------------------------
 
+/// THE ONE text-placement function: world text on anchor `i` (deduplicated, clipped to the
+/// host's 128 bytes). DB-045 replaces this body; nothing else places words.
 fn show(i: usize, text: &str) {
     if i >= N_TEXT || mode() == Mode::Closed {
         return;
@@ -1082,14 +1732,51 @@ fn hide_text(i: usize) {
     unsafe { TEXT_HASH[i] = 1; }
 }
 
-/// The world's own line, shown at once and overwritten by the bridge's next status.
+/// THE ONE colour function: paints hue base `base` (a node name in nodes.json `hue`) in
+/// `state` ("calm", "need", "idle", "armed", "locked" or "off"). Today a colour is a
+/// pre-built variant node `<base><State>`: the matching variant shows (when its base shows)
+/// and the others hide; "off" hides all. DB-045 replaces this body with a material call.
+pub fn paint(base: &str, state: &str) {
+    let Some(k) = hue_slot(base.as_bytes()) else { return };
+    let st = if state == "off" { OFF } else { state_index(k, state.as_bytes()) };
+    paint_slot(k, st);
+}
+
+fn paint_slot(k: usize, st: u8) {
+    if k >= N_HUE {
+        return;
+    }
+    unsafe { HUE_STATE[k] = st; }
+    let base = unsafe { HUE_BASE_IDX[k] };
+    // The colour shows only on a base that shows (two-layer). SealRing and Puck are the
+    // world's own bodies; the cubes are the face's buttons.
+    let base_on = base != NONE && shown(base);
+    for j in 0..MAX_STATES {
+        let v = unsafe { HUE_VARIANT[k][j] };
+        if v == NONE {
+            continue;
+        }
+        let on = base_on && st == j as u8;
+        if on && unsafe { VISIBLE[v] } != 1 {
+            put(v);
+        }
+        set_visible(v, on);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Scene helpers
+// ---------------------------------------------------------------------------
+
+/// The world's own line, shown at once and overwritten by the bridge's next record: the seal
+/// hint while nobody is signed in, the status line after.
 fn local_status(s: &str) {
     if mode() == Mode::Closed {
         return;
     }
-    let i = idx("TxStatus");
-    show(i, s);
-    unsafe { TEXT_HASH[i] = 0; }
+    let i = if mode() == Mode::Owner && unsafe { TOKEN_LEN } == 0 { idx("TxSealHint") } else { idx("TxStatus") };
+    store_text(i, s);
+    sync_node(i);
 }
 
 fn set_visible(i: usize, on: bool) {
@@ -1112,13 +1799,7 @@ fn base_of(i: usize) -> Option<[f32; 3]> {
     if h == 0 {
         return None;
     }
-    let mut p = [0.0f32; 3];
-    let rc = unsafe {
-        host::k_transform_get_position(h, &mut p[0] as *mut f32 as i32, &mut p[1] as *mut f32 as i32, &mut p[2] as *mut f32 as i32)
-    };
-    if rc != 0 {
-        return None;
-    }
+    let p = host::position_of(h)?;
     unsafe {
         BASE_POS[i] = p;
         BASE_KNOWN[i] = true;
@@ -1135,40 +1816,12 @@ fn base_rot_of(i: usize) -> Option<[f32; 3]> {
     if h == 0 {
         return None;
     }
-    let mut r = [0.0f32; 3];
-    let rc = unsafe {
-        host::k_transform_get_rotation(h, &mut r[0] as *mut f32 as i32, &mut r[1] as *mut f32 as i32, &mut r[2] as *mut f32 as i32)
-    };
-    if rc != 0 {
-        return None;
-    }
+    let r = host::rotation_of(h)?;
     unsafe {
         BASE_ROT[i] = r;
         BASE_ROT_KNOWN[i] = true;
     }
     Some(r)
-}
-
-fn set_chips(count: usize) {
-    let src_i = idx("ChipDone");
-    let src = unsafe { HANDLES[src_i] };
-    let want = if mode() == Mode::Closed { 0 } else { count.saturating_sub(1).min(MAX_CHIPS) };
-    for k in 0..MAX_CHIPS {
-        let have = unsafe { CHIPS[k] };
-        if k < want && have == 0 && src != 0 {
-            let name = CHIP_NAMES[k];
-            let h = unsafe { host::k_node_clone(src, 0, name.as_ptr() as i32, name.len() as i32) };
-            if h > 0 {
-                unsafe { CHIPS[k] = h; }
-            }
-        } else if k >= want && have != 0 {
-            unsafe {
-                host::k_node_destroy(have);
-                CHIPS[k] = 0;
-            }
-        }
-    }
-    apply_positions();
 }
 
 fn refresh_network(force: bool) {
@@ -1188,7 +1841,7 @@ fn refresh_network(force: bool) {
             _ => "Network state unknown.",
         });
     } else {
-        unsafe { NEXT_POLL_AT = NOW_S; }
+        unsafe { NEXT_POLL_AT = NEXT_POLL_AT.min(NOW_S + VIEW_MIN_GAP_S); }
     }
 }
 
@@ -1286,176 +1939,5 @@ impl TextBuf {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn json_array(src: &str, key: &str) -> Vec<String> {
-        let start = src.find(&format!("\"{key}\"")).expect(key);
-        let open = start + src[start..].find('[').unwrap();
-        let close = open + src[open..].find(']').unwrap();
-        src[open + 1..close].split(',').map(|s| s.trim().trim_matches('"').to_string()).filter(|s| !s.is_empty()).collect()
-    }
-
-    fn reset() {
-        unsafe {
-            MODE = Mode::Closed;
-            TOKEN_LEN = 0;
-            WATCH_ENDED = false;
-            host::FETCHES = 0;
-            host::PROMPTS = 0;
-            PROMPT_OPEN = 0;
-            VISIBLE = [-1; N_ALL];
-        }
-    }
-
-    fn handle(name: &str) -> i32 {
-        unsafe { HANDLES[idx(name)] }
-    }
-
-    #[test]
-    fn node_names_match_nodes_json() {
-        let src = include_str!("../nodes.json");
-        let v = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        assert_eq!(json_array(src, "text"), v(&NODES_TEXT));
-        assert_eq!(json_array(src, "buttons"), v(&NODES_BUTTON));
-        assert_eq!(json_array(src, "show"), v(&NODES_SHOW));
-        assert_eq!(json_array(src, "world"), v(&NODES_WORLD));
-        for n in NODES_TEXT.iter().chain(&NODES_BUTTON).chain(&NODES_SHOW).chain(&NODES_WORLD).chain(&CHIP_NAMES) {
-            assert!(!n.ends_with(|c: char| c.is_ascii_digit()), "{n}");
-        }
-    }
-
-    #[test]
-    fn closed_means_no_network_call_ever() {
-        reset();
-        k_init();
-        for _ in 0..200 {
-            k_tick(0.05);
-        }
-        on_press(0, handle("BtnTests"), 0, 0);
-        on_net_result(0, 0, REQ_VIEW, 200);
-        assert_eq!(unsafe { host::FETCHES }, 0, "closed: zero calls");
-        // The Watch button opens a typing sheet, and still nothing is sent...
-        on_press(0, handle("McWatchJoin"), 0, 0);
-        assert_eq!(unsafe { host::PROMPTS }, 1);
-        // ...and an answer that isn't six digits opens nothing.
-        unsafe { PROMPT_ANSWER[..3].copy_from_slice(b"abc"); }
-        on_prompt_result(0, 0, REQ_PROMPT_WATCH, 3);
-        assert_eq!(mode(), Mode::Closed);
-        assert_eq!(unsafe { host::FETCHES }, 0);
-    }
-
-    #[test]
-    fn the_ritual_signs_in_first_and_close_parks_everything() {
-        reset();
-        k_init();
-        on_press(0, handle("McSeal"), 0, 0);
-        assert_eq!(unsafe { PROMPT_OPEN }, REQ_PROMPT_SEAL);
-        let pass = b"correct horse battery staple";
-        unsafe { PROMPT_ANSWER[..pass.len()].copy_from_slice(pass); }
-        on_prompt_result(0, 0, REQ_PROMPT_SEAL, pass.len() as i32);
-        assert_eq!(mode(), Mode::Owner);
-        assert_eq!(unsafe { host::FETCHES }, 1, "the first call is the sign-in");
-        assert_eq!(unsafe { DELTA }, [0.0, PARK_DROP_M, 0.0], "the panel is raised");
-        apply_snapshot(b"AB1\nV 3\nM wall\nK tok123\nT TxTicker 1 working\nZ 0\n");
-        unsafe { assert_eq!(&TOKEN[..TOKEN_LEN], b"tok123"); }
-        on_press(0, handle("McMoveCloser"), 0, 0);
-        assert!((unsafe { ADJUST[0] } - MOVE_STEP_M).abs() < 1e-6);
-        on_press(0, handle("McClose"), 0, 0);
-        assert_eq!(mode(), Mode::Closed);
-        assert_eq!(unsafe { DELTA }, [0.0; 3], "parked again");
-        assert_eq!(unsafe { TOKEN_LEN }, 0, "the token is gone");
-    }
-
-    #[test]
-    fn a_sign_in_that_got_no_answer_can_be_retried_from_the_seat() {
-        reset();
-        k_init();
-        on_press(0, handle("McSeal"), 0, 0);
-        let pass = b"correct horse battery staple";
-        unsafe { PROMPT_ANSWER[..pass.len()].copy_from_slice(pass); }
-        on_prompt_result(0, 0, REQ_PROMPT_SEAL, pass.len() as i32);
-        assert_eq!(mode(), Mode::Owner);
-        on_press(0, handle("McMoveCloser"), 0, 0);
-        let moved = unsafe { ADJUST };
-        // No answer ever came (no token): the seal asks again, and the panel stays where it is.
-        unsafe { PROMPT_OPEN = 0; }
-        on_press(0, handle("McSeal"), 0, 0);
-        assert_eq!(unsafe { PROMPT_OPEN }, REQ_PROMPT_SEAL, "the seal asks again");
-        on_prompt_result(0, 0, REQ_PROMPT_SEAL, pass.len() as i32);
-        assert_eq!(unsafe { host::FETCHES }, 2, "a second sign-in call");
-        assert_eq!(unsafe { ADJUST }, moved, "the panel was not reset");
-        // Signed in: the seal does nothing.
-        apply_snapshot(b"AB1\nV 3\nM wall\nK tok123\n");
-        unsafe { PROMPT_OPEN = 0; }
-        on_press(0, handle("McSeal"), 0, 0);
-        assert_eq!(unsafe { PROMPT_OPEN }, 0);
-        close_panel();
-    }
-
-    #[test]
-    fn a_watcher_sends_the_code_never_a_token_or_a_press_and_never_buzzes() {
-        reset();
-        k_init();
-        on_press(0, handle("McWatchJoin"), 0, 0);
-        unsafe { PROMPT_ANSWER[..7].copy_from_slice(b"296 951"); }
-        on_prompt_result(0, 0, REQ_PROMPT_WATCH, 7);
-        assert_eq!(mode(), Mode::Watcher);
-        let n = build_request(Some(idx("BtnApprove")), b"typed");
-        let body = unsafe { core::str::from_utf8(&REQ_BUF[..n]).unwrap().to_string() };
-        assert_eq!(body, "AB1\nwatch 296951\nv 0\n");
-        let before = unsafe { host::FETCHES };
-        on_press(0, handle("BtnApprove"), 0, 0);
-        assert_eq!(unsafe { host::FETCHES }, before, "a watcher's press is never sent");
-        apply_snapshot(b"AB1\nV 4\nM chat\nK nope\nZ 5\n");
-        apply_snapshot(b"AB1\nV 5\nM chat\nZ 6\n");
-        assert_eq!(unsafe { TOKEN_LEN }, 0, "a watcher never keeps a token");
-        assert_eq!(unsafe { SECOND_BUZZ_AT }, -1.0, "no buzz for a watcher");
-        assert!(unsafe { TURNED }, "a watcher's copy is turned to face the hall");
-        // The bridge refuses the code (off, wrong, the owner left): the watcher stops polling.
-        apply_snapshot(b"AB1\nV 6\nE watch_refused\n");
-        assert!(unsafe { WATCH_ENDED }, "a refused watch stops polling until Close");
-        // The centre panel sits on the turning axis: a point there stays put sideways,
-        // drops to the floor, and the viewer's right flips.
-        let q = place([WATCH_PIVOT_X, 3.0 - PARK_DROP_M, 0.0], 0.5);
-        assert!((q[0] - WATCH_PIVOT_X).abs() < 1e-4 && (q[1] - (3.0 - WATCH_LOWER_M)).abs() < 1e-4 && (q[2] - 0.5).abs() < 1e-4, "{q:?}");
-        close_panel();
-        assert!(unsafe { !TURNED }, "closing turns it back");
-        open_panel(Mode::Watcher, "Joining...");
-        assert!(unsafe { !WATCH_ENDED }, "a new watch polls again");
-        close_panel();
-    }
-
-    #[test]
-    fn the_bridge_can_not_touch_the_worlds_own_nodes() {
-        reset();
-        k_init();
-        open_panel(Mode::Owner, "x");
-        let seal_before = unsafe { VISIBLE[idx("McSeal")] };
-        apply_snapshot(b"AB1\nU McSeal 0\nU McWatchJoin 0\nO McClose 500\nT McClose hi\n");
-        assert_eq!(unsafe { VISIBLE[idx("McSeal")] }, seal_before, "the seal is not the bridge's to hide");
-        assert_eq!(unsafe { SHIFT[idx("McClose")] }, 0.0);
-        close_panel();
-    }
-
-    #[test]
-    fn music_alternates_tracks_like_the_old_program() {
-        unsafe { host::AUDIO_PLAYS = 0; }
-        music::init();
-        assert_eq!(unsafe { host::AUDIO_PLAYS }, 1);
-        for _ in 0..(240 * 20) {
-            music::tick(0.05);
-        }
-        assert_eq!(unsafe { host::AUDIO_PLAYS }, 2, "the second track starts after the first's 239.35 s");
-        music::shutdown();
-    }
-
-    #[test]
-    fn numbers_parse() {
-        assert_eq!(parse_i32(b"-894"), -894);
-        assert_eq!(parse_u32(b"99999999999"), u32::MAX);
-        let mut t = TextBuf::new();
-        unescape_into(b"a\\nb\\\\c", &mut t);
-        assert_eq!(t.as_str(), "a\nb\\c");
-    }
-}
+#[allow(static_mut_refs)]
+mod tests;
