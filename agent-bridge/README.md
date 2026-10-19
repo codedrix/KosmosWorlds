@@ -105,7 +105,7 @@ headset (world script)  --HTTPS-->  tunnel  --HTTP-->  127.0.0.1:8787  agent-bri
 | `GET /.well-known/world-network.json` | the opt-in file, listing every face's world (served even when stopped) |
 | `GET /privacy` | the manifest's `privacy_url` (served even when stopped) |
 | `GET /v1/health` | `{"ok":true,"stopped":false}` |
-| `POST /v1/faces/<face>/<op>` | a room's wall, in the AB1 line format (`src/wire.ts`) |
+| `POST /v1/faces/<face>/<op>` | a room's view, in the AB1 line format (`src/wire.ts`); Mission Control's ops are `view`, `press`, `signin`, `watch` and `pair` (API.md section 5) |
 | `POST /v1/session` | `{"passphrase"}` -> `{"token","expires_in"}` |
 | `POST /v1/session/end` | `{"tok"}` |
 | `POST /v1/jobs` | `{"tok"}` -> jobs, pending approvals, projects |
@@ -132,18 +132,18 @@ Host/Origin checks before a face runs, and passes `ctx.authed`; a face acts only
 | The headset sends no identity; `X-World-Address` is forgeable | The passphrase is the only key. The header is still required on face routes (a seat belt, not a lock) |
 | The tunnel puts the bridge on the internet | Loopback bind; Host allowlist (DNS rebinding); any `Origin`, `Cookie` or `Referer` refused (no web page can drive it); 16 KiB bodies; a global rate limit |
 | Passphrase guessing | scrypt hash; one attempt per 2 s; 5 wrong = 15 min lock; 10 wrong in 24 h = locked until `npm run unlock` (global, so a stranger can lock the CEO out, never in). The Pairing Seal still signs the CEO in under the lock, and `passphraseSignIn: false` turns typed passphrases off |
-| A stranger at the seal (the Pairing Seal) | Approval is **local only**: no HTTP route approves (a test walks every route); the console and `npm run approve` are the only approvers. The console never prints the code, so the CEO types the code off HIS ring. 120 s life, single use, one pairing at a time (a new one replaces the old, whose code then approves nothing), at most 6 mints a minute and 3 s apart, five wrong codes cancel, constant-time compare, the kill switch clears it. A stranger can make the CEO press the seal again, never sign in. Watchers see nothing of pairing. No code, id or token in any log |
+| A stranger at the seal (the Pairing Seal) | Approval is **local only**: no HTTP route approves (a test walks every route); the console and `npm run approve` are the only approvers. The console never prints the code, so the CEO types the code off HIS ring. 120 s life, single use, up to 16 pairings keyed by id (a code approves only its own; at 6 mints a minute and 3 s apart at most 12 are ever alive, so a stranger pressing the seal never evicts the CEO's pairing inside its life), five wrong codes in a row cancel every waiting one, constant-time compare, the kill switch clears them. Residual risk: a bot minting at the cap uses up the mint rate, so the CEO's own press can be refused ("wait a few seconds"); a nuisance, never a sign-in, and the passphrase fallback stays. Watchers see nothing of pairing. No code, id or token in any log |
 | A stolen token | 30 min idle / 8 h absolute; one sign-in at a time; never logged; only its SHA-256 is kept |
 | "Run this text as a shell command" | No such verb. Typed text is a prompt; Claude Code's permission rules decide what runs |
 | Commands the CEO's settings pre-allow (131 rules in the Kosmos Project, incl. `Bash(powershell:*)`, `Bash(curl:*)`) | The headset policy: `managedSettings.permissions.ask` = `Bash`, `PowerShell`, and `Edit(...)` rules for `.claude/`, `.git/`, `.githooks/`, `.husky/`, `.vscode/`, `.devcontainer/`, `.mcp.json`, `.claude.json` and `.envrc` (`DEFAULT_ALWAYS_ASK` in `src/adapters/claude.ts`), so every shell command, and every edit to config that runs code by itself, asks on the wall (ask beats allow). Verified live: a pre-allowed `node --version` ran with no approval under the CEO's rules and raised one approval under the policy; an allowed Write ran unasked while a Write into `.claude/` asked once. `alwaysAsk` in config.json REPLACES the whole list (`[]` turns the policy off and drops the Edit rules too); the bridge's own desk-only check for those files stays either way |
-| Approving something unseen | An approval is approvable from the headset only if its whole command is on the wall and nothing was redacted; a press names the snapshot version, so it can't land on a changed approval |
+| Approving something unseen | An approval is approvable from the headset (the ask plate or the puck) only if its whole command is on show and nothing was redacted; the puck shows one line, `<project>: <verb> <command>`, and says "open its cube" otherwise; a press names the snapshot version, and a version changes whenever what a press means changes, so it can't land on a changed approval |
 | Prompt injection in agent output | Agent text only ever appears on conversation lines behind "Claude:"; headers, buttons, statuses, the ticker and the approval panel are the bridge's own words; control, bidi and zero-width characters stripped; the bridge's markers can't be forged |
 | Data leaving the PC | Summaries only; secrets redacted; the tunnel provider can read traffic (TLS ends at its edge) |
 | Something goes wrong | `npm run kill`: refuses everything, denies every approval, stops every job, ends the sign-in |
 
 ## Tests
 
-`npm test`: 90 tests (sanitizing, auth and lockout, jobs and approvals, the HTTP surface and kill
+`npm test`: 97 tests (sanitizing, auth and lockout, jobs and approvals, the HTTP surface and kill
 switch, the Mission Control v2 face end to end with the fake adapter (lock, cubes, the arc, the puck,
 watchers), the Pairing Seal (one test per threat-model line, the local approvers, the flow over HTTP,
 and a walk of every route proving none approves), the Claude adapter against a scripted SDK, face

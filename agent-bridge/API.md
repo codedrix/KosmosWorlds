@@ -3,7 +3,7 @@
 The contract between the bridge on the CEO's PC and any world (or other client) that uses it.
 Mission Control is the first face; More Room adds its own. Brief: **DB-044** (kosmos-project PR #210)
 and its v2 addendum, `mission-control/V2_CONTRACT.md` (Job Cubes, the decision puck, the Pairing Seal).
-Code: KosmosWorlds `agent-bridge/` (v2: branch `feat/mc2-bridge`).
+Code: KosmosWorlds `agent-bridge/` (v2: KosmosWorlds PR #6, branch `feat/mission-control-v2`; v2.1 is the contract's section 8).
 
 Status marks: **built** (in the code, tested) · **planned** (this lane, next commits).
 
@@ -135,23 +135,27 @@ only the world touches, the hue variants among them). Modes:
 |---|---|---|
 | `lock` | anonymous | every text `X`, every button and panel `U 0`, every hue `off`; a refused sign-in or the stop may show in `TxSealHint`; `BtnSealType` while the passphrase fallback is on |
 | `pair` | the headset holding a pairing id | `TxSeal` (the code, `KXT WMP`), `TxSealHint`, `H SealRing armed`, `BtnSealType` |
-| `cubes` | the owner, arc folded | the ledge (`CubeA..D` per running job with `H calm/need/idle` and `TxCubeX` = the short project name; empty slots `U 0` and `H off`; `CubePlus`) and the puck; every arc text `X` (arc buttons keep their last `U`, so the world can fold them; the press map no longer knows them) |
-| `arc` | the owner, arc open | the ledge, the puck, and the arc: left = ticker, rail, presets, project, done today; centre = header, 10 conversation lines, page, the ask plate, quick replies, reply, fold, stop, status, watch, sign-out; right = `TxPageSpot` (a placeholder naming DB-043's page panel). At most 29 labels |
+| `cubes` | the owner, arc folded | the ledge (`CubeA..D` with `H calm/need/idle` and `TxCubeX` = the short project name; a cube keeps its job while the job runs, a new job takes the first free cube; empty slots `U 0` and `H off`; `CubePlus`), the puck, and `BtnSignOut`; every arc text `X` (the other arc buttons keep their last `U`, so the world can fold them; the press map no longer knows them) |
+| `arc` | the owner, arc open | the ledge, the puck, `BtnSignOut`, and the arc. Left = jobs only: `TxTicker` (two lines), the rail (`RailA..D`, two-line rows), `TxDone` (one line). Centre = header, the conversation (10 lines, or the 5 above the ask plate while an approval shows), page, the ask plate, quick replies, reply, fold, stop, status; with NO job open, the start-a-job set instead (`BtnTests`, `BtnPrs`, `BtnToday`, `BtnNotes`, `BtnNewTask`, `BtnProject`, `TxProject`), hidden (`U 0`, `X`) while a job is open. The chrome bar: `BtnWatch` with `TxWatch` (`off` or `code 123 456`), `BtnSignOut`. Right = `TxPageSpot` only (a placeholder naming DB-043's page panel). At most 29 labels |
 
 Press actions: `cube:<jobId>` opens the arc on that job; `cube:none` (`CubePlus`) opens it with no job;
 `fold` (`BtnFold`) returns to `cubes`; `rail:<id>`, presets, `new`, `project`, `stop`, `approve`/`deny`/
 `why`, `quick`, `reply`, `pageup`/`pagedown`, `watch` and `signout` as before. `BtnPuckApprove` and
-`BtnPuckDeny` are `approve:<id>` and `deny:<id>` for the OLDEST pending approval; Approve shows only
-when the approval is `exact` and its whole command fits the puck's label (two lines at `W.puck`, no
-byte clip): the ask plate's rule. Colour is chosen in one function (`paint`) and leaves the PC only as
-`H`.
+`BtnPuckDeny` are `approve:<id>` and `deny:<id>` for the OLDEST pending approval. `TxPuck` is ONE
+line, `<project>: <verb> <command>` (`registry: run npm test`); Approve shows only when the approval
+is `exact` and that whole line fits `W.puck` (and the host's 128 bytes): the ask plate's "you approve
+what you read". Otherwise `TxPuck` reads `<project>: open its cube` and only Deny shows. Colour is
+chosen in one function (`paint`) and leaves the PC only as `H`. A render's version changes whenever
+what it shows OR what any press means changes (the oldest pending approval's id included), so two
+approvals that read the same never share a press map. When an approval appears or clears while the
+owner is paged back, the page that still shows the last line on show is kept.
 
 - **`pair`** (anonymous): with no `pair` field, mint a pairing and answer `M pair`, `I <id>`, the seal
   records and `E pair_wait`. With `pair <id>`, a long poll: answered when the owner approves, the code
   expires, or after the usual wait. Pending: the seal records again (no `I`). Approved: `K <token>`,
   `E paired`, `H SealRing locked`, then the owner's `M cubes`. Expired, taken or unknown: `M lock`,
   `X TxSeal`, `H SealRing off`, `E pair_expired`. Refused (rate, stop, pairing off): `E pair_refused`
-  with the reason in `TxSealHint`.
+  with the reason in `TxSealHint` (for the rate: "Wait a few seconds, then press the seal again.").
 - **`signin`** (the passphrase fallback, "Use passphrase" under the ring): the passphrase as the text.
   Unchanged, except: `E passphrase_off` when the PC set `passphraseSignIn` false (and the face hides
   `BtnSealType`); and a refusal sent with a live `pair <id>` answers the seal records again, with the
@@ -159,9 +163,10 @@ byte clip): the ask plate's rule. Colour is chosen in one function (`paint`) and
 - **Group watching** (off by default): the owner presses `BtnWatch` in the arc; the bridge makes a
   six-digit code and `TxWatch` shows it. A group member's world calls `watch` with a `watch <code>`
   line instead of `tok`, and gets a read-only ARC (always open: the owner's focus, or the first running
-  job): no ledge, puck or seal records, no `H`, no `Z`, no `K`, no typing-sheet records, no fold, watch
-  or sign-out button, and a status line naming the last button the owner pressed (its words, never
-  anything typed). A long poll on its own version numbers; it maps no presses. A code dies at
+  job): no ledge, puck or seal records, no `H`, no `Z`, no `K`, no typing-sheet records, and NO action
+  button at all (every arc button but the rail's rows is `U 0`: Approve, Deny, Ask why, Stop, Fold,
+  the quick replies, Reply, paging, the start-a-job set, watch, sign-out); `TxWatch` reads `read-only`
+  and the status line names the last button the owner pressed (its words, never anything typed). A long poll on its own version numbers; it maps no presses. A code dies at
   toggle-off, any new sign-in (paired too), sign-out, the kill switch, 2 hours, or 45 s after the
   owner's own view stopped asking. At most 10 wrong codes a minute across everyone.
 - **Anonymous callers** get `lock` (or their own `pair`) from their own version space and press map;
@@ -174,9 +179,14 @@ byte clip): the ask plate's rule. Colour is chosen in one function (`paint`) and
 - **Code:** 6 letters from `BCDFGHJKLMNPQRSTVWXZ` (64 million), shown `KXT WMP`. **Id:** 16 random
   bytes, hex. **Lifetime:** 120 s from the mint. **Single use:** the first poll after approval takes
   the token and the pairing is gone.
-- **One at a time:** a new mint replaces the waiting (or approved, not yet taken) pairing; a replaced
-  code can no longer be approved.
+- **Slots (contract 8.9):** up to 16 live pairings, each keyed by its id. A typed code approves only
+  the pairing whose code it is; the others keep waiting. The rate and the 120 s life allow at most 12
+  alive at once, so a stranger pressing the seal at the cap never evicts the owner's pairing inside its
+  life; a full table would replace its oldest, a backstop the rate makes unreachable.
 - **Mint rate:** at most 6 a minute across everyone, at least 3 s apart; beyond that `pair_refused`.
+- **Residual risk, stated:** a bot minting at the cap uses up the mint rate, so the owner's own press
+  can be refused (`pair_refused`, "wait a few seconds"). A nuisance, never a sign-in; the passphrase
+  fallback is still there.
 - **Approval is local only:** (1) in a terminal, `npm start` itself prints "A headset asks to pair
   (N s ago). Type the code shown on YOUR ring to approve:" and never prints the code; (2)
   `npm run approve -- <code>` writes `PAIR_APPROVE` (letters only, at most 32 bytes) in the bridge's
@@ -184,8 +194,8 @@ byte clip): the ask plate's rule. Colour is chosen in one function (`paint`) and
   through `PAIR_RESULT`. `npm run approve` with no code says whether one is waiting and how old it is
   (from `PAIR_PENDING`, which holds the mint time only). A file that isn't a plain file, or is over 32
   bytes, is removed unread; `serve` clears all three files at start.
-- **The typed code** is normalised (letters only, upper case) and compared in constant time; five
-  wrong codes cancel the waiting pairing.
+- **The typed code** is normalised (letters only, upper case) and compared in constant time against
+  every waiting pairing; five wrong codes in a row cancel every waiting pairing.
 - **The kill switch** refuses minting and clears what is pending. `pairSignIn: false` in config.json
   refuses every pairing.
 - **Logs:** the request log has no codes, ids or tokens; the console's lines name no code.

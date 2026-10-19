@@ -22,6 +22,7 @@ H Puck calm
 X TxPuck
 U BtnPuckApprove 0
 U BtnPuckDeny 0
+U BtnSignOut 1
 X TxTicker
 X TxStatus
 X TxProject

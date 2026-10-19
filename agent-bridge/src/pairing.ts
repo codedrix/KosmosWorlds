@@ -16,12 +16,17 @@
  *   - Approval is LOCAL ONLY. No HTTP route can approve: nothing in server.ts or a face calls
  *     `approveTyped`, and the face only mints, reads and takes.
  *   - 120 s lifetime from the mint; single use (the first poll after approval takes it, and it is gone).
- *   - One pairing at a time: a new mint replaces the old one, so a stranger can't hold the slot, and
- *     a replaced code can no longer be approved (the owner types the code on his own ring, so a
- *     stranger's ring is never approved by accident).
- *   - Minting: at most 6 a minute across everyone, and at least 3 s apart.
- *   - The typed code is normalised (letters only, upper case) and compared in constant time; five
- *     wrong codes cancel the pending pairing.
+ *   - Up to 16 live pairings, each keyed by its id (V2_CONTRACT section 8.9). Minting is at most 6 a
+ *     minute across everyone and at least 3 s apart, and a pairing lives 120 s, so at most 12 are
+ *     ever alive: a stranger pressing the seal at the cap never evicts the owner's pairing inside
+ *     its life. A full table would replace its oldest (a backstop the rate makes unreachable).
+ *   - A typed code approves only the pairing whose code it is. The owner types the code on HIS
+ *     ring, so a stranger's pairing is never approved by accident.
+ *   - The typed code is normalised (letters only, upper case) and compared in constant time against
+ *     every waiting pairing; five wrong codes in a row cancel every waiting pairing.
+ *   - Residual risk, stated: a bot minting at the cap uses up the mint rate, so the owner's own
+ *     press can be refused ("pair_refused": wait a few seconds). A nuisance, never a sign-in; the
+ *     passphrase fallback stays.
  *   - The kill switch refuses minting and clears what is pending (Bridge.enforceKill).
  *   - Logs: no code, no id, no token, ever. The console prompt says only that a headset asks and how
  *     long ago; the owner must read the code off his own ring.
@@ -40,6 +45,8 @@ export const PAIR_TTL_MS = 120_000;
 export const PAIR_MINTS_PER_MINUTE = 6;
 export const PAIR_MIN_GAP_MS = 3000;
 export const PAIR_WRONG_LIMIT = 5;
+/** Live pairings kept at once. The rate (6 a minute) and the life (120 s) allow at most 12. */
+export const PAIR_SLOTS = 16;
 /** 20 consonants, no vowels (no words), no look-alikes with digits: 20^6 = 64 million codes. */
 export const PAIR_ALPHABET = "BCDFGHJKLMNPQRSTVWXZ";
 export const PAIR_CODE_LEN = 6;
@@ -54,7 +61,7 @@ export type PairState =
 export type ApproveOutcome = "approved" | "wrong" | "cancelled" | "none";
 export interface ApproveResult {
   outcome: ApproveOutcome;
-  /** Wrong codes typed against the pending pairing so far (0 when none is pending). */
+  /** Wrong codes typed in a row so far (0 when none waits). */
   wrong: number;
 }
 export type PairEvent = "minted" | "approved" | "cancelled" | "expired" | "taken" | "cleared";
@@ -65,7 +72,6 @@ interface Slot {
   mintedAt: number;
   expiresAt: number;
   approved: boolean;
-  wrong: number;
 }
 
 /** `KXTWMP` reads `KXT WMP` on the ring. */
@@ -89,8 +95,11 @@ function sameSecret(a: string, b: string): boolean {
 }
 
 export class Pairing {
-  private slot: Slot | null = null;
+  /** Live pairings, oldest first. */
+  private slots: Slot[] = [];
   private mints: number[] = [];
+  /** Wrong codes typed in a row (reset by an approval, or when nothing waits). */
+  private wrong = 0;
   private listeners = new Set<(e: PairEvent) => void>();
 
   constructor(
@@ -116,79 +125,104 @@ export class Pairing {
     this.onChange();
   }
 
-  /** The live slot, after dropping it if it expired. */
-  private live(): Slot | null {
-    if (this.slot && this.now() >= this.slot.expiresAt) {
-      this.slot = null;
-      this.emit("expired");
-    }
-    return this.slot;
+  /** The live slots, after dropping the expired ones. */
+  private live(): Slot[] {
+    const t = this.now();
+    const before = this.slots.length;
+    this.slots = this.slots.filter((s) => t < s.expiresAt);
+    if (this.slots.length !== before) this.emit("expired");
+    if (!this.slots.some((s) => !s.approved)) this.wrong = 0;
+    return this.slots;
   }
 
-  /** Mint a pairing, replacing any other. Refused beyond 6 a minute or within 3 s of the last. */
+  /** The slot `id` names, comparing every slot's id in constant time (no early exit). */
+  private find(id: string | undefined): Slot | undefined {
+    if (!id) return undefined;
+    let hit: Slot | undefined;
+    for (const s of this.live()) if (sameSecret(id, s.id)) hit = s;
+    return hit;
+  }
+
+  /**
+   * Mint a pairing into a free slot. Refused beyond 6 a minute or within 3 s of the last. A full
+   * table (16) replaces its oldest, a backstop the rate limit makes unreachable: at 6 a minute
+   * and a 120 s life, at most 12 pairings are ever alive at once.
+   */
   mint(): MintResult {
     const t = this.now();
     this.mints = this.mints.filter((x) => t - x < 60_000);
     const last = this.mints[this.mints.length - 1];
     if (this.mints.length >= PAIR_MINTS_PER_MINUTE || (last !== undefined && t - last < PAIR_MIN_GAP_MS)) return { ok: false, reason: "rate" };
     this.mints.push(t);
+    const slots = this.live();
+    if (slots.length >= PAIR_SLOTS) slots.shift();
     let code = "";
     for (let i = 0; i < PAIR_CODE_LEN; i++) code += PAIR_ALPHABET[crypto.randomInt(0, PAIR_ALPHABET.length)];
     const id = crypto.randomBytes(16).toString("hex");
-    this.slot = { id, code, mintedAt: t, expiresAt: t + PAIR_TTL_MS, approved: false, wrong: 0 };
+    slots.push({ id, code, mintedAt: t, expiresAt: t + PAIR_TTL_MS, approved: false });
     this.emit("minted");
     return { ok: true, id, code, expiresAt: t + PAIR_TTL_MS };
   }
 
   /** What the holder of `id` may know. A replaced, taken, cancelled or unknown id is `expired`. */
   state(id: string | undefined): PairState {
-    const s = this.live();
-    if (!s || !id || !sameSecret(id, s.id)) return { state: "expired" };
+    const s = this.find(id);
+    if (!s) return { state: "expired" };
     if (s.approved) return { state: "approved", expiresAt: s.expiresAt };
     return { state: "pending", code: s.code, mintedAt: s.mintedAt, expiresAt: s.expiresAt };
   }
 
   /** Single use: true once, for the holder of an approved pairing's id; the pairing is then gone. */
   take(id: string | undefined): boolean {
-    const s = this.live();
-    if (!s || !s.approved || !id || !sameSecret(id, s.id)) return false;
-    this.slot = null;
+    const s = this.find(id);
+    if (!s || !s.approved) return false;
+    this.slots = this.slots.filter((x) => x !== s);
     this.emit("taken");
     return true;
   }
 
   /**
-   * LOCAL ONLY: the owner typed `typed` at the PC (console or PAIR_APPROVE). Never reachable from
-   * HTTP (test/pairing.test.ts walks every route to prove it).
+   * LOCAL ONLY: the owner typed `typed` at the PC (console or PAIR_APPROVE). It approves the ONE
+   * waiting pairing whose code it is (every slot is compared, in constant time, no early exit);
+   * five wrong codes in a row cancel every waiting pairing. Never reachable from HTTP
+   * (test/pairing.test.ts walks every route to prove it).
    */
   approveTyped(typed: string): ApproveResult {
-    const s = this.live();
-    if (!s || s.approved) return { outcome: "none", wrong: 0 };
-    if (sameSecret(normalizeTypedCode(typed).slice(0, 16), s.code)) {
-      s.approved = true;
+    const waiting = this.live().filter((s) => !s.approved);
+    if (waiting.length === 0) return { outcome: "none", wrong: 0 };
+    const t = normalizeTypedCode(typed).slice(0, 16);
+    let hit: Slot | undefined;
+    for (const s of waiting) if (sameSecret(t, s.code)) hit = hit ?? s;
+    if (hit) {
+      hit.approved = true;
+      const wrong = this.wrong;
+      this.wrong = 0;
       this.emit("approved");
-      return { outcome: "approved", wrong: s.wrong };
+      return { outcome: "approved", wrong };
     }
-    s.wrong++;
-    if (s.wrong >= PAIR_WRONG_LIMIT) {
-      this.slot = null;
+    this.wrong++;
+    if (this.wrong >= PAIR_WRONG_LIMIT) {
+      this.slots = this.slots.filter((s) => s.approved);
+      this.wrong = 0;
       this.emit("cancelled");
       return { outcome: "cancelled", wrong: PAIR_WRONG_LIMIT };
     }
     this.onChange();
-    return { outcome: "wrong", wrong: s.wrong };
+    return { outcome: "wrong", wrong: this.wrong };
   }
 
-  /** A pairing waiting for approval: when it was made. Never the code or the id. */
-  waiting(): { mintedAt: number; expiresAt: number } | null {
-    const s = this.live();
-    return s && !s.approved ? { mintedAt: s.mintedAt, expiresAt: s.expiresAt } : null;
+  /** Pairings waiting for approval: how many, and when the newest was made. Never a code or an id. */
+  waiting(): { count: number; newestMintedAt: number } | null {
+    const w = this.live().filter((s) => !s.approved);
+    const newest = w[w.length - 1];
+    return newest ? { count: w.length, newestMintedAt: newest.mintedAt } : null;
   }
 
-  /** The kill switch: forget whatever is pending or approved. */
+  /** The kill switch: forget every pairing, waiting or approved. */
   clear(): void {
-    if (this.slot) {
-      this.slot = null;
+    this.wrong = 0;
+    if (this.slots.length) {
+      this.slots = [];
       this.emit("cleared");
     }
   }
@@ -198,8 +232,9 @@ export class Pairing {
 // The words the PC shows (never a code, an id or a token)
 // ---------------------------------------------------------------------------
 
-export function consolePairPrompt(ageS: number): string {
-  return `A headset asks to pair (${Math.max(0, Math.floor(ageS))} s ago). Type the code shown on YOUR ring to approve: `;
+export function consolePairPrompt(ageS: number, count = 1): string {
+  const who = count > 1 ? `${count} headsets ask to pair (the newest` : "A headset asks to pair (";
+  return `${who}${count > 1 ? " " : ""}${Math.max(0, Math.floor(ageS))} s ago). Type the code shown on YOUR ring to approve: `;
 }
 
 export function describeApprove(r: ApproveResult): string {
@@ -207,9 +242,9 @@ export function describeApprove(r: ApproveResult): string {
     case "approved":
       return "Pairing approved. The headset signs in on its next check.";
     case "wrong":
-      return `That is not the code on the waiting ring (${r.wrong} of ${PAIR_WRONG_LIMIT} wrong). Read it off your own ring.`;
+      return `That is not the code on any waiting ring (${r.wrong} of ${PAIR_WRONG_LIMIT} wrong). Read it off your own ring.`;
     case "cancelled":
-      return `${PAIR_WRONG_LIMIT} wrong codes: the waiting pairing is cancelled. Press the seal again.`;
+      return `${PAIR_WRONG_LIMIT} wrong codes: every waiting pairing is cancelled. Press the seal again.`;
     default:
       return "No pairing is waiting.";
   }
@@ -287,7 +322,7 @@ export function writeApproveFile(typed: string): void {
 export function attachPendingFile(pairing: Pairing): () => void {
   const write = () => {
     const w = pairing.waiting();
-    if (w) fs.writeFileSync(pairPendingFile(), `${w.mintedAt}\n`, { mode: 0o600 });
+    if (w) fs.writeFileSync(pairPendingFile(), `${w.newestMintedAt} ${w.count}\n`, { mode: 0o600 });
     else removeQuietly(pairPendingFile());
   };
   return pairing.on(() => write());
@@ -319,13 +354,18 @@ export function pollApproveFile(pairing: Pairing, log: (line: string) => void): 
 /** What `npm run approve` (no code) says about the waiting pairing, from PAIR_PENDING. */
 export function describeWaitingFromFile(now = Date.now()): string {
   let minted = NaN;
+  let count = 1;
   try {
-    minted = Number(fs.readFileSync(pairPendingFile(), "utf8").trim());
+    const [m, c] = fs.readFileSync(pairPendingFile(), "utf8").trim().split(/\s+/);
+    minted = Number(m);
+    if (c !== undefined && /^\d{1,2}$/.test(c)) count = Number(c);
   } catch {
     return "No pairing is waiting.";
   }
   if (!Number.isFinite(minted) || now - minted >= PAIR_TTL_MS) return "No pairing is waiting.";
-  return `A pairing is waiting (made ${Math.floor((now - minted) / 1000)} s ago; it lasts ${PAIR_TTL_MS / 1000} s). Approve it with: npm run approve -- <the code on your ring>`;
+  const age = Math.floor((now - minted) / 1000);
+  const what = count > 1 ? `${count} pairings are waiting (the newest made ${age} s ago` : `A pairing is waiting (made ${age} s ago`;
+  return `${what}; each lasts ${PAIR_TTL_MS / 1000} s). Approve yours with: npm run approve -- <the code on your ring>`;
 }
 
 /**
@@ -342,12 +382,12 @@ export function startConsoleApprover(
 ): () => void {
   const rl = readline.createInterface({ input, terminal });
   const off = pairing.on((e) => {
-    if (e === "minted") write("\n" + consolePairPrompt(0));
+    if (e === "minted") write("\n" + consolePairPrompt(0, pairing.waiting()?.count ?? 1));
   });
   rl.on("line", (line) => {
     const w = pairing.waiting();
     if (!line.trim()) {
-      write(w ? consolePairPrompt((now() - w.mintedAt) / 1000) : "No pairing is waiting.\n");
+      write(w ? consolePairPrompt((now() - w.newestMintedAt) / 1000, w.count) : "No pairing is waiting.\n");
       return;
     }
     write(describeApprove(pairing.approveTyped(line)) + "\n");

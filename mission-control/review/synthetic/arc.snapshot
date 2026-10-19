@@ -2,9 +2,9 @@ AB1
 V 10
 M arc
 Z 1
-T TxTicker 3 working | 1 needs you | 22:00
+T TxTicker 3 working | 1 needs you | 2...
 T TxStatus Signed in  |  3/4 jobs  |  Stop: npm run kill
-T TxProject Project: kosmos-registry
+X TxProject
 U RailA 1
 U RailSelA 1
 T TxRailA registry\nNEEDS YOU
@@ -17,13 +17,13 @@ T TxRailC web\nWORKING
 U RailD 0
 U RailSelD 0
 X TxRailD
-U BtnTests 1
-U BtnPrs 1
-U BtnToday 1
-U BtnNotes 1
-U BtnNewTask 1
-U BtnProject 1
-T TxDone Done: Summarize today (portal)
+U BtnTests 0
+U BtnPrs 0
+U BtnToday 0
+U BtnNotes 0
+U BtnNewTask 0
+U BtnProject 0
+T TxDone Done today: 2
 T TxHeader Run all tests  |  registry  |  NEEDS YOU 4m
 U BtnFold 1
 U BtnStop 1
@@ -60,9 +60,9 @@ U BtnKeep 0
 U BtnSimple 0
 U BtnSummary 0
 U BtnReply 0
-T TxPageSpot A pinned web page docks here
+T TxPageSpot A pinned web page dock...
 U BtnWatch 1
-T TxWatch Let my group watch: off
+T TxWatch off
 U BtnSignOut 1
 U CubeA 1
 H CubeA need
@@ -78,6 +78,6 @@ H CubeD off
 X TxCubeD
 U CubePlus 1
 H Puck need
-T TxPuck registry: npm test
+T TxPuck registry: run npm test
 U BtnPuckApprove 1
 U BtnPuckDeny 1

@@ -1,9 +1,9 @@
 AB1
 V 3
 M arc
-T TxTicker 3 working | 1 needs you | 22:00
+T TxTicker 3 working | 1 needs you | 2...
 T TxStatus Watching  |  pressed: Run all tests
-T TxProject Project: kosmos-registry
+X TxProject
 U RailA 1
 U RailSelA 1
 T TxRailA registry\nNEEDS YOU
@@ -16,13 +16,13 @@ T TxRailC web\nWORKING
 U RailD 0
 U RailSelD 0
 X TxRailD
-U BtnTests 1
-U BtnPrs 1
-U BtnToday 1
-U BtnNotes 1
-U BtnNewTask 1
-U BtnProject 1
-T TxDone Done: Summarize today (portal)
+U BtnTests 0
+U BtnPrs 0
+U BtnToday 0
+U BtnNotes 0
+U BtnNewTask 0
+U BtnProject 0
+T TxDone Done today: 2
 T TxHeader Run all tests  |  registry  |  NEEDS YOU 4m
 U BtnFold 0
 U BtnStop 1
@@ -59,7 +59,7 @@ U BtnKeep 0
 U BtnSimple 0
 U BtnSummary 0
 U BtnReply 0
-T TxPageSpot A pinned web page docks here
+T TxPageSpot A pinned web page dock...
 U BtnWatch 0
-T TxWatch Watching (read-only)
+T TxWatch read-only
 U BtnSignOut 0

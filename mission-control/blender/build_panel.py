@@ -107,8 +107,17 @@ LOBBY_GLB = os.environ.get(
 # Frames: (azimuth degrees, radius from the eye's vertical axis). +azimuth is the
 # owner's left (viewer +Y). Local x = depth away from the viewer, y = left, z = height.
 CENTER = (0.0, 1.70)
-LEFT = (40.0, 1.80)
-RIGHT = (-40.0, 1.80)
+# Contract 8.1: the side panels at +-36 degrees, 1.80 m, 0.85 m wide, each turned (yaw only, no
+# pitch or roll) so its normal points at the eye. Half-angles: centre 20.9, side 13.3, so a side
+# spans 22.7-49.3 degrees and clears the centre.
+LEFT = (36.0, 1.80)
+RIGHT = (-36.0, 1.80)
+SIDE_W = 0.85
+SIDE_Z = (0.95, 2.16)
+# The chrome bar (contract 8.3): one slim bar under the centre panel, facing the eye.
+BAR_TOP = 0.765
+BAR_H = 0.10
+BAR_W = 1.56
 SEAL = (0.0, 1.10)
 VIEWER = (0.0, 0.0)       # identity: viewer coordinates as they are
 
@@ -117,17 +126,24 @@ VIEWER = (0.0, 0.0)       # identity: viewer coordinates as they are
 CONV_TOP_Z = 1.73
 CONV_STEP = 0.089
 
-# The ledge: slots A..D then CubePlus on the owner's right.
-LEDGE_X = 1.0
-# 0.95 (contract: "about 1.0"): seen from the eye, the cubes' tops then sit just below the
-# arc's lowest buttons (the ask row at 0.88 on the plate, Close at 0.95 on the right panel).
-LEDGE_TOP = 0.95
+# The ledge (contract 8.4): 0.90 m out, top 0.80 m, so from the eye the cubes (and their labels)
+# sit below the chrome bar. Close on the left end (8.7), slots A..D, CubePlus on the right end.
+LEDGE_X = 0.90
+LEDGE_TOP = 0.80
 CUBE = 0.12
-SLOT_Y = {"A": 0.72, "B": 0.36, "C": 0.0, "D": -0.36, "Plus": -0.72}
+SLOT_STEP = 0.33
+SLOT_Y = {"A": 1.5 * SLOT_STEP, "B": 0.5 * SLOT_STEP, "C": -0.5 * SLOT_STEP, "D": -1.5 * SLOT_STEP, "Plus": -2.5 * SLOT_STEP}
+CLOSE_Y = 2.5 * SLOT_STEP
+LEDGE_W = 5 * SLOT_STEP + 0.15
 CUBE_LABEL_Z = LEDGE_TOP + CUBE / 2 + 0.12
 # The puck, on a stem rising from the left armrest (arm top: 2.10 - 1.46 = 0.64 m).
 PUCK_AT = (0.15, 0.95, 1.00)
 ARM_TOP = 0.64
+# Contract 8.5: TxPuck's one line on a small dark plate right above the puck, facing the eye,
+# and Approve / Deny as larger tabs beside the puck.
+PUCK_PLATE = (0.86, 0.12)     # width, height (holds one 8 cm line of W.puck 0.80)
+PUCK_TAB = (0.22, 0.10)
+PUCK_TAB_OFFSET = 0.21
 
 built = {}
 
@@ -392,12 +408,16 @@ def build_fixtures():
 
 def build_center():
     c = CENTER
+    bar_z = BAR_TOP - BAR_H / 2
     parts = [
         box("_CBack", c, (0.03, 0, 1.49), (0.04, 1.32, 1.40), MATS["frame"], bevel=0.015),
         box("_CStatus", c, (-0.002, 0, 2.14), (0.01, 1.28, 0.09), MATS["inset"]),
         box("_CRowRule", c, (-0.008, 0, 1.998), (0.004, 1.26, 0.004), MATS["cyanDim"]),
         box("_CHeadRule", c, (-0.008, 0, 1.818), (0.004, 1.26, 0.005), MATS["cyan"]),
         box("_CConv", c, (-0.002, 0, 1.3625), (0.01, 1.28, 0.875), MATS["inset"]),
+        # The chrome bar (contract 8.3): slim, its top just under the panel's bottom edge.
+        box("_CBar", c, (0.02, 0, bar_z), (0.03, BAR_W, BAR_H), MATS["frame"], bevel=0.012),
+        box("_CBarLine", c, (0.0, 0, BAR_TOP - 0.004), (0.004, BAR_W - 0.04, 0.004), MATS["cyanDim"]),
     ]
     node("McCenterFrame", join("McCenterFrame", parts, to_world(c, (0, 0, 1.49))), "show")
     anchor("TxStatus", c, (-0.03, 0, 2.105))
@@ -414,76 +434,92 @@ def build_center():
     for i, slot in enumerate("ABCDEFGHIJ"):
         anchor("TxConv" + slot, c, (-0.03, 0, CONV_TOP_Z - i * CONV_STEP))
 
+    # Start a job (contract 8.2): inside the conversation area. The face shows it only while
+    # no job is open (after CubePlus), when the conversation lines are empty.
+    anchor("TxProject", c, (-0.04, 0, 1.70))
+    button("BtnProject", c, (-0.03, 0, 1.635), 0.42, 0.07, "CHANGE PROJECT", MATS["button"], text_size=0.036)
+    for name, words, y, z in (("BtnTests", "Run all tests", 0.31, 1.50), ("BtnPrs", "Review open PRs", -0.31, 1.50),
+                              ("BtnToday", "Summarize today", 0.31, 1.38), ("BtnNotes", "Draft release notes", -0.31, 1.38)):
+        button(name, c, (-0.03, y, z), 0.58, 0.10, words, MATS["button"], text_size=0.048)
+    button("BtnNewTask", c, (-0.03, 0, 1.24), 0.80, 0.10, "+  New task", MATS["amberFace"], text_size=0.052)
+
     # The bottom row: quick replies (hidden behind the ask plate when an approval shows).
-    bottom = 0.88  # clear of the cubes' tops as the eye sees them (the ledge sits below)
+    bottom = 0.88
     for name, words, y, w in (("BtnKeep", "Keep going", 0.47, 0.28), ("BtnSimple", "Explain simply", 0.155, 0.32),
                               ("BtnSummary", "Stop + summarize", -0.185, 0.34), ("BtnReply", "Reply...", -0.475, 0.22)):
         button(name, c, (-0.02, y, bottom), w, 0.072, words, MATS["amberFace"] if name == "BtnReply" else MATS["button"], text_size=0.036)
 
     # The ask plate (decision rung): 8 cm in front of the panel, over the lower lines.
     ask = [
-        box("_AskFill", c, (-0.08, 0, 1.0775), (0.02, 1.24, 0.565), MATS["amberFill"], bevel=0.008),
+        # Its bottom stays above the chrome bar as the eye sees it (the plate is 8 cm nearer).
+        box("_AskFill", c, (-0.08, 0, 1.0875), (0.02, 1.24, 0.545), MATS["amberFill"], bevel=0.008),
         box("_AskTop", c, (-0.0915, 0, 1.352), (0.004, 1.22, 0.012), MATS["amber"]),
-        box("_AskBot", c, (-0.0915, 0, 0.803), (0.004, 1.22, 0.012), MATS["amber"]),
+        box("_AskBot", c, (-0.0915, 0, 0.823), (0.004, 1.22, 0.012), MATS["amber"]),
     ]
-    node("AskPanel", join("AskPanel", ask, to_world(c, (-0.08, 0, 1.0775))), "show")
+    node("AskPanel", join("AskPanel", ask, to_world(c, (-0.08, 0, 1.0875))), "show")
     anchor("TxAskA", c, (-0.10, 0, 1.16))
     anchor("TxAskB", c, (-0.10, 0, 0.965))
     button("BtnApprove", c, (-0.105, 0.36, bottom), 0.40, 0.072, "APPROVE", MATS["greenFace"], text_size=0.04, depth=0.025)
     button("BtnDeny", c, (-0.105, -0.06, bottom), 0.36, 0.072, "DENY", MATS["redFace"], text_size=0.04, depth=0.025)
     button("BtnWhy", c, (-0.105, -0.40, bottom), 0.28, 0.072, "ASK WHY", MATS["button"], text_size=0.036, depth=0.025)
 
+    # On the chrome bar, left to right as the owner sees it: Sign out, Group watch and its line,
+    # then the six handles. No Close here: Close is on the ledge (contract 8.7).
+    bz = bar_z
+    button("BtnSignOut", c, (-0.005, 0.66, bz), 0.20, 0.07, "Sign out", MATS["button"], text_size=0.034)
+    button("BtnWatch", c, (-0.005, 0.43, bz), 0.22, 0.07, "Group watch", MATS["button"], text_size=0.032)
+    anchor("TxWatch", c, (-0.02, 0.06, bz - 0.035))
+    for name, words, y, w in (("McMoveLeft", "<", -0.27, 0.07), ("McMoveUp", "^", -0.35, 0.07), ("McMoveDown", "v", -0.43, 0.07),
+                              ("McMoveRight", ">", -0.51, 0.07), ("McMoveCloser", "Near", -0.61, 0.10), ("McMoveFarther", "Far", -0.72, 0.09)):
+        button(name, c, (-0.005, y, bz), w, 0.07, words, MATS["button"], text_size=0.045 if len(words) == 1 else 0.032)
+
 
 def build_left():
+    """The jobs (contract 8.2): the ticker, four tall rails, the done line."""
     f = LEFT
+    z0, z1 = SIDE_Z
+    zc = (z0 + z1) / 2
     parts = [
-        box("_LBack", f, (0.03, 0, 1.495), (0.04, 1.02, 1.33), MATS["frame"], bevel=0.015),
-        box("_LTicker", f, (-0.002, 0, 2.068), (0.01, 0.98, 0.175), MATS["inset"]),
-        box("_LRule", f, (-0.008, 0, 1.976), (0.004, 0.96, 0.004), MATS["cyan"]),
+        box("_LBack", f, (0.03, 0, zc), (0.04, SIDE_W, z1 - z0), MATS["frame"], bevel=0.015),
+        box("_LTicker", f, (-0.002, 0, 2.068), (0.01, SIDE_W - 0.04, 0.175), MATS["inset"]),
+        box("_LRule", f, (-0.008, 0, 1.976), (0.004, SIDE_W - 0.06, 0.004), MATS["cyan"]),
+        box("_LDoneRule", f, (-0.008, 0, 1.098), (0.004, SIDE_W - 0.06, 0.004), MATS["cyanDim"]),
     ]
-    node("McLeftFrame", join("McLeftFrame", parts, to_world(f, (0, 0, 1.495))), "show")
+    node("McLeftFrame", join("McLeftFrame", parts, to_world(f, (0, 0, zc))), "show")
     # Two lines (the bridge's ticker wraps at W.ticker).
     anchor("TxTicker", f, (-0.03, 0, 1.988))
-    anchor("TxProject", f, (-0.03, 0, 1.885))
-    button("BtnProject", f, (-0.02, 0, 1.838), 0.50, 0.05, "CHANGE PROJECT", MATS["button"], text_size=0.03)
-    for slot, z in zip("ABCD", (1.725, 1.555, 1.385, 1.215)):
-        button("Rail" + slot, f, (-0.02, -0.02, z), 0.88, 0.16, "", MATS["button"])
-        sel = box("_RailSel" + slot, f, (-0.04, 0.455, z), (0.01, 0.022, 0.15), MATS["cyan"])
+    rail_w = SIDE_W - 0.08
+    for slot, z in zip("ABCD", (1.86, 1.645, 1.43, 1.215)):
+        button("Rail" + slot, f, (-0.02, -0.015, z), rail_w, 0.20, "", MATS["button"])
+        sel = box("_RailSel" + slot, f, (-0.04, SIDE_W / 2 - 0.035, z), (0.01, 0.02, 0.18), MATS["cyan"])
         node("RailSel" + slot, sel, "show")
-        set_origin(sel, to_world(f, (-0.04, 0.455, z)))
-        anchor("TxRail" + slot, f, (-0.05, -0.02, z - 0.078))
-    for name, words, y, z in (("BtnTests", "Run all tests", 0.245, 1.085), ("BtnPrs", "Review open PRs", -0.245, 1.085),
-                              ("BtnToday", "Summarize today", 0.245, 1.015), ("BtnNotes", "Draft release notes", -0.245, 1.015)):
-        button(name, f, (-0.02, y, z), 0.47, 0.062, words, MATS["button"], text_size=0.038)
-    button("BtnNewTask", f, (-0.02, 0, 0.945), 0.62, 0.06, "+  New task", MATS["amberFace"], text_size=0.04)
+        set_origin(sel, to_world(f, (-0.04, SIDE_W / 2 - 0.035, z)))
+        anchor("TxRail" + slot, f, (-0.05, -0.015, z - 0.085))
+    anchor("TxDone", f, (-0.03, 0, 1.0))
 
 
 def build_right():
+    """The browser spot only (contract 8.2): its frame, McPageDock and TxPageSpot."""
     f = RIGHT
+    z0, z1 = SIDE_Z
+    zc = (z0 + z1) / 2
+    sw, sz0, sz1 = SIDE_W - 0.10, 1.02, 2.06
+    sc, sh = (sz0 + sz1) / 2, sz1 - sz0
     parts = [
-        box("_RBack", f, (0.03, 0, 1.495), (0.04, 1.02, 1.33), MATS["frame"], bevel=0.015),
+        box("_RBack", f, (0.03, 0, zc), (0.04, SIDE_W, z1 - z0), MATS["frame"], bevel=0.015),
         mesh_text("_RHead", f, (-0.012, 0, 2.11), "BROWSER SPOT", 0.04, MATS["title"], weight="Bold"),
-        box("_RSpot", f, (-0.002, 0, 1.805), (0.01, 0.88, 0.50), MATS["inset"]),
-        box("_RSpotT", f, (-0.009, 0, 2.055), (0.004, 0.88, 0.008), MATS["cyanDim"]),
-        box("_RSpotB", f, (-0.009, 0, 1.555), (0.004, 0.88, 0.008), MATS["cyanDim"]),
-        box("_RSpotL", f, (-0.009, 0.44, 1.805), (0.004, 0.008, 0.508), MATS["cyanDim"]),
-        box("_RSpotR", f, (-0.009, -0.44, 1.805), (0.004, 0.008, 0.508), MATS["cyanDim"]),
+        box("_RSpot", f, (-0.002, 0, sc), (0.01, sw, sh), MATS["inset"]),
+        box("_RSpotT", f, (-0.009, 0, sz1), (0.004, sw, 0.008), MATS["cyanDim"]),
+        box("_RSpotB", f, (-0.009, 0, sz0), (0.004, sw, 0.008), MATS["cyanDim"]),
+        box("_RSpotL", f, (-0.009, sw / 2, sc), (0.004, 0.008, sh + 0.008), MATS["cyanDim"]),
+        box("_RSpotR", f, (-0.009, -sw / 2, sc), (0.004, 0.008, sh + 0.008), MATS["cyanDim"]),
     ]
-    node("McRightFrame", join("McRightFrame", parts, to_world(f, (0, 0, 1.495))), "show")
-    # The reserved spot for the pinned web page (DB-043): the browser spot's centre. A plain
-    # plaque until the page brief's PAGE_001 exists; then it gains `page_dock = true`.
-    anchor("McPageDock", f, (-0.03, 0, 1.805))
-    # The placeholder's words sit inside the spot (up to three lines), the done list (up to
-    # three) below it.
-    anchor("TxPageSpot", f, (-0.04, 0, 1.66))
-    anchor("TxDone", f, (-0.03, 0, 1.205))
-    anchor("TxWatch", f, (-0.03, 0, 1.10))
-    for name, words, y, w in (("McMoveLeft", "<", 0.41, 0.085), ("McMoveUp", "^", 0.315, 0.085), ("McMoveDown", "v", 0.22, 0.085),
-                              ("McMoveRight", ">", 0.125, 0.085), ("McMoveCloser", "Near", -0.05, 0.16), ("McMoveFarther", "Far", -0.24, 0.16)):
-        button(name, f, (-0.02, y, 1.03), w, 0.055, words, MATS["button"], text_size=0.045 if len(words) == 1 else 0.034)
-    button("BtnSignOut", f, (-0.02, 0.32, 0.952), 0.26, 0.055, "Sign out", MATS["button"], text_size=0.034)
-    button("BtnWatch", f, (-0.02, 0.0, 0.952), 0.34, 0.055, "GROUP WATCH", MATS["button"], text_size=0.032)
-    button("McClose", f, (-0.02, -0.32, 0.952), 0.26, 0.055, "CLOSE", MATS["redFace"], text_size=0.034)
+    node("McRightFrame", join("McRightFrame", parts, to_world(f, (0, 0, zc))), "show")
+    # The reserved spot for the pinned web page (DB-043), in the spot. A plain plaque until the
+    # page brief's PAGE_001 exists; then it gains `page_dock = true`.
+    anchor("McPageDock", f, (-0.03, 0, sc + 0.20))
+    # The placeholder's words (up to three lines) inside the spot.
+    anchor("TxPageSpot", f, (-0.04, 0, sc - 0.12))
 
 
 # ---------------------------------------------------------------------------
@@ -512,8 +548,8 @@ def build_ledge():
     v = VIEWER
     zc = LEDGE_TOP - 0.015
     parts = [
-        box("_Shelf", v, (LEDGE_X, 0, zc), (0.20, 1.64, 0.03), MATS["frame"], bevel=0.008),
-        box("_ShelfEdge", v, (LEDGE_X - 0.101, 0, zc), (0.004, 1.60, 0.006), MATS["cyan"]),
+        box("_Shelf", v, (LEDGE_X, 0, zc), (0.20, LEDGE_W, 0.03), MATS["frame"], bevel=0.008),
+        box("_ShelfEdge", v, (LEDGE_X - 0.101, 0, zc), (0.004, LEDGE_W - 0.04, 0.006), MATS["cyan"]),
     ]
     node("McLedge", join("McLedge", parts, (LEDGE_X, 0, zc)), "show")
     cz = LEDGE_TOP + CUBE / 2 + 0.002
@@ -530,11 +566,19 @@ def build_ledge():
             node("Cube" + slot + state, g, "show")
             set_origin(g, (LEDGE_X, y, cz))
         anchor("TxCube" + slot, facing(LEDGE_X, y), (0, 0, CUBE_LABEL_Z))
+    # Close, on the ledge's left end (contract 8.7): shown whenever the owner is signed in,
+    # folded or unfolded. A low red block standing on the shelf, its word facing the eye.
+    y = CLOSE_Y
+    fr = Matrix.Translation((LEDGE_X, y, LEDGE_TOP + 0.045)) @ Matrix.Rotation(math.atan2(y, LEDGE_X), 4, "Z")
+    button("McClose", fr, (0, 0, 0), 0.20, 0.09, "CLOSE", MATS["redFace"], text_size=0.045, depth=0.06)
 
 
 def build_puck():
     px, py, pz = PUCK_AT
     v = VIEWER
+    fr = facing(px, py)
+    pw, ph = PUCK_PLATE
+    plate_z = pz + 0.075 + ph / 2
     body = [
         cylinder("_PuckStem", v, (px, py, (ARM_TOP + pz) / 2), 0.012, pz - ARM_TOP, MATS["metal"], vertices=16),
         cylinder("_PuckDisc", v, (px, py, pz), 0.075, 0.026, MATS["metal"], vertices=40),
@@ -544,19 +588,26 @@ def build_puck():
     calm = torus("_PuckCalm", v, (px, py, top), 0.068, 0.007, MATS["glowCalm"])
     node("PuckCalm", calm, "show")
     set_origin(calm, (px, py, pz))
+    # The label's plate (contract 8.5) is part of the "need" look: small, dark, right above the
+    # puck, facing the eye, there only while the puck holds an approval and its line. A calm
+    # puck is just the puck.
     need = [torus("_PuckNeedRing", v, (px, py, top), 0.068, 0.009, MATS["glowNeed"]),
-            cylinder("_PuckNeedTop", v, (px, py, top + 0.001), 0.048, 0.002, MATS["glowNeed"], vertices=32)]
+            cylinder("_PuckNeedTop", v, (px, py, top + 0.001), 0.048, 0.002, MATS["glowNeed"], vertices=32),
+            box("_PuckPlate", fr, (0.0, 0, plate_z), (0.012, pw, ph), MATS["backing"], bevel=0.006),
+            box("_PuckPlatePost", fr, (0.0, 0, (pz + plate_z - ph / 2) / 2 + 0.006), (0.01, 0.012, plate_z - ph / 2 - pz), MATS["metal"])]
     node("PuckNeed", join("PuckNeed", need, (px, py, pz)), "show")
-    # Approve and Deny beside it, as the owner sees it: Approve to its right, Deny to its left,
-    # each tilted back to face the eye.
+    # Approve and Deny: larger tabs beside the puck (Approve to its right as the owner sees it),
+    # each tilted back to face the eye, the words merged in.
     d = Vector((px, py)).normalized()
     right = Vector((d.y, -d.x))
+    tw, th = PUCK_TAB
     for name, words, side, m in (("BtnPuckApprove", "APPROVE", 1.0, "greenFace"), ("BtnPuckDeny", "DENY", -1.0, "redFace")):
-        x, y = px + right.x * 0.15 * side, py + right.y * 0.15 * side
+        x, y = px + right.x * PUCK_TAB_OFFSET * side, py + right.y * PUCK_TAB_OFFSET * side
         tilt = math.atan2(EYE - pz, math.hypot(x, y))
-        fr = Matrix.Translation((x, y, pz + 0.01)) @ Matrix.Rotation(math.atan2(y, x), 4, "Z") @ Matrix.Rotation(tilt, 4, "Y")
-        button(name, fr, (0, 0, 0), 0.12, 0.055, words, MATS[m], text_size=0.022, depth=0.02)
-    anchor("TxPuck", facing(px, py), (0, 0, pz + 0.18))
+        tfr = Matrix.Translation((x, y, pz + 0.01)) @ Matrix.Rotation(math.atan2(y, x), 4, "Z") @ Matrix.Rotation(tilt, 4, "Y")
+        button(name, tfr, (0, 0, 0), tw, th, words, MATS[m], text_size=0.045, depth=0.025)
+    # TxPuck: one line on the plate (bottom-aligned on its anchor, flat, facing the eye).
+    anchor("TxPuck", fr, (-0.01, 0, plate_z - 0.04))
 
 
 # ---------------------------------------------------------------------------
@@ -626,7 +677,7 @@ def group(n):
         return "fixture"
     if n.startswith("SealRing") or n.startswith("TxSeal") or n in ("BtnSealType", "McSealCancel"):
         return "seal"
-    if n == "McLedge" or n.startswith("Cube") or n.startswith("TxCube"):
+    if n in ("McLedge", "McClose") or n.startswith("Cube") or n.startswith("TxCube"):
         return "ledge"
     if n.startswith("Puck") or n.startswith("BtnPuck") or n == "TxPuck":
         return "puck"
@@ -836,11 +887,14 @@ def camera(name, loc, look_at, fov_deg):
     return cam
 
 
-def render(cam, out_name):
+def render(cam, out_name, eye=False):
+    """eye=True: a headset-like eye render, 90 degrees across and about 80 degrees high
+    (contract 8.6), instead of a 16:9 frame that crops the arc top and bottom."""
     if ONLY is not None and out_name.rsplit(".", 1)[0] not in ONLY:
         return
     s = bpy.context.scene
     s.camera = cam
+    s.render.resolution_x, s.render.resolution_y = (1600, 1360) if eye else (1920, 1080)
     s.render.filepath = os.path.join(REVIEW, out_name)
     bpy.ops.render.render(write_still=True)
     print(f"[mission-control] rendered review/{out_name}")
@@ -853,9 +907,13 @@ def review():
     eye = vpt(0, 0, EYE)
     cam_seal = camera("CamSeal", eye, vpt(1.1, 0, 1.36), 80)
     # Over the owner's right shoulder: the ledge and the puck together, without the wide-angle stretch.
-    cam_cubes = camera("CamCubes", vpt(-0.55, -0.35, 2.15), vpt(0.75, 0.45, 0.95), 85)
+    cam_cubes = camera("CamCubes", vpt(-0.55, -0.35, 2.05), vpt(0.70, 0.45, 0.85), 85)
     cam_puck = camera("CamPuck", eye, vpt(PUCK_AT[0], PUCK_AT[1], PUCK_AT[2] + 0.06), 48)
-    cam_arc = camera("CamArc", eye, vpt(1.7, 0, 1.42), 112)
+    # Eye renders at a headset-like 90 degrees (contract 8.6), and the head turned to each side.
+    cam_arc = camera("CamArc", eye, vpt(1.7, 0, 1.36), 90)
+    a = math.radians(LEFT[0])
+    cam_arc_left = camera("CamArcLeft", eye, vpt(1.8 * math.cos(a), 1.8 * math.sin(a), 1.45), 90)
+    cam_arc_right = camera("CamArcRight", eye, vpt(1.8 * math.cos(a), -1.8 * math.sin(a), 1.45), 90)
     pivot_x = STAND[0] - CENTER[1]
     cam_watch = camera("CamWatcher", (pivot_x - 3.2, 0.0, 1.66), (pivot_x, 0.0, 1.5), 80)
 
@@ -869,9 +927,11 @@ def review():
     render(cam_cubes, "cubes_need.jpg")
     render(cam_puck, "puck_close.jpg")
     apply_view(["arc"], arc_e=1.0, picked="CubeA")
-    render(cam_arc, "arc.jpg")
+    render(cam_arc, "arc.jpg", eye=True)
+    render(cam_arc_left, "arc_left.jpg", eye=True)
+    render(cam_arc_right, "arc_right.jpg", eye=True)
     apply_view(["arc"], arc_e=0.5, picked="CubeA")
-    render(cam_arc, "arc_unfolding.jpg")
+    render(cam_arc, "arc_unfolding.jpg", eye=True)
     clear_review()
     turn_for_watcher(True)
     apply_view(["watch"], mode="watcher")

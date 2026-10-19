@@ -229,7 +229,8 @@ await until([owner], () => !owner.text.has("TxHeader"), "the words to hide at on
 await until([owner], () => ARC.every((n) => !owner.shown(n)) && owner.shown("CubePlus"), "the fold to finish");
 owner.press("BtnPuckApprove");
 await until([owner], () => !owner.shown("PuckNeed"), "the approval to clear");
-console.log("6. folded; approved on the puck without the arc");
+assert.ok(owner.shown("McClose"), "Close is on the ledge while folded (contract 8.7)");
+console.log("6. folded; approved on the puck without the arc; Close on the ledge");
 
 // A job cube unfolds the arc on that job; Group watch on.
 await until([owner], () => ["CubeA", "CubeB", "CubeC", "CubeD"].some((c) => owner.shown(c)), "a job cube");

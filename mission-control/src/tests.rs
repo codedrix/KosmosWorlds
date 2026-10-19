@@ -199,7 +199,7 @@ fn groups_are_decided_by_name() {
         ("TxPuck", G_PUCK),
         ("TxTicker", G_ARC),
         ("BtnFold", G_ARC),
-        ("McClose", G_ARC),
+        ("McClose", G_LEDGE),
         ("McPageDock", G_ARC),
         ("AskPanel", G_ARC),
         ("McCenterFrame", G_ARC),
@@ -351,6 +351,7 @@ fn use_passphrase_opens_the_typing_sheet_and_signs_in() {
     reset();
     press("McSeal");
     snap(&pair_records());
+    run(0.62); // the ring has risen (a moving button is not pressed)
     press("BtnSealType");
     assert_eq!(unsafe { PROMPT_OPEN }, REQ_PROMPT_SEAL);
     let pass = b"correct horse battery staple";
@@ -498,7 +499,7 @@ fn a_watcher_sees_the_arc_only_never_sends_a_press_or_keeps_a_token() {
     assert_eq!(unsafe { PAIR_LEN }, 0, "nor a pairing id");
     assert_eq!(unsafe { host::HAPTICS }, 0, "no buzz for a watcher");
     assert!(vis("McCenterFrame") && text_on("TxHeader"), "the arc shows at once (no animation)");
-    for n in ["McLedge", "CubeA", "CubeANeed", "Puck", "PuckNeed", "BtnPuckApprove", "SealRing", "SealRingArmed", "BtnSealType"] {
+    for n in ["McLedge", "McClose", "CubeA", "CubeANeed", "Puck", "PuckNeed", "BtnPuckApprove", "SealRing", "SealRingArmed", "BtnSealType"] {
         assert!(!vis(n), "{n} never shows for a watcher");
     }
     for n in ["TxCubeA", "TxPuck", "TxSeal"] {
@@ -581,17 +582,135 @@ fn the_puck_shows_the_oldest_approval_and_buzzes_the_owner_only() {
 }
 
 #[test]
-fn signing_out_brings_the_seal_back() {
+fn signing_out_closes_fully_never_a_blank_ring() {
+    for lost in ["E signed_out", "M lock"] {
+        sign_in_to_cubes();
+        snap(&format!("AB1\nV 12\n{lost}\nX TxCubeA\nU CubeA 0\nH CubeA off\nH Puck off\nX TxSeal\nH SealRing off\nU BtnSealType 1\n"));
+        assert_eq!(mode(), Mode::Closed, "{lost}: closed");
+        assert_eq!(unsafe { TOKEN_LEN }, 0);
+        for n in ["SealRing", "BtnSealType", "McSealCancel", "McLedge", "McClose", "Puck", "McCenterFrame"] {
+            assert!(!vis(n), "{lost}: {n} hidden");
+        }
+        let p = pos("SealRing");
+        assert!((p[1] - (3.0 - PARK_DROP_M)).abs() < 1.0, "{lost}: parked: {p:?}");
+        let n = fetches();
+        run(3.0);
+        assert_eq!(fetches(), n, "{lost}: closed means no calls");
+        // The seal starts again: it mints.
+        press("McSeal");
+        assert_eq!(fetches(), n + 1);
+        assert_eq!(unsafe { LAST_PATH }, PATH_PAIR);
+        close_panel();
+    }
+    // Before sign-in, M lock (an expired code) keeps the seal up: the hint says what to do.
+    reset();
+    press("McSeal");
+    snap(&pair_records());
+    snap("AB1\nM lock\nX TxSeal\nT TxSealHint The code expired. Press the seal again.\nH SealRing off\nE pair_expired\n");
+    run(0.62); // the ring's words show once it has risen
+    assert_eq!(mode(), Mode::Owner);
+    assert!(vis("SealRing") && text_on("TxSealHint"));
+    close_panel();
+}
+
+#[test]
+fn a_failed_mint_says_what_to_do_and_the_seal_mints_again() {
+    for status in [0, 429, 502, 503] {
+        reset();
+        press("McSeal");
+        on_net_result(0, 0, REQ_PAIR_MINT, status);
+        assert!(unsafe { !MINT_IN_FLIGHT });
+        let i = idx("TxSealHint");
+        let hint = unsafe { core::str::from_utf8(&TEXT_STORE[i][..TEXT_LEN[i] as usize]).unwrap().to_string() };
+        assert!(hint.contains("press the seal again"), "{status}: {hint}");
+        let n = fetches();
+        press("McSeal");
+        assert_eq!(fetches(), n + 1, "{status}: the seal mints again");
+        close_panel();
+    }
+}
+
+#[test]
+fn close_is_on_the_ledge_and_the_seal_toggles() {
     sign_in_to_cubes();
-    snap("AB1\nV 12\nM lock\nE signed_out\nX TxCubeA\nU CubeA 0\nH CubeA off\nH Puck off\nH SealRing off\n");
-    assert_eq!(unsafe { TOKEN_LEN }, 0);
-    assert_eq!(stage(), Stage::Seal);
-    assert!(vis("SealRing") && !vis("McLedge") && !vis("Puck") && !vis("McCenterFrame"));
-    // The seal mints again.
+    assert!(vis("McClose"), "Close shows with the ledge, the arc folded");
+    snap(&full_arc_snapshot());
+    run(0.6);
+    assert!(vis("McClose"), "and with the arc open");
+    press("McClose");
+    assert_eq!(mode(), Mode::Closed);
+    // The seal press while signed in also closes, signing out on the way.
+    sign_in_to_cubes();
     let n = fetches();
     press("McSeal");
+    assert_eq!(mode(), Mode::Closed);
+    assert_eq!(fetches(), n + 1, "the sign-out press");
+    assert_eq!(unsafe { LAST_PATH }, PATH_PRESS);
+    assert!(!vis("McClose") && !vis("McLedge"));
+    // During the seal (not signed in) Close is not shown: Cancel is.
+    press("McSeal");
+    assert!(!vis("McClose") && vis("McSealCancel"));
+    close_panel();
+}
+
+#[test]
+fn a_face_button_is_not_pressed_while_its_group_moves() {
+    reset();
+    press("McSeal");
+    snap(&pair_records());
+    run(0.7);
+    // Paired with an approval already pending: the puck grows in with Approve on it.
+    let paired = PAIRED.replace(
+        "H Puck calm\nX TxPuck\nU BtnPuckApprove 0\nU BtnPuckDeny 0\n",
+        "H Puck need\nT TxPuck registry: run npm test\nU BtnPuckApprove 1\nU BtnPuckDeny 1\n",
+    );
+    assert_ne!(paired, PAIRED);
+    snap(&paired);
+    run(0.6 + 0.35 + 0.1);
+    assert_eq!(stage(), Stage::Grow);
+    assert!(vis("BtnPuckApprove") && !text_on("TxPuck"), "the button grows, its words wait");
+    let n = fetches();
+    press("BtnPuckApprove");
+    assert_eq!(fetches(), n, "no press while the puck grows");
+    run(0.4);
+    assert!(text_on("TxPuck"));
+    press("BtnPuckApprove");
+    assert_eq!(fetches(), n + 1, "pressed once its words show");
+    // The same for the arc's Approve during the unfold, and during the fold.
+    snap(&full_arc_snapshot());
+    let n = fetches();
+    press("BtnApprove");
+    assert_eq!(fetches(), n, "no press during the unfold");
+    run(0.55);
+    press("BtnApprove");
     assert_eq!(fetches(), n + 1);
-    assert_eq!(unsafe { LAST_PATH }, PATH_PAIR);
+    snap("AB1\nM cubes\n");
+    press("BtnApprove");
+    assert_eq!(fetches(), n + 1, "no press during the fold");
+    close_panel();
+}
+
+#[test]
+fn the_fold_goes_to_the_cube_of_the_job_on_show() {
+    sign_in_to_cubes();
+    press("CubeA");
+    snap(&full_arc_snapshot());
+    run(0.55);
+    assert!(!vis("CubeA") && vis("CubeB"));
+    // Another cube pressed with the arc open: the arc moves to that job, and that cube hides.
+    press("CubeB");
+    snap(&full_arc_snapshot());
+    assert!(vis("CubeA") && !vis("CubeB"), "the picked cube follows the job on show");
+    snap("AB1\nM cubes\n");
+    assert!(close3(unsafe { FOLD_TO }, placed(idx("CubeB"))), "the fold goes into CubeB");
+    run(0.45);
+    assert!(vis("CubeB"));
+    // The job's cube goes away while the arc is open: the fold goes to the ledge's centre.
+    press("CubeA");
+    snap(&full_arc_snapshot());
+    run(0.55);
+    snap("AB1\nU CubeA 0\nH CubeA off\nM cubes\n");
+    assert!(close3(unsafe { FOLD_TO }, placed(idx("McLedge"))), "the ledge's centre");
     close_panel();
 }
 

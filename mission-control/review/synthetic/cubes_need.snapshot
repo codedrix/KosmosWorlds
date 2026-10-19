@@ -40,6 +40,6 @@ H CubeD off
 X TxCubeD
 U CubePlus 1
 H Puck need
-T TxPuck registry: npm test
+T TxPuck registry: run npm test
 U BtnPuckApprove 1
 U BtnPuckDeny 1

@@ -291,8 +291,9 @@ const RIGHT_WATCH: [f32; 3] = [0.0, 0.0, 1.0];
 const TOWARD_WATCH: [f32; 3] = [-1.0, 0.0, 0.0];
 const MOVE_STEP_M: f32 = 0.15;
 /// Limits of the viewer's adjustments to the arc: nearer, farther, up/down, sideways (metres).
-/// The arc is 1.7 m away, so it can come 0.6 m nearer at most (it stays clear of the ledge).
-const MOVE_NEAR: f32 = 0.6;
+/// The ask plate is 1.62 m out and the ledge's shelf ends 1.0 m out (contract 8.4: 0.90 m out,
+/// 0.20 deep), so the arc comes 0.5 m nearer at most: the plate stops 12 cm behind the shelf.
+const MOVE_NEAR: f32 = 0.5;
 const MOVE_FAR: f32 = 1.0;
 const MOVE_UPDOWN: f32 = 0.6;
 const MOVE_SIDE: f32 = 1.2;
@@ -384,16 +385,17 @@ fn idx(name: &str) -> usize {
 
 /// A node's group, by its name alone (the bridge needn't know):
 ///   seal:  SealRing*, TxSeal, TxSealHint, BtnSealType, McSealCancel
-///   ledge: McLedge, Cube*, TxCube*
+///   ledge: McLedge, Cube*, TxCube*, McClose (Close sits on the ledge's left end, contract 8.7,
+///          so leaving is one press away whether the arc is folded or open)
 ///   puck:  Puck*, BtnPuck*, TxPuck
-///   arc:   every other panel node
+///   arc:   every other panel node (the panels, the chrome bar, McPageDock)
 /// The fixtures McSeal and McWatchJoin are visible to every visitor and never move.
 fn group_by_name(n: &str) -> u8 {
     if n == "McSeal" || n == "McWatchJoin" {
         G_FIXTURE
     } else if n.starts_with("SealRing") || n.starts_with("TxSeal") || n == "BtnSealType" || n == "McSealCancel" {
         G_SEAL
-    } else if n == "McLedge" || n.starts_with("Cube") || n.starts_with("TxCube") {
+    } else if n == "McLedge" || n == "McClose" || n.starts_with("Cube") || n.starts_with("TxCube") {
         G_LEDGE
     } else if n.starts_with("Puck") || n.starts_with("BtnPuck") || n == "TxPuck" {
         G_PUCK
@@ -715,6 +717,11 @@ pub extern "C" fn on_press(_event_type: i32, node: i32, _p1: i32, _p2: i32) {
     let Some(i) = (0..N_ALL).find(|&i| unsafe { HANDLES[i] } == node) else {
         return;
     };
+    // A face button whose group is still moving is not pressed (contract 8.10): its words are
+    // held back until the tween ends, so the owner never approves what is not yet readable.
+    if is_face_button(i) && unsafe { TWEENS[group(i) as usize].active } {
+        return;
+    }
     match node_name(i) {
         "McSeal" => match mode() {
             // Closed: the seal rises and the FIRST network call mints a pairing.
@@ -725,6 +732,8 @@ pub extern "C" fn on_press(_event_type: i32, node: i32, _p1: i32, _p2: i32) {
             }
             // Up, not signed in, nothing pending (expired, refused, or no answer): mint again.
             Mode::Owner if unsafe { TOKEN_LEN == 0 && PAIR_LEN == 0 && !MINT_IN_FLIGHT } => mint_pairing(),
+            // Signed in: the seal toggles. It closes (signs out, parks everything; contract 8.7).
+            Mode::Owner if signed_in() => close_panel(),
             _ => {}
         },
         "McWatchJoin" => match mode() {
@@ -976,6 +985,10 @@ fn update_arc() {
         return;
     }
     let (want, shown) = unsafe { (M_ARC, ARC_SHOWN) };
+    if want && shown {
+        retarget_fold();
+        return;
+    }
     if want == shown {
         return;
     }
@@ -992,11 +1005,32 @@ fn update_arc() {
         }
         start_tween(G_ARC, 1.0, UNFOLD_S, from);
     } else {
+        retarget_fold();
         unsafe { ARC_SHOWN = false; }
         let from = unsafe { FOLD_TO };
         start_tween(G_ARC, -1.0, FOLD_S, from);
     }
     sync_all();
+}
+
+/// The arc folds back into the cube of the job on show (contract 8.10): a cube pressed while
+/// the arc is open moves the arc to that job, so it becomes the picked cube; a picked cube the
+/// face no longer shows (its job ended) gives the fold the ledge's centre instead.
+fn retarget_fold() {
+    let (pc, at, picked) = unsafe { (PRESSED_CUBE, PRESSED_AT, PICKED) };
+    if pc != NONE && unsafe { NOW_S } - at <= PRESS_ORIGIN_S && pc != picked {
+        unsafe {
+            PICKED = pc;
+            FOLD_TO = placed(pc);
+            PRESSED_CUBE = NONE;
+        }
+        sync_all();
+    } else if picked != NONE && unsafe { !WANT[picked] } {
+        unsafe {
+            PICKED = NONE;
+            FOLD_TO = placed(idx("McLedge"));
+        }
+    }
 }
 
 /// Turn every arc node 180 degrees of yaw for a watcher's copy, or back.
@@ -1450,6 +1484,14 @@ pub extern "C" fn on_net_result(_event_type: i32, _node: i32, request_id: i32, s
         if request_id == REQ_VIEW {
             unsafe { NEXT_POLL_AT = NOW_S + RETRY_GAP_S; }
         }
+        if request_id == REQ_PAIR_MINT {
+            // Nothing is pending and nothing polls: say what to do (contract 8.10).
+            local_status(match status {
+                503 => "Stopped on the PC. Lift the kill switch, then press the seal again.",
+                _ => "No code this time. Wait a few seconds and press the seal again.",
+            });
+            return;
+        }
         local_status(match status {
             0 => "Can't reach the bridge on the PC. Is it running?",
             -2 => "The headset stopped the call (network off for this world).",
@@ -1593,7 +1635,11 @@ pub fn apply_snapshot(body: &[u8]) {
     }
     if mode() == Mode::Owner {
         if lost_token {
-            to_seal_stage();
+            // Signed out, or the bridge no longer knows the token (expiry, a restart, the kill
+            // switch): close fully, never a blank ring (contract 8.8). The seal starts again.
+            unsafe { TOKEN_LEN = 0; }
+            close_panel();
+            return;
         } else if got_token && stage() == Stage::Seal {
             begin_lock();
         }
