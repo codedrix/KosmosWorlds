@@ -1,8 +1,9 @@
-# agent-bridge API (v1)
+# agent-bridge API (v2)
 
 The contract between the bridge on the CEO's PC and any world (or other client) that uses it.
-Mission Control is the first face; More Room adds its own. Brief: **DB-044** (kosmos-project PR #210).
-Code: KosmosWorlds `agent-bridge/` (branch `feat/mission-control`).
+Mission Control is the first face; More Room adds its own. Brief: **DB-044** (kosmos-project PR #210)
+and its v2 addendum, `mission-control/V2_CONTRACT.md` (Job Cubes, the decision puck, the Pairing Seal).
+Code: KosmosWorlds `agent-bridge/` (v2: branch `feat/mc2-bridge`).
 
 Status marks: **built** (in the code, tested) · **planned** (this lane, next commits).
 
@@ -28,16 +29,22 @@ authenticated call is a POST with the token in the body**:
 - wire-format bodies (worlds): a `tok <token>` line;
 - JSON bodies (other clients): a `"tok"` field.
 
-Sign-in, two ways, one session store (one sign-in at a time for the whole bridge):
+Sign-in, three ways, one session store (one sign-in at a time for the whole bridge):
 
 | Route | Body | Answer | |
 |---|---|---|---|
-| `POST /v1/session` | `{"passphrase":"..."}` | `200 {"token","expires_in"}` · `401 {"error":"wrong"\|"not_set"}` · `429 {"error":"locked"\|"hard_locked"\|"too_fast"}` + `Retry-After` | **built** |
+| `POST /v1/session` | `{"passphrase":"..."}` | `200 {"token","expires_in"}` · `401 {"error":"wrong"\|"not_set"}` · `429 {"error":"locked"\|"hard_locked"\|"too_fast"}` + `Retry-After` · `403 {"error":"passphrase_off"}` when `passphraseSignIn` is false | **built** |
 | `POST /v1/session/end` | `{"tok"}` | `200 {"ok":true}` | **built** |
 | a face's sign-in press | the face calls `ctx.signIn(passphrase)` | the face renders the result | **built** |
+| the Pairing Seal (v2) | the face's `pair` op mints; the owner approves **at the PC**; the face calls `ctx.pair.signIn(id)` | `K <token>` in the face's answer (section 5) | **built** |
 
 Token: 30 min idle, 8 h absolute, stored only as its SHA-256. Lockout: one attempt per 2 s; 5 wrong
 in a row = 15 min; 10 wrong in 24 h = locked until `npm run unlock` on the PC. **built**
+
+A paired session is the same session (same token rules, one at a time). It is issued whatever the
+passphrase lockout says, and the LOCKED file does not end it: that lock is about passphrase guessing,
+and a pairing was approved at the PC. Every new session, paired or not, starts with group watching
+off. **No HTTP route can approve a pairing**; `ctx.pair` has no approve verb (section 5.1).
 
 The headset sends `X-World-Address: <name.author>` on every call. It is forgeable; faces still
 require their own world's address (a seat belt, not a lock). **built**
@@ -82,10 +89,11 @@ permission rules decide what runs, and each of its prompts becomes one Approval.
   `{ name, worlds, handle(op, req, ctx), reset() }`. The registry finds it by folder; no other file
   changes, Mission Control's included.
 - The server does the Host, Origin, size, rate, relay-key, stop and token checks first, and gives the
-  face `ctx.authed`, `ctx.signIn`, `ctx.signOut`, `ctx.waitForChange(ms)` and `ctx.bridge`
+  face `ctx.authed`, `ctx.signIn`, `ctx.signOut`, `ctx.pair` (`mint`, `state`, `signIn`: the stop and
+  config checks live in the server; there is no approve), `ctx.waitForChange(ms)` and `ctx.bridge`
   (`.store` to read, `.actions` to act: `startPreset`, `startTask`, `send`, `quick`, `decide`, `stop`).
-- `req` is parsed from either the AB1 lines or JSON (`tok`, `v`, `press`, other `[a-z]{1,12}` fields,
-  `text`), so a face may answer JSON or anything else it likes.
+- `req` is parsed from either the AB1 lines or JSON (`tok`, `v`, `press`, `pair`, other `[a-z]{1,12}`
+  fields, `text`), so a face may answer JSON or anything else it likes.
 - A face that needs a new VERB (say, "read today's calendar") proposes it in its brief: `bridge.ts` is
   the one shared file.
 
@@ -94,40 +102,93 @@ permission rules decide what runs, and each of its prompts becomes one Approval.
 Request (text/plain):
 ```
 AB1
-tok <token>
+tok <token>            (signed in)   or   pair <id>   (waiting on a pairing: 32 lowercase hex)
 v <snapshot version on screen>
 press <NodeName>
 ---
 <typed text, raw>
 ```
 Snapshot (text/plain, one record a line, integers only):
-`V n` version · `M lock|wall|chat` · `K token` · `E code` · `T node text` (`\n`, `\\` escaped) ·
-`X node` hide text · `U node 0|1` visibility · `G node 0..1000` gauge · `O node mm` sideways shift ·
-`C node count` copies · `P node question` the press opens the typing sheet · `Z n` approvals ever
-(buzz when it rises) · `S` nothing changed.
+`V n` version · `M lock|pair|cubes|arc` · `K token` · `I id` a pairing id (keep it in memory and echo
+it as `pair <id>` while waiting) · `E code` · `T node text` (`\n`, `\\` escaped) · `X node` hide text ·
+`U node 0|1` visibility · `H node state` paint a hue base (`calm`, `need`, `idle`, `armed`, `locked`,
+or `off` = no variant; the world shows the variant node `<node><State>`, e.g. `CubeANeed`) ·
+`O node mm` sideways shift · `P node question` the press opens the typing sheet · `Z n` approvals ever
+(buzz when it rises) · `S` nothing changed. (`G` gauges and `C` copies stay in the format; v2 sends
+neither.)
 
-`view` is a long poll: send the version you show; the bridge answers when the wall changes (at most
+Events (`E`): `stale`, `refused`, `signed_out`, `pair_wait`, `paired` (comes with `K`), `pair_expired`,
+`pair_refused` (rate-limited, the kill switch, or pairing off), `passphrase_off`, and for watchers
+`watch_refused` and `watch_wait`.
+
+`view` is a long poll: send the version you show; the bridge answers when the view changes (at most
 about once a second) or after 6.5 s with `S`. `press` names a node and the version: the bridge resolves
 what that node meant in that snapshot, and refuses a stale one.
 
-## 5. Mission Control inside the Lobby
+## 5. Mission Control inside the Lobby (v2)
 
-- **The ritual's sign-in** (built): `POST /v1/faces/mission-control/signin` with the passphrase as the
-  body's text (after `---`). No snapshot version is needed, so it can be a world's first call. The
-  answer is the owner's wall with a `K <token>` record, or the lock screen with `E refused`.
-- **Group watching** (built; off by default): the owner presses `BtnWatch` on the panel; the bridge
-  makes a six-digit code and the panel shows it (`TxWatch`). A group member's world calls
-  `POST /v1/faces/mission-control/watch` with a `watch <code>` line instead of `tok`, and gets a
-  read-only copy of the owner's wall: no token, no typing-sheet records, no watch toggle, and the
-  status line names the last button the owner pressed (its words, never anything typed). It is a long
-  poll like `view`, on its own version numbers. A watch code can never approve, type, start or stop
-  anything (the watch op maps no presses). It dies at toggle-off, sign-out, the kill switch, 2 hours,
-  or 45 s after the owner's own wall stopped asking for updates (the owner left). At most 10 wrong
-  codes a minute across everyone.
-- **Anonymous callers** get the lock screen from their own version space and press map; nothing they
-  send touches the owner's wall.
-- **Zero calls before the ritual** (world side): the Lobby program makes no network call until the
-  ritual's sign-in, or until a visitor types a watch code at the Watch button.
+The node list is `mission-control/nodes.json` (written from `src/faces/mission-control/layout.ts` by
+`scripts/write-nodes-json.mjs`): `text`, `buttons`, `show`, `hue` (base to states) and `world` (nodes
+only the world touches, the hue variants among them). Modes:
+
+| `M` | who | what the face sends |
+|---|---|---|
+| `lock` | anonymous | every text `X`, every button and panel `U 0`, every hue `off`; a refused sign-in or the stop may show in `TxSealHint`; `BtnSealType` while the passphrase fallback is on |
+| `pair` | the headset holding a pairing id | `TxSeal` (the code, `KXT WMP`), `TxSealHint`, `H SealRing armed`, `BtnSealType` |
+| `cubes` | the owner, arc folded | the ledge (`CubeA..D` per running job with `H calm/need/idle` and `TxCubeX` = the short project name; empty slots `U 0` and `H off`; `CubePlus`) and the puck; every arc text `X` (arc buttons keep their last `U`, so the world can fold them; the press map no longer knows them) |
+| `arc` | the owner, arc open | the ledge, the puck, and the arc: left = ticker, rail, presets, project, done today; centre = header, 10 conversation lines, page, the ask plate, quick replies, reply, fold, stop, status, watch, sign-out; right = `TxPageSpot` (a placeholder naming DB-043's page panel). At most 29 labels |
+
+Press actions: `cube:<jobId>` opens the arc on that job; `cube:none` (`CubePlus`) opens it with no job;
+`fold` (`BtnFold`) returns to `cubes`; `rail:<id>`, presets, `new`, `project`, `stop`, `approve`/`deny`/
+`why`, `quick`, `reply`, `pageup`/`pagedown`, `watch` and `signout` as before. `BtnPuckApprove` and
+`BtnPuckDeny` are `approve:<id>` and `deny:<id>` for the OLDEST pending approval; Approve shows only
+when the approval is `exact` and its whole command fits the puck's label (two lines at `W.puck`, no
+byte clip): the ask plate's rule. Colour is chosen in one function (`paint`) and leaves the PC only as
+`H`.
+
+- **`pair`** (anonymous): with no `pair` field, mint a pairing and answer `M pair`, `I <id>`, the seal
+  records and `E pair_wait`. With `pair <id>`, a long poll: answered when the owner approves, the code
+  expires, or after the usual wait. Pending: the seal records again (no `I`). Approved: `K <token>`,
+  `E paired`, `H SealRing locked`, then the owner's `M cubes`. Expired, taken or unknown: `M lock`,
+  `X TxSeal`, `H SealRing off`, `E pair_expired`. Refused (rate, stop, pairing off): `E pair_refused`
+  with the reason in `TxSealHint`.
+- **`signin`** (the passphrase fallback, "Use passphrase" under the ring): the passphrase as the text.
+  Unchanged, except: `E passphrase_off` when the PC set `passphraseSignIn` false (and the face hides
+  `BtnSealType`); and a refusal sent with a live `pair <id>` answers the seal records again, with the
+  reason in `TxSealHint`.
+- **Group watching** (off by default): the owner presses `BtnWatch` in the arc; the bridge makes a
+  six-digit code and `TxWatch` shows it. A group member's world calls `watch` with a `watch <code>`
+  line instead of `tok`, and gets a read-only ARC (always open: the owner's focus, or the first running
+  job): no ledge, puck or seal records, no `H`, no `Z`, no `K`, no typing-sheet records, no fold, watch
+  or sign-out button, and a status line naming the last button the owner pressed (its words, never
+  anything typed). A long poll on its own version numbers; it maps no presses. A code dies at
+  toggle-off, any new sign-in (paired too), sign-out, the kill switch, 2 hours, or 45 s after the
+  owner's own view stopped asking. At most 10 wrong codes a minute across everyone.
+- **Anonymous callers** get `lock` (or their own `pair`) from their own version space and press map;
+  nothing they send touches the owner's view.
+- **Zero calls before the seal** (world side): the Lobby program makes no network call until the
+  visitor presses the seal, or types a watch code at the Watch button.
+
+### 5.1 The pairing verb (`src/pairing.ts`) **built**
+
+- **Code:** 6 letters from `BCDFGHJKLMNPQRSTVWXZ` (64 million), shown `KXT WMP`. **Id:** 16 random
+  bytes, hex. **Lifetime:** 120 s from the mint. **Single use:** the first poll after approval takes
+  the token and the pairing is gone.
+- **One at a time:** a new mint replaces the waiting (or approved, not yet taken) pairing; a replaced
+  code can no longer be approved.
+- **Mint rate:** at most 6 a minute across everyone, at least 3 s apart; beyond that `pair_refused`.
+- **Approval is local only:** (1) in a terminal, `npm start` itself prints "A headset asks to pair
+  (N s ago). Type the code shown on YOUR ring to approve:" and never prints the code; (2)
+  `npm run approve -- <code>` writes `PAIR_APPROVE` (letters only, at most 32 bytes) in the bridge's
+  home, which the serve loop reads and deletes within a second, beside the STOP check, and answers
+  through `PAIR_RESULT`. `npm run approve` with no code says whether one is waiting and how old it is
+  (from `PAIR_PENDING`, which holds the mint time only). A file that isn't a plain file, or is over 32
+  bytes, is removed unread; `serve` clears all three files at start.
+- **The typed code** is normalised (letters only, upper case) and compared in constant time; five
+  wrong codes cancel the waiting pairing.
+- **The kill switch** refuses minting and clears what is pending. `pairSignIn: false` in config.json
+  refuses every pairing.
+- **Logs:** the request log has no codes, ids or tokens; the console's lines name no code.
 
 ## 6. Limits a client must respect
 

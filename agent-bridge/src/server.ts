@@ -25,6 +25,7 @@
  *                                             `pair` op mints and takes pairings, never approves
  *                                             them (approval is local only: pairing.ts, main.ts)
  *   POST /v1/session                          {"passphrase"} -> {"token","expires_in"}
+ *                                             (403 passphrase_off when config.passphraseSignIn is false)
  *   POST /v1/session/end                      {"tok"}
  *   POST /v1/jobs                             {"tok"} -> job summaries
  *   POST /v1/jobs/start                       {"tok","preset","project"}
