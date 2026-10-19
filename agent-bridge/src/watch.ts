@@ -72,7 +72,11 @@ export class WatchGate {
       this.wrong.push(t);
       return "wrong";
     }
-    if (t - this.ownerSeenAt > OWNER_GONE_MS) return "owner_gone";
+    if (t - this.ownerSeenAt > OWNER_GONE_MS) {
+      // The owner left: the code dies here, so it can't revive on the owner's next sign-in.
+      this.close();
+      return "owner_gone";
+    }
     return "ok";
   }
 }

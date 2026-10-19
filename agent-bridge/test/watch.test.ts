@@ -90,11 +90,28 @@ test("a code dies when the owner's wall stops asking (left the Lobby), and guess
   t += OWNER_GONE_MS + 1;
   assert.equal(g.check(code), "owner_gone");
   g.ownerSeen();
-  assert.equal(g.check(code), "ok");
-  for (let i = 0; i < WRONG_PER_MINUTE; i++) assert.equal(g.check("000000" === code ? "111111" : "000000"), "wrong");
-  assert.equal(g.check(code), "too_many", "even the right code waits after ten wrong ones");
+  assert.equal(g.check(code), "off", "the code died; the owner coming back does not revive it");
+  t += 61_000;
+  const fresh = g.open();
+  for (let i = 0; i < WRONG_PER_MINUTE; i++) assert.equal(g.check("000000" === fresh ? "111111" : "000000"), "wrong");
+  assert.equal(g.check(fresh), "too_many", "even the right code waits after ten wrong ones");
   t += 61_000;
   g.ownerSeen();
-  assert.equal(g.check(code), "ok");
+  assert.equal(g.check(fresh), "ok");
   await sleep(1);
+});
+
+test("a new sign-in always starts with watching off", async () => {
+  await sleep(2100);
+  await op("signin", {}, PASS);
+  await op("view", { tok });
+  await op("press", { tok, v, press: "BtnWatch" });
+  const code = b.bridge.watch.current ?? "";
+  assert.ok(code, "watching is on");
+  await sleep(2100);
+  const again = await op("signin", {}, PASS);
+  assert.equal(b.bridge.watch.current, null, "the old code is gone");
+  assert.equal(again.text.get("TxWatch"), "Let my group watch: off");
+  const w = await op("watch", { watch: code });
+  assert.ok(w.events.includes("watch_refused"));
 });

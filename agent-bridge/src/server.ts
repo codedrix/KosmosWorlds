@@ -213,7 +213,13 @@ export function createServer(bridge: Bridge, faces: Map<string, Face>, opts: Ser
         bridge,
         authed,
         killed,
-        signIn: (pass) => (killed ? { ok: false, reason: "locked" } : bridge.auth.signIn(pass)),
+        signIn: (pass) => {
+          if (killed) return { ok: false, reason: "locked" };
+          const r = bridge.auth.signIn(pass);
+          // Every new session starts with watching off: an old code never revives.
+          if (r.ok) bridge.watch.close();
+          return r;
+        },
         signOut: () => {
           bridge.auth.signOut();
           bridge.watch.close();
@@ -243,6 +249,7 @@ export function createServer(bridge: Bridge, faces: Map<string, Face>, opts: Ser
     if (p === "/v1/session") {
       const r = bridge.auth.signIn(typeof j.passphrase === "string" ? j.passphrase : "");
       if (r.ok) {
+        bridge.watch.close();
         for (const f of faces.values()) f.reset();
         json(res, 200, { token: r.token, expires_in: r.expiresInS });
         return 200;

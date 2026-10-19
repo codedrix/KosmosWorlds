@@ -354,6 +354,8 @@ static mut LAST_Z: i64 = -1;
 
 static mut NOW_S: f32 = 0.0;
 static mut POLL_IN_FLIGHT: bool = false;
+/// A watcher whose code the bridge refused (off, wrong, the owner left): stop polling until Close.
+static mut WATCH_ENDED: bool = false;
 static mut NEXT_POLL_AT: f32 = 0.0;
 static mut NEXT_PRESS_ID: i32 = REQ_PRESS_FIRST;
 static mut STATUS_ACC: f32 = 0.0;
@@ -454,7 +456,7 @@ pub extern "C" fn k_tick(delta: f32) {
     if ready {
         match mode() {
             Mode::Owner if unsafe { TOKEN_LEN } > 0 => send_poll(PATH_VIEW),
-            Mode::Watcher => send_poll(PATH_WATCH),
+            Mode::Watcher if unsafe { !WATCH_ENDED } => send_poll(PATH_WATCH),
             _ => {}
         }
     }
@@ -590,6 +592,7 @@ fn prompt_slot(node: usize) -> Option<usize> {
 fn open_panel(m: Mode, first_line: &str) {
     unsafe {
         MODE = m;
+        WATCH_ENDED = false;
         VERSION = 0;
         LAST_Z = -1;
         POLL_IN_FLIGHT = false;
@@ -912,6 +915,9 @@ pub fn apply_snapshot(body: &[u8]) {
             b'E' => {
                 if name == b"signed_out" && !watcher {
                     unsafe { TOKEN_LEN = 0; }
+                }
+                if name == b"watch_refused" && watcher {
+                    unsafe { WATCH_ENDED = true; }
                 }
             }
             b'T' => {
@@ -1287,6 +1293,7 @@ mod tests {
         unsafe {
             MODE = Mode::Closed;
             TOKEN_LEN = 0;
+            WATCH_ENDED = false;
             host::FETCHES = 0;
             host::PROMPTS = 0;
             PROMPT_OPEN = 0;
@@ -1372,12 +1379,18 @@ mod tests {
         assert_eq!(unsafe { TOKEN_LEN }, 0, "a watcher never keeps a token");
         assert_eq!(unsafe { SECOND_BUZZ_AT }, -1.0, "no buzz for a watcher");
         assert!(unsafe { TURNED }, "a watcher's copy is turned to face the hall");
+        // The bridge refuses the code (off, wrong, the owner left): the watcher stops polling.
+        apply_snapshot(b"AB1\nV 6\nE watch_refused\n");
+        assert!(unsafe { WATCH_ENDED }, "a refused watch stops polling until Close");
         // The centre panel sits on the turning axis: a point there stays put sideways,
         // drops to the floor, and the viewer's right flips.
         let q = place([WATCH_PIVOT_X, 3.0 - PARK_DROP_M, 0.0], 0.5);
         assert!((q[0] - WATCH_PIVOT_X).abs() < 1e-4 && (q[1] - (3.0 - WATCH_LOWER_M)).abs() < 1e-4 && (q[2] - 0.5).abs() < 1e-4, "{q:?}");
         close_panel();
         assert!(unsafe { !TURNED }, "closing turns it back");
+        open_panel(Mode::Watcher, "Joining...");
+        assert!(unsafe { !WATCH_ENDED }, "a new watch polls again");
+        close_panel();
     }
 
     #[test]

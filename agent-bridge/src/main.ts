@@ -163,7 +163,16 @@ async function main(): Promise<void> {
       setTextScale(config.textScale ?? 1);
       const bridge = new Bridge(config, adapter);
       const faces = await loadFaces();
-      const server = createServer(bridge, faces, { port, publicHost: arg("--public-host") ?? process.env.AGENT_BRIDGE_PUBLIC_HOST });
+      const publicHost = arg("--public-host") ?? process.env.AGENT_BRIDGE_PUBLIC_HOST;
+      if (publicHost && !config.relaySecret && !process.argv.includes("--direct-tunnel")) {
+        // A public host with no relay key means the tunnel URL alone reaches the bridge, with only
+        // the passphrase in the way. Refuse unless that is chosen on purpose (DB-044 option C).
+        console.error(`REFUSED: a public host (${publicHost}) is set but no relay key is configured in ${configPath()}.`);
+        console.error("Run `npm run make-relay-secret` (after the relay Worker is deployed), or add --direct-tunnel to accept a tunnel without the relay.");
+        process.exitCode = 1;
+        return;
+      }
+      const server = createServer(bridge, faces, { port, publicHost });
       // Watch the stop file even when no request arrives, so `npm run kill` stops jobs at once.
       const watch = setInterval(() => {
         if (isKilled()) void bridge.enforceKill();

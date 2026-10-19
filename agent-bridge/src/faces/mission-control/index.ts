@@ -367,6 +367,21 @@ export class MissionControlFace implements Face {
   private renderWith(ctx: FaceContext, forceNewVersion: boolean, forWatcher = false): Snapshot {
     const live = ctx.authed && !ctx.killed;
     if (!live) return this.renderAnon(ctx);
+    if (forWatcher) {
+      // A watcher's render reads the owner's view state and must never change it (the paging
+      // clamp and the "new below" marker): render from a copy, then put the owner's back.
+      const owner = this.state;
+      this.state = { ...owner };
+      try {
+        return this.renderWithState(ctx, false, true);
+      } finally {
+        this.state = owner;
+      }
+    }
+    return this.renderWithState(ctx, forceNewVersion, false);
+  }
+
+  private renderWithState(ctx: FaceContext, forceNewVersion: boolean, forWatcher: boolean): Snapshot {
     const actions: ActionMap = new Map();
     const body = new Snapshot();
     // A live owner whose state still says lock (just signed in elsewhere) starts on the wall.

@@ -95,7 +95,7 @@ export interface JobSink {
   agentText(text: string, opts?: { newMessage?: boolean }): void;
   toolUse(id: string, tool: string, input: Record<string, unknown>): void;
   toolResult(id: string, output: string, isError: boolean): void;
-  requestApproval(tool: string, input: Record<string, unknown>, title?: string): Promise<Decision>;
+  requestApproval(tool: string, input: Record<string, unknown>): Promise<Decision>;
   setStatus(status: JobStatus, outcome?: string): void;
   setSessionId(id: string): void;
   notice(text: string): void;
@@ -267,8 +267,8 @@ export class JobStore {
       toolResult(id, output, isError) {
         store.toolResult(jobId, id, output, isError);
       },
-      requestApproval(tool, input, title) {
-        return store.requestApproval(jobId, tool, input, title);
+      requestApproval(tool, input) {
+        return store.requestApproval(jobId, tool, input);
       },
       setStatus(status, outcome) {
         store.setStatus(jobId, status, outcome);
@@ -365,18 +365,22 @@ export class JobStore {
     this.changed();
   }
 
-  private requestApproval(jobId: string, tool: string, input: Record<string, unknown>, title?: string): Promise<Decision> {
+  private requestApproval(jobId: string, tool: string, input: Record<string, unknown>): Promise<Decision> {
     const job = this.jobs.get(jobId);
     if (!job) return Promise.resolve("deny");
     const raw = approvalTarget(tool, input, job.cwd);
-    const cleaned = cleanUntrusted(raw).replace(/\s*\n\s*/g, " ; ");
-    const exact = cleaned === raw.replace(/\s*\n\s*/g, " ; ") && cleaned.length <= MAX_APPROVAL_COMMAND_CHARS;
+    // A multi-line command can't be read as one line (a "#" on line 1 hides line 2 from the eye,
+    // not from the shell), so it is shown with a visible marker and is never approvable here.
+    const multiLine = /[\r\n]/.test(raw);
+    const cleaned = cleanUntrusted(raw).replace(/\s*\r?\n\s*/g, " [newline] ");
+    const exact = !multiLine && cleaned === raw && cleaned.length <= MAX_APPROVAL_COMMAND_CHARS;
     const a: Approval = {
       id: shortId("a"),
       jobId,
       number: ++this.approvalNumber,
       tool: toWallAscii(tool).slice(0, 40),
-      title: toWallAscii(title ?? approvalTitle(tool)).slice(0, 60),
+      // Always the bridge's own words: never the SDK's rendered sentence, which quotes tool input.
+      title: approvalTitle(tool),
       command: cleaned.length > MAX_APPROVAL_COMMAND_CHARS ? cleaned.slice(0, MAX_APPROVAL_COMMAND_CHARS - 3) + "..." : cleaned,
       exact,
       status: "pending",
@@ -437,7 +441,14 @@ function lines(s: string): number {
   return s.split("\n").length;
 }
 
+/** One activity line per tool use. Tool input is untrusted (a planted description, a key in a
+ * command), so every line and file name is redacted and defanged on the way out. */
 export function describeTool(tool: string, input: Record<string, unknown>, cwd: string): ToolLine {
+  const d = describeToolRaw(tool, input, cwd);
+  return { ...d, line: cleanUntrusted(d.line), ...(d.file !== undefined ? { file: cleanUntrusted(d.file) } : {}) };
+}
+
+function describeToolRaw(tool: string, input: Record<string, unknown>, cwd: string): ToolLine {
   switch (tool) {
     case "Read":
       return { verb: "Read", line: "Read 1 file", countable: "files" };

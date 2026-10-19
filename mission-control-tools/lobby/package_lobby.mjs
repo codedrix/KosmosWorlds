@@ -16,6 +16,7 @@
 //      the network block, version 1.2.0); visibility is unchanged.
 // It publishes nothing: publishing the Lobby is the CEO's (Class C).
 import { execFileSync } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,7 +36,15 @@ fs.rmSync(out, { recursive: true, force: true });
 fs.cpSync(live, out, { recursive: true });
 
 execFileSync(process.execPath, [path.join(here, "merge_glb.mjs"), path.join(live, "scene.glb"), path.join(mc, "mc_assembly.glb"), path.join(out, "scene.glb"), path.join(out, "..", "merge_report.json")], { stdio: "inherit" });
+// Rebuild the program from the checked-out source first, so the shipped bytes are never a
+// stale committed binary (Gate 2 security review, LOW-5). The build is reproducible across
+// folders; the hash printed below is the one to record in the publish evidence.
+if (!process.argv.includes("--no-rebuild")) {
+  execFileSync("powershell", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(repo, "mission-control-tools", "build_wasm.ps1")], { stdio: "inherit" });
+}
 fs.copyFileSync(path.join(mc, "world.wasm"), path.join(out, "module.wasm"));
+const wasmHash = crypto.createHash("sha256").update(fs.readFileSync(path.join(out, "module.wasm"))).digest("hex");
+console.log(`module.wasm sha256:${wasmHash}`);
 fs.mkdirSync(path.join(out, "audio"), { recursive: true });
 fs.copyFileSync(path.join(mc, "audio", "chime.wav"), path.join(out, "audio", "chime.wav"));
 

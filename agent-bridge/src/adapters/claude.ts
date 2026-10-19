@@ -120,7 +120,7 @@ export class ClaudeAdapter implements AgentAdapter {
     const canUseTool: CanUseTool = async (toolName, toolInput, ctx): Promise<PermissionResult> => {
       const refuse = HEADSET_REFUSES[toolName];
       if (refuse) return { behavior: "deny", message: refuse };
-      const decision: Decision = await sink.requestApproval(toolName, toolInput, ctx.title ?? undefined);
+      const decision: Decision = await sink.requestApproval(toolName, toolInput);
       if (ctx.signal.aborted) return { behavior: "deny", message: DENY_MESSAGE };
       if (decision === "approve") return { behavior: "allow", updatedInput: toolInput };
       if (decision === "why") return { behavior: "deny", message: WHY_MESSAGE };
