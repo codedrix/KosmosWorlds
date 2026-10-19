@@ -2193,7 +2193,8 @@ pub fn render() {
     // The inbox well's count: what is in, how many VIPs, how many are not drawn.
     {
         let node = a.n.inbox;
-        if focus || open.is_some() {
+        // Also while a card or draft is up front in triage: the well is hidden then (review v2, round 3).
+        if focus || open.is_some() || (triage && front > 0) {
             a.untext(node);
         } else {
             let mut b: Buf<64> = Buf::new();

@@ -151,7 +151,7 @@ Every number below was measured by running the built `world.wasm`:
 | Request body | 16 KiB | largest 83 B | — |
 | Answer | 256 KiB, text or JSON only | largest 4.8 KB (the whole sample day) | 7.7 KB for 40 messages |
 | Requests | 4 in flight, 1 a second with bursts of 10 | 15 polls plus presses; never rate-limited | — |
-| Wasm | 256 KB | 107.6 KB (6.4 KB of it is the built-in sample, about 20 KB a scratch day a live answer is read into first) | — |
+| Wasm | 256 KB | 107.9 KB (6.4 KB of it is the built-in sample, about 20 KB a scratch day a live answer is read into first) | — |
 | Triangles | 1,000,000 | 10,532 VR, 9,356 MR (doctor) | — |
 
 **Per frame**, the ring moves 10 pills and 13 ticks only when its clock has moved, and sets visibility only when it changes; the cocoon moves 16 facets only while it is closing in or opening out.
