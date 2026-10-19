@@ -133,7 +133,7 @@ function runVariant(variant) {
   ok(cardsAt(inGrid).length === 12, `twelve cards on the landing arc (${cardsAt(inGrid).length})`);
   ok(cardsAt(inGrid).every((n) => n.visible), "the arc's cards are face-down and in view");
   ok(cardsAt(inWell).length === 3, `three waiting in the inbox well (${cardsAt(inWell).length})`);
-  ok(/^Inbox 30\n2 VIP\n\+15 more$/.test(host.textOf("InboxWell") ?? ""), `the well counts the rest (${host.textOf("InboxWell")})`);
+  ok(/^Inbox 30, 2 VIP\n\+15 more$/.test(host.textOf("InboxWell") ?? ""), `the well counts the rest (${host.textOf("InboxWell")})`);
   ok(cardsAt((n) => n.source === "TplMsgVip").length === 2, "two VIP cards wear the amber rim");
 
   // The Day Ring: ten pills on the ring, now straight ahead, later to the right.
@@ -219,6 +219,7 @@ function runVariant(variant) {
   ok(/^(Dana Whitfield|Sam Okoro)/.test(host.textOf("FanA") ?? "") && host.byName.get("FanVipA").visible, `triage: an unread VIP leads the fan, amber-framed (${host.textOf("FanA")})`);
   ok(cardsAt(inGrid).filter((n) => !n.visible).length >= 3, `triage: the fanned cards' discs left the arc (${cardsAt(inGrid).filter((n) => !n.visible).length})`);
   ok(/Press a card/.test(status()), `triage: the status says what to do (${status()})`);
+  ok(cardsAt(inWell).every((n) => !n.visible), "triage: the well's waiting cards are put away (nothing stands behind the Reply puck)");
   ok(Math.abs(host.byName.get("TxtBanner").pos[1] - LAYOUT.bannerTriageY) < 1e-4 && host.textOf("TxtBanner") !== undefined, "triage: the banner moves up, clear of the fan, still shown");
   host.press("FanA");
   host.run(0.1);
@@ -229,7 +230,10 @@ function runVariant(variant) {
   ok(["BtnDone", "BtnLater", "BtnReply", "BtnTask", "BtnMute"].every((b) => host.byName.get(b).visible), "the five actions show");
   host.press("BtnReply");
   host.run(0.2);
-  ok(/^Draft to (Dana|Sam)/.test(host.textOf("TxtDraft") ?? ""), `the sample's draft waits on the right (${host.textOf("TxtDraft")})`);
+  ok(/^Draft to (Dana|Sam)/.test(host.textOf("TxtDraft") ?? ""), `the sample's draft waits up front (${host.textOf("TxtDraft")})`);
+  host.run(0.6);
+  ok(host.byName.get("TxtDraft").visible && !host.byName.get("TxtOpen").visible && Math.abs(host.byName.get("TxtDraft").pos[1] - LAYOUT.readY) < 1e-4, "the draft takes the reading card's place");
+  ok(["BtnApprove", "BtnDeny"].every((b) => host.byName.get(b).visible) && ["BtnDone", "BtnLater", "BtnReply", "BtnTask", "BtnMute"].every((b) => !host.byName.get(b).visible), "Approve and Deny take the action row's place");
   ok(/Draft ready/.test(status()), `the status says so (${status()})`);
   textsOk("sample triage with a draft");
   snap("triage");
@@ -269,6 +273,8 @@ function runVariant(variant) {
   ok(done.length === 2, `Done: the approved one and the done one (${done.length})`);
   ok(shelf.length === 1, `Mute: one card on the quiet shelf behind you (${shelf.length})`);
   ok(/Quiet shelf: 1/.test(host.textOf("TxtQuiet") ?? ""), "the quiet shelf counts it");
+  // Grown from 1 line to 2: shown again so it is centred on its card (review v2, lens A, MED-2).
+  ok(host.texts.get(host.byName.get("TxtQuiet").handle).offset === 0, `the 2-line shelf label is re-centred (offset ${host.texts.get(host.byName.get("TxtQuiet").handle).offset})`);
   ok(host.textOf("PileLater") === "Later 1" && host.textOf("PileDone") === "Done 2", `the piles are counted (${host.textOf("PileLater")}, ${host.textOf("PileDone")})`);
   ok(cardsAt(inGrid).length === 12, `waiting cards moved up to fill the arc (${cardsAt(inGrid).length})`);
   ok(fan().every((f) => f.visible && host.texts.has(f.handle)), "the fan refills from what is left");
@@ -288,6 +294,13 @@ function runVariant(variant) {
   ok(/Rolled/.test(status()), "wrap-up: pressing a task rolls it");
   snap("wrap");
   ok(host.requests.length === 0, `the sample made no request at all (${host.requests.length})`);
+  // 25 minutes on: the counsel call has begun, so its pill is amber, under the now bar.
+  host.press("BtnModeMorning");
+  host.run(25.5 * 60);
+  const nowPill = events().find((e) => e.source === "TplEventNow");
+  ok(events().filter((e) => host.texts.has(e.handle)).length === 5, `a pill that changed colour keeps its label (${events().filter((e) => host.texts.has(e.handle)).length} labels)`);
+  ok(nowPill && Math.abs(deg(nowPill.pos)) < 2, `at 10:31 the counsel call is now: amber, straight ahead (${nowPill && deg(nowPill.pos).toFixed(2)})`);
+  snap("now");
 
   // ---------------------------------------------------------------------------
   // Part 2: signing in to the bridge, and the live day.
@@ -354,7 +367,7 @@ function runVariant(variant) {
   arrive(); // the sample's last arrival is a VIP
   host.run(4.6);
   ok(host.sounds.length === soundsBefore + 1 && host.sounds.at(-1).at === "InboxWell", `focus: a VIP ticks once, from the well (${JSON.stringify(host.sounds)})`);
-  ok(/VIP: Dana Whitfield/.test(host.textOf("TxtVip") ?? ""), `focus: the VIP line names the sender (${host.textOf("TxtVip")})`);
+  ok(/^SAMPLE DAY.*\nVIP: Dana Whitfield$/.test(host.textOf("TxtBanner") ?? ""), `focus: the VIP line rides on the banner, the one notice band (${host.textOf("TxtBanner")})`);
   textsOk("live focus with a VIP");
 
   // Live triage: the unread VIPs lead the fan; a draft from the bridge, approved through the bridge.
@@ -379,7 +392,7 @@ function runVariant(variant) {
   bridge.handle("POST", "/v1/session/end", Buffer.from(JSON.stringify({ tok: faceTokens(host)[0] })), addr);
   host.run(4.6);
   ok(/Sign\sin again/.test(status()), `a 401 signs the room out, out loud (${status()})`);
-  ok(host.textOf("TxtBanner") === "SAMPLE DAY: nothing here is real yet" && host.textOf("BtnSignIn") === "Owner sign in", "signed out: back to the sample, with Owner sign in");
+  ok((host.textOf("TxtBanner") ?? "").startsWith("SAMPLE DAY: nothing here is real yet") && host.textOf("BtnSignIn") === "Owner sign in", "signed out: back to the sample, with Owner sign in");
   const n0 = host.requests.length;
   host.run(10);
   ok(host.requests.length === n0, "signed out: polling stops");

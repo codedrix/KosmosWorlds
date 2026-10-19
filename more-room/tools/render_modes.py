@@ -33,7 +33,7 @@ from mathutils import Vector
 argv = sys.argv[sys.argv.index("--") + 1:]
 VARIANT, OUT = argv[0], os.path.abspath(argv[1])
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-MODES = ["morning", "prep", "about", "focus", "triage", "triage-after", "wrap"]
+MODES = ["morning", "now", "prep", "about", "focus", "triage", "triage-after", "wrap"]
 EYE = (0.0, 0.0, 1.62)  # Blender Z-up; the visitor at the spawn, standing
 
 
@@ -299,6 +299,7 @@ for mode in MODES:
         "focus": ["eye", "overview", "seated"],
         "triage": ["eye", "arc", "overview", "seated"],
         "wrap": ["eye", "right"],
+        "now": ["eye", "seated"],
     }.get(mode, ["eye"])
     views = [by[v] for v in views]
     if mode == "triage-after":

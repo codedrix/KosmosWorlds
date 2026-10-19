@@ -50,7 +50,7 @@ Distances are from where you stand when the world loads, facing forward (+X), wi
 | Where | What | Height |
 |---|---|---|
 | 2.4 m, all round | **The Day Ring**: a thin glowing track; **events as pills** on it (past: dim slate; now: amber; later: blue), each labelled with its time and title on one of two rows; hour ticks (every third one longer); the amber **now bar** straight ahead. Pills more than 100° round are hidden; 19:00 is behind you at 10:00 | 1.78 m |
-| 1.8 m ahead | **The banner**, under the now bar; in triage it moves up, just above the fan | 1.47–1.59 m (triage 1.65–1.77 m) |
+| 1.8 m ahead | **The banner**, under the now bar: the sample line, and for 90 s after a VIP lands a second line naming them (the room's one notice band). In triage it moves up, just above the fan | 1.46–1.65 m (triage 1.62–1.80 m) |
 | 1.7 m ahead | **The stage**, a dark card: the brief, a prep sheet, the wrap-up, the About pages. Close (prep) and Next (About) are a puck to its right | 0.98–1.42 m |
 | 1.0 m, -55° to +55° | **The landing arc**: 12 slots where cards lie face-down. VR: a curved shelf of 17 flat facets with a glowing front edge; MR: a faint dark mat | 0.79 m |
 | 1.0 m, -67° and +67° | **Later** (amber ring) and **Done** (green ring), at the arc's ends | 0.79 m |
@@ -59,14 +59,14 @@ Distances are from where you stand when the world loads, facing forward (+X), wi
 | 1.6 m, 52° right | **Pinned tasks**: a line of counts, then three task cards, below the ring's labels | 0.86–1.66 m |
 | 1.75 m, -42° to +42° | **The fan** (triage): five face-up cards; a VIP's card has an amber frame | 1.29–1.55 m |
 | 1.4 m ahead | **The reading card** (triage): from, subject, preview. The five action pucks are under it at 1.15 m | 0.9–1.3 m |
-| 1.3 m, 50° right | **The draft** (triage): "Draft to …" with Approve, Deny and More under it | 0.86–1.26 m |
-| 1.45 m ahead | **Focus**: the task and its timer, with Start/Pause to the right and "Next: …" above | 1.0–1.76 m |
+| 1.4 m ahead | **A draft** (triage): "Draft to …" takes the reading card's place; Approve, Deny and More take the action row's | 0.9–1.3 m |
+| 1.45 m ahead | **Focus**: the task and its timer, with Start/Pause to the right and "Next: …" above | 0.88–1.76 m |
 | 1.95 m, all round | **The cocoon** (focus): 16 dark flat facets that slide in from 3 m | 0–2.6 m |
 | 2.1 m, 82° left | **The window**: a framed pane that turns from day to dusk to night against the sunset time, with weather, sunset and one headline on its sill | 0.87–1.91 m |
 | 1.7 m behind | **The quiet shelf**: muted messages, with a label card above it | 1.0 m |
 
 **How the look is made** (the client can only print white text and cannot change a colour at runtime):
-- **State colours are pre-built variants.** An event pill comes in three tones and a card in seven; when a state changes, the room swaps in a clone of the other variant, in the same place. All of these choices go through one function, `style::template` (and `style::event_tone`, `style::card_tone`).
+- **State colours are pre-built variants.** An event pill comes in three tones and a card in seven; when a state changes, the room swaps in a clone of the other variant, in the same place. All of these choices live in `style.rs`: `style::template`, `style::event_tone`, `style::card_tone`, `style::pane` (the window) and `style::fan_frame` (a VIP's amber frame in the fan).
 - **Text sits on dark cards (plaques).** The client prints text on a thin upright plane flat on its face. So the stage, the fan, the reading card, the draft, the tasks, the window sill, the focus cards, the banner and the quiet label each carry their own text, and in MR each card is its own plate. Every text goes through one function, `App::say` with a `style::Place`.
 - **Nothing is rotated at runtime.** What moves is round about the vertical (pills, discs, pucks), so it looks the same from anywhere; what is flat is built already facing you, its yaw in the node.
 - **Motion is per frame** (`k_tick`): the ring turns, cards fall, the fan and the reading card rise, the cocoon closes in.
@@ -79,7 +79,7 @@ Distances are from where you stand when the world loads, facing forward (+X), wi
 - `presentation.mode: immersive-ar`, `blend: alpha-blend`, sky `void`;
 - no floor, only a faint dark mat where the cards lie;
 - **a dark band behind the Day Ring**: 21 flat facets 0.55 m behind it, from -100° to +100°, shown while a ring label shows;
-- dark plates behind the text that floats (the mode column and status, the action and draft buttons, the inbox and pile counts, the VIP line, the stage's Close/Next).
+- dark plates behind the text that floats (the mode column and status, the action row's labels, the inbox and pile counts, the stage's Close/Next).
 
 The room floats at fixed spots relative to where you stand when the world loads. MR worlds register the room to the world once, in the travel fade (D-062). No room data is read (section 8).
 
@@ -97,17 +97,17 @@ Renders: [renders/](renders/), as `vr-<mode>-<view>.jpg` and `mr-<mode>-<view>.j
 - **Press a task** to focus on it. **Press a card** to read it (that opens Triage). **Press an event** for its prep.
 
 ### Focus
-- **The room closes in:** 16 dark facets slide in from 3 m to 1.95 m around you. The ring, the window, the tasks and the shelf are outside; the cards on the arc are put away.
+- **The room closes in:** 16 dark facets slide in from 3 m to 1.95 m around you. The ring and the window are outside; the tasks, the shelf's label and the cards on the arc (inside the cocoon) are put away.
 - **In front of you:** "Focus on: Answer counsel on terms", a 25-minute timer under it, Start and Pause to its right, and above it the only other thing you see: "Next: 10:30 Counsel call".
 - **Messages keep landing**, out of sight and **silent**.
-- **A VIP ticks once, from the well**, and a line reads "VIP: Dana Whitfield" for 90 seconds. Nothing moves toward you.
+- **A VIP ticks once, from the well**, and for 90 seconds the banner gains a second line, "VIP: Dana Whitfield": the banner is the room's one low notice band. Nothing moves toward you.
 - Any mode puck opens the room out again.
 
 ### Triage
 - **The cards rise:** five cards rise from the arc and fan out face-up at reading height (sender and subject), unread VIPs first in an amber frame. Their discs leave the arc while they are up.
 - **Press a card in the fan** to read it: the reading card rises in front of you (from, subject, a preview), with five pucks under it.
 - **Done** archives it to the Done pile; **Later** snoozes it to the Later pile; **Mute** sends it to the quiet shelf behind you; **Task** ("Make a task") creates a Linear ticket from it, and the status names the ticket.
-- **Reply** ("Claude drafts reply"): the bridge asks Claude for a draft, which appears on the right as "Draft to …" in pages of three lines (More 1/3).
+- **Reply** ("Claude drafts reply"): the bridge asks Claude for a draft, which takes the reading card's place, front and centre, as "Draft to …" in pages of three lines; **Approve**, **Deny** and **More 1/3** take the action row's place while it waits.
   - **Approve** hands it to the bridge, which sends it through Mission Control's approval path.
   - **Deny** discards it.
   - **Nothing is sent without that press.** The test asserts that no approval reaches the bridge before it.
@@ -144,7 +144,7 @@ Every number below was measured by running the built `world.wasm`:
 
 | Budget | Limit (source) | Sample day | Heavy day (`tools/stress.mjs`) |
 |---|---|---|---|
-| World texts at once | 32 (`KWasm::MAX_WORLD_TEXT`) | peak 29 | busiest screen (triage: the fan, a card being read, a long draft, both piles): 28 |
+| World texts at once | 32 (`KWasm::MAX_WORLD_TEXT`) | peak 26 | busiest screen (triage: the fan, a long draft up front, both piles): 23 |
 | Bytes per text / lines | 128 / 4, refused not cut | every text built by `text::Lines`; 0 refusals | 0 refusals |
 | Created objects | 128 (`MAX_CREATED_NODES`) | peak 30 | peak 39 (30 cards drawn + 8 events) |
 | Creates per frame | 16 (`MAX_NODE_CREATES_PER_FRAME`) | at most 12 (the script's own cap; the rest wait a frame) | at most 12 |
@@ -168,11 +168,11 @@ Every number below was measured by running the built `world.wasm`:
 |---|---|
 | Morning | about 23 |
 | Focus | about 13 |
-| Triage, with a card being read and a draft | 29 |
+| Triage, with a card being read | 26 (a draft replaces the card and the actions) |
 | Wrap-up | about 21 |
 
 **Test totals:**
-- `tools/scenario.mjs`: 286 checks across both worlds, all passing. Part 1 runs the built-in sample with **no request at all**: the ring turning with the clock, a past/now/later pill, prep, About, the cocoon closing in, the fan rising, the reading card rising, every triage action and the wrap-up. Part 2 signs in and runs the live day: a cut answer, a card falling onto the well, a VIP's single tick in focus, the VIPs leading the fan, Approve reaching the bridge, a sign-out and network off;
+- `tools/scenario.mjs`: 298 checks across both worlds, all passing. Part 1 runs the built-in sample with **no request at all**: the ring turning with the clock, a past/now/later pill (and 25 minutes on, the counsel call amber under the now bar), prep, About, the cocoon closing in, the fan rising, the reading card rising, every triage action and the wrap-up. Part 2 signs in and runs the live day: a cut answer, a card falling onto the well, a VIP's single tick in focus, the VIPs leading the fan, Approve reaching the bridge, a sign-out and network off;
 - `cargo test`: 21 host tests, including "the baked sample is a complete DAY/1 day", "every About page fits whole", the ring's angles, and the sine and cosine the room computes without a math library;
 - `kosmos-wp validate` and `bundle` at publisher main `fced9cf` (CLI 0.8.1, 83 rules) pass both worlds against level 4;
 - `kosmos-wp doctor`: VR 17 ✅, 0 ⚠️, 0 ❌; MR 17 ✅, 0 ⚠️, 0 ❌;
@@ -249,7 +249,7 @@ Each was found reading the client at the cooked commit, or in the lit review of 
    - Every text is built by one layout routine with a width in characters, so nothing is ever cut by the host.
    - Lines are at most 30 characters at 2.4 m, and 14 to 22 in crowded places.
    - Nothing solid sits within 0.5 m behind a text anchor.
-3. **Desk-level labels are hard to read, and the signed-out room was blank at eye height** (both found in the lit review). From 1.62 m, a label on the desk is seen 50–60° from above. Because text turns only about the vertical, it is foreshortened and its own button clips it.
+3. **Desk-level labels are hard to read, and the signed-out room was blank at eye height** (both found in v1's lit review; v2 keeps text off low surfaces: the cards are face-down discs with no text, and the counts float above them). From 1.62 m, a label on the desk is seen 50–60° from above. Because text turns only about the vertical, it is foreshortened and its own button clips it.
    - So the mode buttons moved off the desk, to a column at chest height on the left.
    - The action row rose 15 cm.
    - The low labels lifted.
@@ -259,8 +259,8 @@ Each was found reading the client at the cooked commit, or in the lit review of 
 6. **In MR, white text on a light real wall is unreadable** (found in the lit review). So MR has dark translucent **plates** behind each text group.
    - Each plate sits 0.5 m beyond its text on the line from the spawn, faces the spawn, and shows only while its text shows.
    - Each plate is centred on the middle of its text. The first version centred plates on the text anchor, which is the text's bottom edge, and the top line spilled onto the wall.
-   - The desk mat is dark for the same reason: it is what you see behind a desk label when you look down.
-   - Passthrough is drawn under every virtual pixel, so a real monitor never hides the room's text. It does make the middle of the desk busy, which only a headset check can judge.
+   - v2 puts most text on dark cards, which are their own plates; the Day Ring has a dark band of flat facets behind it.
+   - Passthrough is drawn under every virtual pixel, so a real monitor never hides the room's text. It does make what lies behind the landing arc busy, which only a headset check can judge.
 7. **The sign-in sheet is plain, unmasked text** (`k_ui_prompt`: "never a password field").
    - The passphrase shows while you type it.
    - The sheet's footer says the text goes to this world, and the room sends it once, to the face's `signin` op only (a test asserts this), then wipes its buffers.
@@ -271,7 +271,7 @@ Each was found reading the client at the cooked commit, or in the lit review of 
    - Every clone's `OnInteract` subscription is released when it is destroyed. Subscriptions are a capped pool (256).
 9. **`k_transform_set_rotation` replaces a node's relative rotation with a raw engine rotator** (`KDomTransform.cpp`, client `944abfa`): it overrides whatever rotation the glTF importer gave the node. So v2 never rotates anything at runtime (a test asserts the wasm does not import it). What moves is round about the vertical: pills, discs and pucks look the same from anywhere. What is flat (the fan, the facets, the plates) is built already facing the spawn, with its yaw in the node, and moves only by position. A card "turns over" by swapping its face: the face-down disc is destroyed and a read-face disc is cloned in its place.
 10. **Text plaques** (`KWorldTextPool.cpp`, KOS-981, in both installed cooks `00d9a69` and `ecad7c5`): text on a thin upright plane (its thinnest extent at most a fifth of the next, its rotation in the node, not baked) is printed flat on the plane's face, a hair in front, and never turned. Any other anchor gets upright text faced toward your eye **once, when it is shown**, then carried with its node. v2 puts most text on dark cards for this reason, and shows a Day Ring label again once its pill has moved 6° round, so it faces you again. The renders (`tools/render_modes.py`) follow the same rule.
-11. **A text's bottom sits at its anchor's rendered centre plus `offset_y`, and a negative offset is clamped to 0** (`KDomUI.cpp`: metres, clamped to 0..5 m). So text can only rise from a card's middle, never centre on it. Each v2 card therefore hangs a hair-thin dark keel below it, which lowers its rendered centre by half the height of the most lines it holds; `style::offset(Place::Plaque(max), n)` then lifts n lines by the difference, so any text is centred and no offset is negative. The mock host and the renders use the same rendered centre.
+11. **A text's bottom sits at its anchor's rendered centre plus `offset_y`, and a negative offset is clamped to 0** (`KDomUI.cpp`: metres, clamped to 0..5 m). So text can only rise from a card's middle, never centre on it. Each v2 card therefore hangs a hair-thin dark keel below it, which lowers its rendered centre by half the height of the most lines it holds; `style::offset(Place::Plaque(max), n)` then lifts n lines by the difference, so any text is centred and no offset is negative. The mock host and the renders use the same rendered centre. And when only a held text's words change, the client keeps its first placement and offset: so the room hides and shows a text again whenever its offset must change (a card going from one line to two), and the mock host keeps the first offset too, so a test catches it.
 
 ## 7. Message sources
 
@@ -303,7 +303,7 @@ Each was found reading the client at the cooked commit, or in the lit review of 
 ## 9. What is verified, and what is not
 
 **Verified here:**
-- the 286-check scenario on both worlds (the built-in sample with no request, then the live day);
+- the 298-check scenario on both worlds (the built-in sample with no request, then the live day);
 - the face on the real bridge server (the bridge's whole suite, More Room's 11 tests among them);
 - the heavy day;
 - the packaged scenes;

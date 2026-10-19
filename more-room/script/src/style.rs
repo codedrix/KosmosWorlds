@@ -49,8 +49,9 @@ pub fn offset(place: Place, lines: usize) -> f32 {
         Place::Ring(0) => 0.1,
         Place::Ring(_) => 0.31,
         Place::Float => 0.0,
-        // Clear of the cards stacked on it (the well holds 3).
-        Place::Pile => 0.08,
+        // Clear of the cards stacked on it (the well holds 3), and low enough that
+        // a seated eye still reads the stage over it.
+        Place::Pile => 0.065,
     }
 }
 
@@ -94,6 +95,22 @@ pub fn card_tone(m: &Msg) -> Tone {
             _ => Tone::CardLinear,
         }
     }
+}
+
+/// The window's pane (0 day, 1 dusk, 2 night) against the sunset.
+pub fn pane(now_min: i32, sunset_min: i32) -> usize {
+    if now_min < sunset_min - 45 {
+        0
+    } else if now_min < sunset_min + 30 {
+        1
+    } else {
+        2
+    }
+}
+
+/// Whether a card up in triage's fan wears the amber VIP frame.
+pub fn fan_frame(m: &Msg) -> bool {
+    m.vip && !m.read
 }
 
 /// The template (variant) that wears a tone, by node name in world.glb.

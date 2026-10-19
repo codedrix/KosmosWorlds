@@ -96,7 +96,7 @@ export const LAYOUT = {
   readY: 1.1,
   riseFromY: 0.62,
   // The banner: under the now bar, or (in triage) just above the fan.
-  bannerY: 1.53,
+  bannerY: 1.555,
   bannerTriageY: 1.71,
   // Focus: the cocoon's facets slide in from cocoonFromR to cocoonR.
   cocoonR: 1.95,
@@ -136,14 +136,17 @@ export function boxGeom(size, c = [0, 0, 0]) {
   return g;
 }
 
-/** A vertical cylinder of radius r from y0 to y1 (flat-shaded sides, capped). */
+/** A vertical cylinder of radius r from y0 to y1 (smooth-shaded sides, so it reads round; capped). */
 export function cylGeom(r, y0, y1, sides = 20) {
   const g = geom();
   for (let s = 0; s < sides; s++) {
     const a0 = (s / sides) * 2 * Math.PI, a1 = ((s + 1) / sides) * 2 * Math.PI;
-    const am = (a0 + a1) / 2;
     const p0 = [r * Math.cos(a0), r * Math.sin(a0)], p1 = [r * Math.cos(a1), r * Math.sin(a1)];
-    quad(g, [p1[0], y0, p1[1]], [p0[0], y0, p0[1]], [p0[0], y1, p0[1]], [p1[0], y1, p1[1]], [Math.cos(am), 0, Math.sin(am)]);
+    const n0 = [Math.cos(a0), 0, Math.sin(a0)], n1 = [Math.cos(a1), 0, Math.sin(a1)];
+    const base = g.pos.length / 3;
+    for (const p of [[p1[0], y0, p1[1]], [p0[0], y0, p0[1]], [p0[0], y1, p0[1]], [p1[0], y1, p1[1]]]) g.pos.push(...p);
+    for (const n of [n1, n0, n0, n1]) g.nrm.push(...n);
+    g.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
     // Caps as thin triangles (a degenerate quad keeps one writer).
     quad(g, [0, y1, 0], [p1[0], y1, p1[1]], [p0[0], y1, p0[1]], [0, y1, 0], [0, 1, 0]);
     quad(g, [0, y0, 0], [p0[0], y0, p0[1]], [p1[0], y0, p1[1]], [0, y0, 0], [0, -1, 0]);
@@ -305,8 +308,8 @@ function palette(g) {
     track: glow("RingTrack", [0.3, 0.42, 0.62], 0.5),
     tick: glow("HourTick", [0.38, 0.5, 0.7], 0.45),
     tickMajor: glow("HourTickMajor", [0.55, 0.7, 0.9], 0.6),
-    now: g.material("NowBar", [1.0, 0.7, 0.25], { emissive: [1.0, 0.6, 0.18] }),
-    nowHalo: g.material("NowHalo", [1.0, 0.62, 0.2], { alpha: 0.18, emissive: [0.5, 0.3, 0.08] }),
+    now: g.material("NowBar", [1.0, 0.82, 0.45], { emissive: [1.0, 0.75, 0.32] }),
+    nowHalo: g.material("NowHalo", [1.0, 0.7, 0.3], { alpha: 0.28, emissive: [0.9, 0.55, 0.15] }),
     evFuture: glow("EventFuture", [0.35, 0.72, 1.0], 0.7),
     evNow: g.material("EventNow", [1.0, 0.72, 0.28], { emissive: [0.95, 0.6, 0.18] }),
     evPast: g.material("EventPast", [0.2, 0.23, 0.3], { emissive: [0.03, 0.04, 0.06] }),
@@ -316,14 +319,16 @@ function palette(g) {
     slack: glow("SrcSlack", [0.65, 0.42, 0.95]),
     github: glow("SrcGithub", [0.62, 0.68, 0.78], 0.35),
     linear: glow("SrcLinear", [0.42, 0.52, 1.0]),
-    vip: g.material("SrcVip", [1.0, 0.72, 0.25], { emissive: [0.95, 0.58, 0.12] }),
+    vip: g.material("SrcVip", [1.0, 0.82, 0.32], { emissive: [1.0, 0.72, 0.2] }),
     plaque: g.material("Plaque", [0.035, 0.045, 0.075], { rough: 0.5 }),
     plaqueEdge: glow("PlaqueEdge", [0.3, 0.5, 0.8], 0.45),
     focusEdge: g.material("FocusEdge", [1.0, 0.7, 0.25], { emissive: [0.85, 0.52, 0.14] }),
     plate: g.material("TextPlate", [0.02, 0.03, 0.06], { alpha: 0.84 }),
     band: g.material("RingBand", [0.015, 0.02, 0.04], { alpha: 0.8 }),
     cocoon: g.material("Cocoon", [0.004, 0.006, 0.012], { alpha: 0.88 }),
-    stud: g.material("Stud", [0.05, 0.05, 0.06]),
+    // Fully transparent: text anchors and plaque keels must exist (for k_node_find
+    // and the rendered centre) but never show (review v2, lens B, LOW-3 and LOW-4).
+    stud: g.material("Unseen", [0, 0, 0], { alpha: 0 }),
     puck: glow("ModePuck", [0.32, 0.55, 0.95], 0.55),
     signin: g.material("SignInPuck", [1.0, 0.7, 0.28], { emissive: [0.6, 0.38, 0.08] }),
     about: glow("AboutPuck", [0.7, 0.75, 0.85], 0.35),
@@ -374,7 +379,7 @@ function plaque(g, P, name, r, deg, y, w, h, maxLines, extras, edgeMat = P.plaqu
   const edge = boxGeom([PLAQUE_D * 1.2, 0.006, w], [0, -h / 2 + 0.003, 0]);
   const keel = boxGeom([0.002, 2 * k, 0.002], [0, -h / 2 - k, 0]);
   if (textH(maxLines) > h) throw new Error(`${name}: ${maxLines} lines do not fit ${h} m`);
-  g.node(name, at(r, deg, y), [[body, P.plaque], [edge, edgeMat], [keel, P.plaque]], extras, facing(deg));
+  g.node(name, at(r, deg, y), [[body, P.plaque], [edge, edgeMat], [keel, P.stud]], extras, facing(deg));
 }
 
 /** A text anchor for floating (upright) text: a 1 cm stud the script can find. */
@@ -382,11 +387,11 @@ function stud(g, P, name, t) {
   g.box(name, t, [0.01, 0.01, 0.01], P.stud, anchor("text"));
 }
 
-/** A face-down card: a dark disc with a coloured rim (the rim is its state colour). */
-function cardParts(rimMat, topMat) {
+/** A face-down card: a dark disc with a coloured rim (the rim is its state colour; a VIP's is wider). */
+function cardParts(rimMat, topMat, rimW = 0.01) {
   return [
     [cylGeom(CARD_R, -CARD_H / 2, CARD_H / 2, 24), topMat],
-    [ringGeom(CARD_R - 0.008, CARD_R + 0.002, -CARD_H / 2 - 0.001, CARD_H / 2 + 0.001, 24), rimMat],
+    [ringGeom(CARD_R + 0.002 - rimW, CARD_R + 0.002, -CARD_H / 2 - 0.001, CARD_H / 2 + 0.001, 24), rimMat],
   ];
 }
 
@@ -404,10 +409,11 @@ function scripted(g, P, variant) {
     const len = major ? 0.09 : 0.05;
     g.node(`HourTick${String.fromCharCode(65 + h - 7)}`, at(L.ringR, 0, L.ringY), [[cylGeom(0.004, -len / 2, len / 2, 8), major ? P.tickMajor : P.tick]], anchor("tick"));
   }
-  g.node("NowBar", at(L.ringR - 0.03, 0, L.ringY), [[cylGeom(0.007, -0.21, 0.21, 12), P.now], [cylGeom(0.03, -0.24, 0.24, 20), P.nowHalo]], anchor("now"));
+  // It stops just above the pills, under the labels' lower row (they start 0.1 m up).
+  g.node("NowBar", at(L.ringR - 0.03, 0, L.ringY), [[cylGeom(0.009, -0.2, 0.09, 12), P.now], [cylGeom(0.035, -0.22, 0.095, 20), P.nowHalo]], anchor("now"));
   // --- The banner, under the now bar, on every mode: inside the focus cocoon, so
   //     it stays readable when the room closes in.
-  plaque(g, P, "TxtBanner", 1.8, 0, L.bannerY, 1.35, 0.11, 1, anchor("text"), P.focusEdge);
+  plaque(g, P, "TxtBanner", 1.8, 0, L.bannerY, 1.45, 0.19, 2, anchor("text"), P.focusEdge);
 
   // --- The mode column on the left: Owner sign in, About, then the four modes.
   //     Pucks are round, so they read the same from anywhere; labels sit above each.
@@ -451,21 +457,24 @@ function scripted(g, P, variant) {
   [["BtnDone", -24, P.done], ["BtnLater", -12, P.later], ["BtnReply", 0, P.action], ["BtnTask", 12, P.action], ["BtnMute", 24, P.mute]].forEach(([n, deg, m]) =>
     puck(g, n, at(1.15, deg, 0.8), m),
   );
-  plaque(g, P, "TxtDraft", 1.3, 50, 1.06, 1.2, 0.4, 4, anchor("text"));
-  [["BtnApprove", 41, P.approve], ["BtnDeny", 50, P.deny], ["BtnMore", 59, P.action]].forEach(([n, deg, m]) => puck(g, n, at(1.2, deg, 0.78), m));
+  // A draft takes the reading card's place, front and centre, and Approve, Deny and
+  // More take the action row's (review v2: the side draft ran off the comfortable band
+  // and its buttons' labels ran together). Never shown at the same time as the card
+  // and the five actions, so the shared spots never both take a press.
+  plaque(g, P, "TxtDraft", L.readR, 0, L.readY, 1.12, 0.4, 4, anchor("text"));
+  [["BtnApprove", -20, P.approve], ["BtnDeny", 0, P.deny], ["BtnMore", 20, P.action]].forEach(([n, deg, m]) => puck(g, n, at(1.15, deg, 0.8 + 0.0001), m));
 
   // --- Pinned tasks on the right, with a header line of counts.
   // Below the Day Ring's labels (they start 0.1 m above the ring at 1.78 m).
   plaque(g, P, "TxtTasks", 1.6, 52, 1.6, 1.0, 0.12, 1, anchor("text"));
   [["TaskA", 1.4], ["TaskB", 1.18], ["TaskC", 0.96]].forEach(([n, y]) => plaque(g, P, n, 1.6, 52, y, 0.8, 0.19, 2, PRESS));
-  // The VIP line, above the tasks column.
-  stud(g, P, "TxtVip", at(1.6, 34, 1.98));
 
   // --- Focus: the task and its timer, close and centred; the next event above;
   //     start or pause; and the cocoon, 16 flat facets that close in from 3 m.
-  plaque(g, P, "TxtFocus", 1.45, 0, 1.32, 1.1, 0.3, 3, anchor("text"), P.focusEdge);
-  plaque(g, P, "TxtTimer", 1.45, 0, 1.06, 0.8, 0.13, 1, anchor("text"));
-  puck(g, "BtnFocusGo", at(1.3, 26, 1.06), P.focus);
+  // Low enough that a seated eye still sees the banner over it (review v2, lens B, MED-3).
+  plaque(g, P, "TxtFocus", 1.45, 0, 1.2, 1.1, 0.3, 3, anchor("text"), P.focusEdge);
+  plaque(g, P, "TxtTimer", 1.45, 0, 0.94, 0.8, 0.13, 1, anchor("text"));
+  puck(g, "BtnFocusGo", at(1.3, 26, 0.94), P.focus);
   stud(g, P, "TxtNext", at(1.4, 0, 1.72));
   for (let k = 0; k < L.cocoonFacets; k++) {
     const deg = (k * 360) / L.cocoonFacets;
@@ -494,13 +503,13 @@ function scripted(g, P, variant) {
   tpl("TplMsgSlack", 1, cardParts(P.slack, P.card));
   tpl("TplMsgGithub", 2, cardParts(P.github, P.card));
   tpl("TplMsgLinear", 3, cardParts(P.linear, P.card));
-  tpl("TplMsgVip", 4, cardParts(P.vip, P.card));
+  tpl("TplMsgVip", 4, cardParts(P.vip, P.card, 0.02));
   tpl("TplMsgRead", 5, cardParts(P.edge, P.cardRead));
-  const pill = (mat) => [[cylGeom(0.05, -0.085, 0.085, 20), mat]];
+  // 11 cm wide: 2.6 degrees at 2.4 m, over the research's 2.5 degree minimum target.
+  const pill = (mat) => [[cylGeom(0.055, -0.085, 0.085, 24), mat]];
   tpl("TplEvent", 6, pill(P.evFuture));
   tpl("TplEventNow", 7, pill(P.evNow));
   tpl("TplEventPast", 8, pill(P.evPast));
-  tpl("TplQuiet", 9, [[cylGeom(CARD_R, -CARD_H / 2, CARD_H / 2, 24), P.quiet]], anchor("template"));
   g.empty("spawn_point", [0, 0, 0], { spawn_point: true });
   g.box(variant === "mr" ? "VariantMr" : "VariantVr", [T[0], T[1] - 1, T[2]], [0.01, 0.01, 0.01], P.stud, anchor("variant"));
 }
@@ -526,7 +535,7 @@ function mrRoom(g, P) {
     const deg = -100 + k * 10;
     const r = LAYOUT.ringR + 0.55;
     const w = 2 * r * Math.tan(5 * RAD) + 0.006;
-    g.box(`RingBand${String.fromCharCode(65 + k)}`, at(r, deg, 2.02), [0.01, 0.78, w], P.band, anchor("band"), facing(deg));
+    g.box(`RingBand${String.fromCharCode(65 + k)}`, at(r, deg, 2.08), [0.01, 0.95, w], P.band, anchor("band"), facing(deg));
   }
 }
 
@@ -541,9 +550,7 @@ function mrRoom(g, P) {
 export const PLATES = [
   // name, text centre (glTF), text width x height (m)
   ["PlateModes", [...at(1.45, -60, 1.42)], [0.9, 1.25]],
-  ["PlateActions", [...at(1.15, 0, 0.87)], [1.05, 0.12]],
-  ["PlateDraftBtns", [...at(1.2, 50, 0.85)], [0.7, 0.12]],
-  ["PlateVip", [...at(1.6, 34, 2.03)], [1.0, 0.18]],
+  ["PlateActions", [...at(1.15, 0, 0.87)], [1.3, 0.12]],
   ["PlateInbox", [LAYOUT.well[0], 0.92, LAYOUT.well[2]], [0.5, 0.28]],
   ["PlateLater", [...at(1.0, LAYOUT.pileLaterDeg, 0.88)], [0.42, 0.12]],
   ["PlateDone", [...at(1.0, LAYOUT.pileDoneDeg, 0.88)], [0.42, 0.12]],

@@ -252,7 +252,7 @@ struct FanCard {
 const EMPTY_FAN: FanCard = FanCard { id: S::new(), pos: [0.0; 3], from: [0.0; 3], t: 1.0 };
 
 /// MR plates, in the order of `Nodes::plates` (mirrors PLATES in tools/build_glb.mjs).
-const PLATES: [&str; 8] = ["PlateModes", "PlateActions", "PlateDraftBtns", "PlateVip", "PlateInbox", "PlateLater", "PlateDone", "PlateStageBtn"];
+const PLATES: [&str; 6] = ["PlateModes", "PlateActions", "PlateInbox", "PlateLater", "PlateDone", "PlateStageBtn"];
 const BAND_FACETS: usize = 21;
 const HOUR_TICKS: usize = 13;
 
@@ -280,7 +280,6 @@ struct Nodes {
     txt_focus: i32,
     txt_timer: i32,
     txt_status: i32,
-    txt_vip: i32,
     txt_next: i32,
     txt_window: i32,
     txt_quiet: i32,
@@ -298,7 +297,6 @@ struct Nodes {
     band: [i32; BAND_FACETS],
     /// One template per `style::Tone`, in `style::TONES` order.
     tpl: [i32; style::TONES.len()],
-    tpl_quiet: i32,
     mr: bool,
 }
 
@@ -359,7 +357,13 @@ pub struct App {
     focus_left_s: f32,
     focus_running: bool,
     vip_s: f32,
+    /// Who the VIP line names, while it shows (it rides on the banner).
+    vip_from: S<24>,
+    /// Which card is up in front (the reading card or a draft), as its node.
+    read_node: i32,
     texts: [i32; MAX_TEXTS],
+    /// The offset each held text was SHOWN with: the client keeps it when only the words change.
+    text_off: [f32; MAX_TEXTS],
     n_texts: usize,
     text_refused: i32,
     last_net: i32,
@@ -388,7 +392,6 @@ const NO_NODES: Nodes = Nodes {
     txt_focus: 0,
     txt_timer: 0,
     txt_status: 0,
-    txt_vip: 0,
     txt_next: 0,
     txt_window: 0,
     txt_quiet: 0,
@@ -404,7 +407,6 @@ const NO_NODES: Nodes = Nodes {
     plates: [0; PLATES.len()],
     band: [0; BAND_FACETS],
     tpl: [0; style::TONES.len()],
-    tpl_quiet: 0,
     mr: false,
 };
 
@@ -453,7 +455,10 @@ static mut APP: App = App {
     focus_left_s: FOCUS_S,
     focus_running: false,
     vip_s: 0.0,
+    vip_from: S::new(),
+    read_node: 0,
     texts: [0; MAX_TEXTS],
+    text_off: [0.0; MAX_TEXTS],
     n_texts: 0,
     text_refused: 0,
     last_net: -1,
@@ -551,6 +556,14 @@ impl App {
             self.untext(node);
             return;
         }
+        // The client keeps a held text's first placement (and offset) when only its words
+        // change (KWorldTextPool.cpp): a new offset needs the text hidden and shown again
+        // (review v2, lens A, MED-2).
+        if let Some(i) = self.texts[..self.n_texts].iter().position(|&x| x == node) {
+            if (self.text_off[i] - offset_y).abs() > 1e-4 {
+                self.untext(node);
+            }
+        }
         let held = self.texts[..self.n_texts].contains(&node);
         if !held && self.n_texts >= MAX_TEXTS {
             // Never ask the host for a 33rd text; the budget in DESIGN.md keeps this at 0.
@@ -560,6 +573,7 @@ impl App {
         let rc = unsafe { host::k_ui_show_world_text(node, s.as_ptr() as i32, s.len() as i32, offset_y) };
         if rc == 0 && !held {
             self.texts[self.n_texts] = node;
+            self.text_off[self.n_texts] = offset_y;
             self.n_texts += 1;
         } else if rc != 0 {
             self.text_refused += 1;
@@ -574,6 +588,7 @@ impl App {
             unsafe { host::k_ui_hide_world_text(node) };
             self.n_texts -= 1;
             self.texts[i] = self.texts[self.n_texts];
+            self.text_off[i] = self.text_off[self.n_texts];
             self.texts[self.n_texts] = 0;
         }
     }
@@ -712,7 +727,6 @@ pub extern "C" fn k_init() {
     n.txt_focus = find("TxtFocus");
     n.txt_timer = find("TxtTimer");
     n.txt_status = find("TxtStatus");
-    n.txt_vip = find("TxtVip");
     n.txt_next = find("TxtNext");
     n.txt_window = find("TxtWindow");
     n.txt_quiet = find("TxtQuiet");
@@ -732,7 +746,6 @@ pub extern "C" fn k_init() {
     for (k, &t) in style::TONES.iter().enumerate() {
         n.tpl[k] = find(style::template(t));
     }
-    n.tpl_quiet = find("TplQuiet");
     n.mr = find("VariantMr") > 0;
 
     let presses = [
@@ -750,7 +763,6 @@ pub extern "C" fn k_init() {
     for t in n.tpl {
         visible(t, false);
     }
-    visible(n.tpl_quiet, false);
     for k in 0..FAN {
         visible(n.fan[k], false);
         visible(n.fan_vip[k], false);
@@ -776,6 +788,8 @@ fn load_sample(first: bool) {
     if model::read_day(SAMPLE, &mut a.day) {
         a.have_day = true;
         a.open = None;
+        a.showing_prep = false;
+        a.focus_task = None;
         reconcile(first);
     }
 }
@@ -853,7 +867,7 @@ pub extern "C" fn k_tick(delta: f32) {
     if a.read_t < 1.0 {
         a.read_t = (a.read_t + dt / RISE_S).min(1.0);
         let e = 1.0 - (1.0 - a.read_t) * (1.0 - a.read_t);
-        place(a.n.txt_open, L::at(L::READ_R, 0.0, L::RISE_FROM_Y + (L::READ_Y - L::RISE_FROM_Y) * e));
+        place(a.read_node, L::at(L::READ_R, 0.0, L::RISE_FROM_Y + (L::READ_Y - L::RISE_FROM_Y) * e));
     }
 
     // Focus: the cocoon's facets close in, or open out and hide.
@@ -877,8 +891,7 @@ pub extern "C" fn k_tick(delta: f32) {
     if a.vip_s > 0.0 {
         a.vip_s -= dt;
         if a.vip_s <= 0.0 {
-            let n = a.n.txt_vip;
-            a.untext(n);
+            banner();
             show_plates();
         }
     }
@@ -913,7 +926,12 @@ pub extern "C" fn k_shutdown() {
 /// Turn the Day Ring to the clock: pills, hour ticks and their labels.
 fn turn_ring(dt: f32) {
     let a = app();
-    let target = a.clock_now();
+    let mut target = a.clock_now();
+    // A poll's whole-minute clock lands a hair behind the smooth one: never step back by
+    // a little (a 0.25 Hz jitter otherwise), only by a real change (review v2, lens A, LOW-5).
+    if target < a.ring_now && a.ring_now - target < 2.0 {
+        target = a.ring_now;
+    }
     if a.ring_now < 0.0 || (target - a.ring_now).abs() > 120.0 {
         a.ring_now = target; // the first day, or a jump: no long spin
     } else {
@@ -1511,8 +1529,15 @@ pub extern "C" fn on_net_result(_event_type: i32, _node: i32, request_id: i32, s
                 a.day.sunset_min = scratch.sunset_min;
                 a.day.rev = scratch.rev;
                 a.day.same = true;
+                // Nothing changed but the clock: pills may still turn amber or dim.
+                event_nodes();
             } else if read {
+                // LOW-3: what is open or in focus follows its id, not its index, into the new day.
+                let open_id = a.open.filter(|&m| m < a.day.n_msgs).map(|m| a.day.msgs[m].id);
+                let focus_id = a.focus_task.filter(|&t| t < a.day.n_tasks).map(|t| a.day.tasks[t].id);
                 core::mem::swap(&mut a.day, scratch);
+                a.open = open_id.and_then(|id| a.day.msg_index(id.bytes()));
+                a.focus_task = focus_id.and_then(|id| (0..a.day.n_tasks).find(|&t| a.day.tasks[t].id.eq(id.bytes())));
             }
             if read {
                 a.since_update_s = 0.0;
@@ -1544,6 +1569,9 @@ pub extern "C" fn on_net_result(_event_type: i32, _node: i32, request_id: i32, s
         Req::Prep => {
             if status == 200 && model::read_prep(body, &mut a.prep) && a.mode != Mode::Focus {
                 a.showing_prep = true;
+                if a.mode == Mode::Triage {
+                    a.mode = Mode::Morning; // prep shows on the stage, which triage's fan covers
+                }
                 render();
             } else {
                 a.status("No prep for that one.", true);
@@ -1757,12 +1785,11 @@ fn reconcile(first: bool) {
 
     if let Some(m) = vip_landed {
         tick_sound();
-        let mut l = Lines::new(24, 2);
-        l.text("VIP:");
-        l.words(a.day.msgs[m].from.bytes());
-        let node = a.n.txt_vip;
-        a.say(node, l.as_bytes(), Place::Float);
+        // The VIP line rides on the banner, the room's one notice band.
+        a.vip_from = a.day.msgs[m].from;
         a.vip_s = VIP_LINE_S;
+        banner();
+        show_plates();
     }
 }
 
@@ -1805,6 +1832,9 @@ fn event_nodes() {
         place(node, L::ring_at(deg));
     }
     a.ring_force = true;
+    // A swapped pill took its label with it: label again (review v2, lens A, MED-1).
+    ring_labels(false);
+    show_plates();
 }
 
 // ---------------------------------------------------------------------------
@@ -1830,7 +1860,8 @@ fn ring_labels(reface: bool) {
     let first = first.min(n_ev.saturating_sub(budget));
     for e in 0..a.n_event_nodes {
         let node = a.events[e];
-        let deg = if e < a.day.n_events { L::ring_deg(a.day.events[e].start as f32, a.ring_now.max(0.0)) } else { 0.0 };
+        let now = if a.ring_now < 0.0 { a.clock_now() } else { a.ring_now };
+        let deg = if e < a.day.n_events { L::ring_deg(a.day.events[e].start as f32, now) } else { 0.0 };
         let wanted = e < n_ev && e >= first && e < first + budget && deg.abs() <= L::RING_SHOW_DEG;
         if !wanted {
             a.untext(node);
@@ -1838,10 +1869,10 @@ fn ring_labels(reface: bool) {
             continue;
         }
         let drifted = !a.label_deg[e].is_nan() && (deg - a.label_deg[e]).abs() > LABEL_REFACE_DEG;
-        if a.held(node) && !(reface && drifted) {
-            continue; // already showing, and still facing you
+        let keep_place = a.held(node) && !(reface && drifted);
+        if !keep_place {
+            a.untext(node); // shown again, so the client faces it toward you anew
         }
-        a.untext(node); // shown again, so the client faces it toward you anew
         let ev = a.day.events[e];
         let mut b: Buf<128> = Buf::new();
         text::clock(&mut b, ev.start);
@@ -1849,8 +1880,11 @@ fn ring_labels(reface: bool) {
         l.text(b.as_str());
         l.newline();
         l.words(ev.title.bytes());
+        // Held: only the words change (a renamed event), in place. Not held: placed and faced now.
         a.say(node, l.as_bytes(), Place::Ring((e % 2) as u8));
-        a.label_deg[e] = deg;
+        if !keep_place {
+            a.label_deg[e] = deg;
+        }
     }
 }
 
@@ -1968,10 +2002,11 @@ fn fan_sync(on: bool) {
             let from = card_pos(m);
             a.fan[k] = FanCard { id: msg.id, pos: from, from, t: 0.0 };
             place(node, from);
+            place(vip_node, from);
             visible(node, true);
             a.untext(node);
         }
-        visible(vip_node, msg.vip && !msg.read);
+        visible(vip_node, style::fan_frame(&msg));
         let mut l = Lines::new(15, 2);
         l.words(msg.from.bytes());
         l.newline();
@@ -1983,6 +2018,34 @@ fn fan_sync(on: bool) {
 /// Is message `m`'s card up in the fan (so its disc on the arc is hidden)?
 fn fanned(id: &[u8]) -> bool {
     app().fan.iter().any(|f| !f.id.is_empty() && f.id.eq(id))
+}
+
+/// The banner, the room's one low notice band: the sample's line, and for
+/// 90 seconds after a VIP lands, who it is from.
+fn banner() {
+    let a = app();
+    let node = a.n.txt_banner;
+    let mut l = Lines::new(40, 2);
+    let mut any = false;
+    if !a.day.note.is_empty() {
+        let note = a.day.note;
+        l.words(note.bytes());
+        any = true;
+    }
+    if a.vip_s > 0.0 && !a.vip_from.is_empty() {
+        if any {
+            l.newline();
+        }
+        l.text("VIP:");
+        let from = a.vip_from;
+        l.words(from.bytes());
+        any = true;
+    }
+    if any {
+        a.say(node, l.as_bytes(), Place::Plaque(2));
+    } else {
+        a.untext(node);
+    }
 }
 
 pub fn render() {
@@ -2000,14 +2063,19 @@ pub fn render() {
         a.open = None;
     }
     fan_sync(triage);
-    if open != a.read_shown {
+    // The card up in front: a waiting draft takes the reading card's place.
+    let draft = if triage { a.day.pending_draft() } else { None };
+    let front = if draft.is_some() { n.txt_draft } else if open.is_some() { n.txt_open } else { 0 };
+    if front != a.read_node || open != a.read_shown {
         a.read_shown = open;
-        if open.is_some() {
+        a.read_node = front;
+        if front > 0 {
             a.read_t = 0.0;
-            place(n.txt_open, L::at(L::READ_R, 0.0, L::RISE_FROM_Y));
+            place(front, L::at(L::READ_R, 0.0, L::RISE_FROM_Y));
         }
     }
-    visible(n.txt_open, open.is_some());
+    visible(n.txt_open, front == n.txt_open && front > 0);
+    visible(n.txt_draft, front == n.txt_draft && front > 0);
 
     // The banner sits under the now bar; in triage it moves up, clear of the fan.
     place(n.txt_banner, L::at(L::BANNER_R, 0.0, if triage { L::BANNER_TRIAGE_Y } else { L::BANNER_Y }));
@@ -2020,11 +2088,9 @@ pub fn render() {
         visible(b, true);
     }
     for b in [n.done, n.later, n.reply, n.task, n.mute] {
-        visible(b, open.is_some());
+        visible(b, open.is_some() && draft.is_none());
     }
     visible(n.focus_go, focus);
-    let draft = if triage { a.day.pending_draft() } else { None };
-    visible(n.txt_draft, draft.is_some());
     for b in [n.approve, n.deny, n.more] {
         visible(b, draft.is_some());
     }
@@ -2039,19 +2105,16 @@ pub fn render() {
         visible(t, tasks_on && shown_task(k).is_some());
     }
     // The arc's cards: hidden in focus (the room has closed in) and while up in the fan.
+    // In triage the well's waiting cards are put away too: the fan shows what matters,
+    // and the stack sat right behind the Reply puck (review v2).
     for c in a.cards.iter() {
         if c.alive {
-            visible(c.node, !focus && !fanned(c.id.bytes()));
+            let in_well = c.slot == NO_SLOT && c.to[0] == L::WELL[0] && c.to[2] == L::WELL[2];
+            visible(c.node, !focus && !fanned(c.id.bytes()) && !(triage && in_well));
         }
     }
     // The window pane follows the clock against sunset.
-    let pane = if a.day.now_min < a.day.sunset_min - 45 {
-        0
-    } else if a.day.now_min < a.day.sunset_min + 30 {
-        1
-    } else {
-        2
-    };
+    let pane = style::pane(a.day.now_min, a.day.sunset_min);
     for (k, &p) in n.panes.iter().enumerate() {
         visible(p, k == pane);
     }
@@ -2065,15 +2128,7 @@ pub fn render() {
     }
     let ab = n.about;
     a.say_str(ab, if about_open { "Close about" } else { "About" }, Place::Puck);
-    {
-        let node = n.txt_banner;
-        if a.day.note.is_empty() {
-            a.untext(node);
-        } else {
-            let note = a.day.note;
-            a.say(node, note.bytes(), Place::Plaque(1));
-        }
-    }
+    banner();
     let names = ["Morning", "Focus", "Triage", "Wrap-up"];
     let modes = [Mode::Morning, Mode::Focus, Mode::Triage, Mode::Wrap];
     for k in 0..4 {
@@ -2129,7 +2184,7 @@ pub fn render() {
             b.push("Inbox ");
             b.int(inbox);
             if vip > 0 {
-                b.push("\n");
+                b.push(", ");
                 b.int(vip);
                 b.push(" VIP");
             }
@@ -2372,7 +2427,7 @@ pub fn render() {
         }
         let labels = [(a.n.done, "Done"), (a.n.later, "Later"), (a.n.reply, "Reply"), (a.n.task, "Task"), (a.n.mute, "Mute")];
         for (node, label) in labels {
-            if open.is_some() {
+            if open.is_some() && draft.is_none() {
                 a.say_str(node, label, Place::Puck);
             } else {
                 a.untext(node);
@@ -2385,7 +2440,7 @@ pub fn render() {
                 // Pages of 3 lines x 26 characters under a "Draft to ..." line.
                 let pages = draft_pages(dr.text.bytes());
                 let page = a.draft_page % pages.max(1);
-                let mut l = Lines::new(26, 4);
+                let mut l = Lines::new(DRAFT_W, 4);
                 l.text("Draft to");
                 l.words(dr.to.bytes());
                 l.newline();
@@ -2431,9 +2486,7 @@ fn show_plates() {
     let held = |node: i32| a.held(node);
     let wanted = [
         n.mode.iter().any(|&m| held(m)) || held(n.about) || held(n.sign_in) || held(n.txt_status),
-        held(n.done),
-        held(n.approve),
-        held(n.txt_vip),
+        held(n.done) || held(n.approve),
         held(n.inbox),
         held(n.pile_later),
         held(n.pile_done),
@@ -2455,7 +2508,7 @@ fn shown_first_open() -> Option<usize> {
         .or_else(|| (0..d.n_tasks).find(|&i| d.tasks[i].pin && d.tasks[i].state == TaskState::Open))
 }
 
-const DRAFT_W: usize = 26;
+const DRAFT_W: usize = 24;
 const DRAFT_LINES: usize = 3;
 
 /// How many 3-line pages a draft takes at 26 characters a line.
@@ -2542,7 +2595,7 @@ mod tests {
     fn draft_page_fits_a_world_text() {
         let long = b"Keep the conduit wording as drafted. The shorter version drops the card-data sentence we need. Thanks! And one more sentence to push it onto a second page for sure.";
         for p in 0..draft_pages(long) {
-            let mut l = Lines::new(26, 4);
+            let mut l = Lines::new(DRAFT_W, 4);
             l.text("Draft to Counsel (sample)");
             l.newline();
             draft_page_into(long, p, &mut l);

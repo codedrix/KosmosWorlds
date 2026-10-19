@@ -50,7 +50,7 @@ pub const READ_Y: f32 = 1.1;
 pub const RISE_FROM_Y: f32 = 0.62;
 /// The banner, 1.8 m ahead: under the now bar, or in triage just above the fan.
 pub const BANNER_R: f32 = 1.8;
-pub const BANNER_Y: f32 = 1.53;
+pub const BANNER_Y: f32 = 1.555;
 pub const BANNER_TRIAGE_Y: f32 = 1.71;
 
 // --- Focus -----------------------------------------------------------------------------

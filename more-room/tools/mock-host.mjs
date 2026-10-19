@@ -291,7 +291,10 @@ export class Host {
           H.textRefusals.push({ node: n.name, reason: "pool full", text });
           return -5;
         }
-        H.texts.set(h, { text, offset: Math.min(5, Math.max(0, off)) });
+        // The client keeps a held text's first placement when only the words change
+        // (KWorldTextPool.cpp): a new offset is ignored until the text is hidden.
+        const prev = H.texts.get(h);
+        H.texts.set(h, { text, offset: prev ? prev.offset : Math.min(5, Math.max(0, off)) });
         H.textPeak = Math.max(H.textPeak, H.texts.size);
         return 0;
       },
