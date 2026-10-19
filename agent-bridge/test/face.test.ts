@@ -99,7 +99,8 @@ test("a wrong passphrase is refused; the right one gives a token and the cubes",
   assert.ok(ok.hidden.has("TxPuck"));
   assert.equal(ok.visible.get("BtnPuckApprove"), false);
   for (const n of ARC_TEXT_NODES) assert.ok(ok.hidden.has(n), `${n}: the arc is folded`);
-  for (const n of ARC_BUTTON_NODES) assert.ok(!ok.visible.has(n), `${n}: folded arc buttons keep their last U record`);
+  for (const n of ARC_BUTTON_NODES) if (n !== "BtnSignOut") assert.ok(!ok.visible.has(n), `${n}: folded arc buttons keep their last U record`);
+  assert.equal(ok.visible.get("BtnSignOut"), true, "Sign out is offered folded too (8.7)");
   assert.equal(ok.texts, 0);
 });
 
@@ -122,7 +123,7 @@ test("the + cube opens the arc with no job; a preset opens its job; an approval 
   assert.match(withApproval.text.get("TxAskA") ?? "", /^!! Claude wants to: Run a command\nnpm test$/);
   assert.equal(withApproval.hue.get("CubeA"), "need", "the cube that needs you is amber");
   assert.equal(withApproval.hue.get("Puck"), "need");
-  assert.equal(withApproval.text.get("TxPuck"), "registry\nRun a command\nnpm test");
+  assert.equal(withApproval.text.get("TxPuck"), "registry: run npm test", "one line: project, verb, command (8.5)");
   assert.equal(withApproval.visible.get("BtnPuckApprove"), true, "the whole command is on the puck");
   assert.equal(withApproval.text.get("TxCubeA"), "registry");
   // Claude's words are on conversation lines, shifted to read left-aligned.
@@ -164,7 +165,7 @@ test("Fold returns to the cubes; the puck approves without opening the arc; the 
   assert.equal(s.hue.get("Puck"), "calm");
   await until((x) => x.visible.get("CubeA") === false, "the job to finish");
   const arc = await press("CubePlus");
-  assert.match(arc.text.get("TxDone") ?? "", /^Done today: 1\nRun all tests \(kosmos-registry\)/);
+  assert.match(arc.text.get("TxDone") ?? "", /^Done today: 1  \|  Run all/, "one line");
   assert.match(arc.text.get("TxRailA") ?? "", /^registry: Run all tests\nDONE/);
   const rail = await press("RailA");
   const conv = [...rail.text.values()].join("\n");
@@ -182,7 +183,11 @@ test("a long poll answers 'same' when nothing changed", async () => {
 
 test("New task sends the typed words as a prompt; Ask why and Deny answer the prompt", async () => {
   await view();
+  const open = await press("CubePlus");
+  assert.equal(open.visible.get("BtnNewTask"), true, "the start-a-job set shows while no job is open");
   const s = await press("BtnNewTask", "Fix the rate limiter");
+  for (const n of ["BtnTests", "BtnPrs", "BtnToday", "BtnNotes", "BtnNewTask", "BtnProject"]) assert.equal(s.visible.get(n), false, `${n} hides while a job is open (8.2)`);
+  assert.ok(s.hidden.has("TxProject"));
   assert.equal(s.mode, "arc");
   await until((x) => x.visible.get("BtnWhy") === true, "the approval");
   await press("BtnWhy");
@@ -208,7 +213,7 @@ test("Approve never shows for a command that can't be shown whole (the ask plate
   const cubes = await view();
   assert.equal(b.bridge.store.pendingApprovals()[0]?.id, a.id, "the oldest pending approval is on the puck");
   assert.equal(cubes.visible.get("BtnPuckApprove"), false, "not approvable from the puck");
-  assert.match(cubes.text.get("TxPuck") ?? "", /^cliptest\nToo long here: open its cube/);
+  assert.equal(cubes.text.get("TxPuck"), "cliptest: open its cube");
   assert.equal(cubes.visible.get("BtnPuckDeny"), true);
   const slot = [...cubes.text.entries()].find(([n, t]) => n.startsWith("TxCube") && t === "cliptest");
   assert.ok(slot, "the job has a cube");
@@ -232,7 +237,7 @@ test("a redacted command: the puck says desk only and offers only Deny", async (
   assert.ok(a && a.exact === false);
   const s = await view();
   assert.equal(s.visible.get("BtnPuckApprove"), false);
-  assert.match((s.text.get("TxPuck") ?? "").replace(/\n/g, " "), /^web Desk only: approve it at the PC\./);
+  assert.equal(s.text.get("TxPuck"), "web: open its cube", "a redacted command is never offered on the puck");
   assert.ok(!s.raw.includes(fakeKey), "the key never leaves the PC");
   b.bridge.store.decide(a.id, "deny");
   await p;
@@ -247,4 +252,93 @@ test("signing out drops back to the lock and the token stops working", async () 
   assert.equal(s.texts, 0);
   const after = await view();
   assert.equal(after.mode, "lock");
+});
+
+// ---------------------------------------------------------------------------
+// v2.1 (V2_CONTRACT section 8)
+// ---------------------------------------------------------------------------
+
+async function signInAgain() {
+  await sleep(2100);
+  tok = "";
+  await view();
+  const s = await press("BtnSealType", PASS);
+  assert.ok(s.token, "signed in");
+  return s;
+}
+
+test("8.10: a cube keeps its job while the job lives; a new job takes the free cube", async () => {
+  await signInAgain();
+  for (const j of b.bridge.store.running()) b.bridge.store.sink(j.id).setStatus("stopped");
+  const mk = (project: string) => b.bridge.store.createJob({ agent: "claude", project, cwd: "C:/p", title: project, firstMessage: project });
+  const one = mk("kosmos-alpha");
+  const two = mk("kosmos-beta");
+  const s1 = await view();
+  assert.equal(s1.text.get("TxCubeA"), "alpha");
+  assert.equal(s1.text.get("TxCubeB"), "beta");
+  b.bridge.store.sink(one.id).setStatus("done");
+  const s2 = await view();
+  assert.equal(s2.visible.get("CubeA"), false, "the finished job's cube empties");
+  assert.equal(s2.hue.get("CubeA"), "off");
+  assert.equal(s2.text.get("TxCubeB"), "beta", "the other job stays on its cube (no shift left)");
+  const three = mk("kosmos-gamma");
+  const s3 = await view();
+  assert.equal(s3.text.get("TxCubeA"), "gamma", "a new job takes the first free cube");
+  assert.equal(s3.text.get("TxCubeB"), "beta");
+  for (const j of [two, three]) b.bridge.store.sink(j.id).setStatus("stopped");
+});
+
+test("8.10: two approvals that read the same on the puck still get their own versions (LOW-3)", async () => {
+  await view();
+  const mk = () => b.bridge.store.createJob({ agent: "claude", project: "kosmos-registry", cwd: "C:/p", title: "Twin", firstMessage: "Twin" });
+  const a = mk();
+  const c = mk();
+  const pa = b.bridge.store.sink(a.id).requestApproval("Bash", { command: "npm test" });
+  const pc = b.bridge.store.sink(c.id).requestApproval("Bash", { command: "npm test" });
+  const s = await view();
+  assert.equal(s.text.get("TxPuck"), "registry: run npm test");
+  const after = await press("BtnPuckApprove");
+  assert.equal(after.text.get("TxPuck"), "registry: run npm test", "the second reads exactly the same");
+  const second = await press("BtnPuckApprove");
+  assert.ok(!second.events.includes("refused"), "the second press decides the second approval, not the first again");
+  assert.equal(await pa, "approve");
+  assert.equal(await pc, "approve");
+  assert.equal(b.bridge.store.pendingApprovals().length, 0);
+  for (const j of [a, c]) b.bridge.store.sink(j.id).setStatus("stopped");
+});
+
+test("8.10: the page doesn't jump when the ask plate appears", async () => {
+  await view();
+  const job = b.bridge.store.createJob({ agent: "claude", project: "kosmos-paging", cwd: "C:/p", title: "Paging", firstMessage: "Paging" });
+  const sink = b.bridge.store.sink(job.id);
+  sink.setSessionId("fake-paging");
+  for (let i = 1; i <= 30; i++) sink.agentText(`line number ${i} of the long answer`, { newMessage: true });
+  const cubes = await view();
+  const slot = [...cubes.text.entries()].find(([n, t]) => n.startsWith("TxCube") && t === "paging");
+  assert.ok(slot);
+  await press(slot[0].replace(/^Tx/, ""));
+  const back = await press("BtnPageUp");
+  const lastShown = (s: ReturnType<typeof parseSnapshot>) => [...s.text.entries()].filter(([n]) => n.startsWith("TxConv")).at(-1)?.[1];
+  const before = lastShown(back);
+  assert.ok(before, "a page back is on show");
+  const p = sink.requestApproval("Bash", { command: "npm test" });
+  const withAsk = await view();
+  assert.equal(withAsk.visible.get("AskPanel"), true);
+  const shown = [...withAsk.text.entries()].filter(([n]) => n.startsWith("TxConv")).map(([, t]) => t);
+  assert.ok(shown.includes(before), "the line that was last on show is still on show above the plate");
+  assert.ok(shown.length <= 5, "five lines above the plate");
+  b.bridge.store.decide(b.bridge.store.pendingFor(job.id)?.id ?? "", "deny");
+  await p;
+  sink.setStatus("stopped");
+});
+
+test("8.7: Sign out works from the cubes, folded", async () => {
+  await view();
+  const folded = await press("BtnFold");
+  assert.equal(folded.mode, "cubes");
+  assert.equal(folded.visible.get("BtnSignOut"), true);
+  const out = await press("BtnSignOut");
+  assert.equal(out.mode, "lock");
+  assert.ok(out.events.includes("signed_out"));
+  assert.equal(b.bridge.auth.signedIn, false);
 });

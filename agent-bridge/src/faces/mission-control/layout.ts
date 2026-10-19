@@ -13,7 +13,8 @@
  *   seal   SealRing*, TxSeal, TxSealHint, BtnSealType, McSealCancel
  *   ledge  McLedge, Cube*, TxCube*
  *   puck   Puck*, BtnPuck*, TxPuck
- *   arc    every other panel node (left = jobs, centre = the conversation, right = the page spot)
+ *   arc    every other panel node (left = jobs, centre = the conversation or the start-a-job set,
+ *          the chrome bar under it = group watch and sign-out, right = the page spot)
  *
  * Sizes are metres of 8 cm world text on the panels the Blender script builds.
  *
@@ -110,21 +111,25 @@ export function hueVariant(base: string, state: HueState): string {
   return `${base}${state.charAt(0).toUpperCase()}${state.slice(1)}`;
 }
 
-/** Width of one line on each panel, metres (contract section 2). */
+/**
+ * Width of one line on each panel, metres (contract section 2, narrowed for the v2.1 panels of
+ * section 8: side panels 0.85 m wide, the chrome bar leaves TxWatch 0.50 m).
+ */
 export const W = {
-  ticker: 0.95,
+  ticker: 0.78,
   status: 1.2,
   project: 0.85,
-  rail: 0.85,
-  done: 0.9,
+  rail: 0.74,
+  done: 0.78,
   header: 1.2,
   conv: 1.2,
   ask: 1.1,
-  pageSpot: 0.9,
+  pageSpot: 0.72,
   cube: 0.34,
   puck: 0.8,
   seal: 0.45,
   sealHint: 1.0,
+  watch: 0.5,
 } as const;
 
 /** The conversation's left edge, relative to the conversation anchors' centre line. */
