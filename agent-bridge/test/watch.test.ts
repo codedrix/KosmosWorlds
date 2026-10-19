@@ -24,7 +24,7 @@ test("the Lobby ritual signs in with one call: the passphrase as text, no snapsh
   assert.equal(s.mode, "cubes");
   assert.equal(b.bridge.watch.current, null, "watching is off by default");
   const arc = await op("press", { tok, v, press: "CubePlus" });
-  assert.equal(arc.text.get("TxWatch"), "Let my group watch: off");
+  assert.equal(arc.text.get("TxWatch"), "off");
 });
 
 test("watching: off by default; the owner turns it on; a watcher gets a read-only copy", async () => {
@@ -46,6 +46,9 @@ test("watching: off by default; the owner turns it on; a watcher gets a read-onl
   assert.equal(w.hue.size, 0, "no ledge, puck or seal records");
   assert.equal(w.buzz, -1, "no buzz: the chime is the owner's");
   assert.equal(w.visible.get("BtnFold"), false);
+  for (const n of ["BtnApprove", "BtnDeny", "BtnWhy", "BtnStop", "BtnKeep", "BtnSimple", "BtnSummary", "BtnReply", "BtnPageUp", "BtnPageDown", "BtnTests", "BtnNewTask", "BtnProject"]) {
+    assert.equal(w.visible.get(n), false, `a watcher is drawn no ${n} (8.10)`);
+  }
   for (const n of ["TxCubeA", "TxPuck", "TxSeal", "CubeA", "CubePlus", "BtnPuckApprove", "BtnSealType"]) {
     assert.ok(!w.text.has(n) && !w.visible.has(n) && !w.hidden.has(n), `${n} never reaches a watcher`);
   }
@@ -54,7 +57,7 @@ test("watching: off by default; the owner turns it on; a watcher gets a read-onl
   assert.equal(w.visible.get("BtnWatch"), false);
   assert.equal(w.visible.get("BtnSignOut"), false);
   assert.match(w.text.get("TxStatus") ?? "", /pressed: Run all tests/);
-  assert.equal(w.text.get("TxWatch"), "Watching (read-only)");
+  assert.equal(w.text.get("TxWatch"), "read-only");
   assert.ok(!w.raw.includes(m[1] + " " + m[2]), "the owner's watch line never reaches a watcher");
 });
 
@@ -79,7 +82,7 @@ test("anonymous callers can't disturb the owner's wall (no state reset, no versi
   assert.notEqual(again.mode, "lock", "the owner is still on the wall");
   assert.ok(b.bridge.auth.signedIn, "and the owner is still signed in");
   // The owner's press from the snapshot shown before the strangers' calls still resolves.
-  const r = await call(b.port, "/v1/faces/mission-control/press", { body: worldBody({ tok, v: ownerV, press: "BtnProject" }) });
+  const r = await call(b.port, "/v1/faces/mission-control/press", { body: worldBody({ tok, v: ownerV, press: "BtnPageUp" }) });
   assert.ok(!parseSnapshot(r.text).events.includes("stale"), "not stale");
 });
 
@@ -124,7 +127,7 @@ test("a new sign-in always starts with watching off", async () => {
   assert.equal(b.bridge.watch.current, null, "the old code is gone");
   assert.equal(again.mode, "cubes");
   const arc = await op("press", { tok, v, press: "CubePlus" });
-  assert.equal(arc.text.get("TxWatch"), "Let my group watch: off");
+  assert.equal(arc.text.get("TxWatch"), "off");
   const w = await op("watch", { watch: code });
   assert.ok(w.events.includes("watch_refused"));
 });

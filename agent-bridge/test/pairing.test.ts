@@ -82,7 +82,7 @@ test("threat: single use: the first take after approval wins; nothing is left af
   assert.equal(p.approveTyped(m.code).outcome, "none", "an approved, taken code can't be approved again");
 });
 
-test("threat: one at a time: a new mint replaces the waiting one, whose code can no longer be approved", () => {
+test("threat: pairings are keyed by id: a code approves only its own pairing, and the others keep waiting", () => {
   const c = clock();
   const p = new Pairing(c.now);
   const a = p.mint();
@@ -90,10 +90,61 @@ test("threat: one at a time: a new mint replaces the waiting one, whose code can
   if (!a.ok) return;
   const b = mintAvoiding(p, c, a.code);
   if (!b.ok) return;
-  assert.equal(p.state(a.id).state, "expired", "the replaced pairing is gone");
-  assert.equal(p.approveTyped(a.code).outcome, "wrong", "the replaced code no longer approves anything");
-  assert.equal(p.state(b.id).state, "pending", "and it did not approve the new one");
+  assert.equal(p.state(a.id).state, "pending", "a second mint no longer cancels the first");
+  assert.equal(p.state(b.id).state, "pending");
   assert.equal(p.approveTyped(b.code).outcome, "approved");
+  assert.equal(p.state(b.id).state, "approved");
+  assert.equal(p.state(a.id).state, "pending", "approving one code approves nothing else");
+  assert.equal(p.take(a.id), false, "the other id takes nothing");
+  assert.equal(p.take(b.id), true);
+  assert.equal(p.approveTyped(b.code).outcome, "wrong", "a used code approves nothing");
+  assert.equal(p.waiting()?.count, 1);
+});
+
+test("threat: a stranger minting at the cap for 130 s never evicts the owner's pairing inside its life", () => {
+  const c = clock();
+  const p = new Pairing(c.now);
+  const owner = p.mint();
+  assert.ok(owner.ok);
+  if (!owner.ok) return;
+  let strangerMints = 0;
+  // The stranger presses the seal every 3 s (the gap limit); the 6-a-minute cap refuses the rest.
+  for (let t = PAIR_MIN_GAP_MS; t <= 130_000; t += PAIR_MIN_GAP_MS) {
+    c.tick(PAIR_MIN_GAP_MS);
+    if (p.mint().ok) strangerMints++;
+    const st: string = p.state(owner.id).state;
+    if (t < PAIR_TTL_MS) assert.equal(st, "pending", `the owner's pairing is alive at ${t / 1000} s`);
+    else assert.equal(st, "expired", "and it ends at its own 120 s");
+  }
+  assert.ok(strangerMints >= 12, `the stranger minted ${strangerMints} times`);
+  assert.ok(P.PAIR_SLOTS > PAIR_MINTS_PER_MINUTE * (PAIR_TTL_MS / 60_000), "more slots than the rate can fill in one life");
+});
+
+test("threat: residual risk, stated: a stranger at the cap uses up the mint rate, so the owner's own press can be refused", () => {
+  const c = clock();
+  const p = new Pairing(c.now);
+  for (let i = 0; i < PAIR_MINTS_PER_MINUTE; i++) {
+    assert.ok(p.mint().ok);
+    c.tick(PAIR_MIN_GAP_MS);
+  }
+  const owner = p.mint();
+  assert.ok(!owner.ok && owner.reason === "rate", "refused: a nuisance, never a sign-in");
+});
+
+test("a full table replaces its oldest pairing (a backstop the rate limit makes unreachable)", () => {
+  const c = clock();
+  const p = new Pairing(c.now);
+  const ids: string[] = [];
+  for (let i = 0; i < P.PAIR_SLOTS + 1; i++) {
+    (p as unknown as { mints: number[] }).mints = []; // only here: step past the rate to reach the backstop
+    c.tick(1);
+    const m = p.mint();
+    assert.ok(m.ok);
+    if (m.ok) ids.push(m.id);
+  }
+  assert.equal(p.state(ids[0]).state, "expired", "the oldest went");
+  assert.equal(p.state(ids[1]).state, "pending");
+  assert.equal(p.waiting()?.count, P.PAIR_SLOTS);
 });
 
 test("threat: minting is rate-limited: 3 s apart, and at most 6 a minute across everyone", () => {
@@ -272,7 +323,7 @@ test("the console approver asks without the code, and approves the code typed of
     assert.match(out, /\(7 s ago\)/, "an empty line repeats the prompt with the age");
     input.write("BBBBBC\n");
     await sleep(20);
-    assert.match(out, /not the code on the waiting ring \(1 of 5 wrong\)/);
+    assert.match(out, /not the code on any waiting ring \(1 of 5 wrong\)/);
     input.write(`${m.code.toLowerCase()}\n`);
     await sleep(20);
     assert.match(out, /Pairing approved/);
@@ -593,7 +644,7 @@ test("npm run approve: with no code it says whether one waits (never the code); 
   const loop = setInterval(() => P.pollApproveFile(p, () => {}), 100);
   try {
     const wrong = await run([m.code === "BBBBBB" ? "CCCCCC" : "BBBBBB"]);
-    assert.match(wrong.out, /not the code on the waiting ring/);
+    assert.match(wrong.out, /not the code on the waiting ring|not the code on any waiting ring/);
     const ok = await run([formatPairCode(m.code).toLowerCase().replace(" ", "-")]);
     assert.equal(ok.code, 0);
     assert.match(ok.out, /^Approved\./);

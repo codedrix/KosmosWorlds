@@ -11,10 +11,12 @@
  *   pair   a pairing is waiting: the ring shows its code (only to the headset holding the id).
  *   cubes  signed in, arc folded: the ledge holds one cube per running job (calm / needs you /
  *          idle) and a "+" cube; the puck on the left armrest shows the oldest pending approval.
- *   arc    signed in, arc open: left = jobs (ticker, rail, presets, project, done today);
- *          centre = one job's conversation (header, 10 lines, the ask plate, quick replies,
- *          reply, fold, stop, status, watch, sign-out); right = the page spot (DB-043, a
- *          placeholder). The ledge and the puck stay.
+ *   arc    signed in, arc open (v2.1, V2_CONTRACT section 8): left = jobs only (ticker, rail,
+ *          done today); centre = one job's conversation (header, 10 lines or 5 above the ask
+ *          plate, quick replies, reply, fold, stop, status), or with no job open the start-a-job
+ *          set (presets, New task, project); the chrome bar = group watch and sign-out; right =
+ *          the page spot only (DB-043, a placeholder). The ledge and the puck stay, and Sign out
+ *          is offered folded too.
  *
  * Ops: `view` (long poll), `press`, `signin` (the passphrase fallback), `watch` (a group member's
  * read-only arc) and `pair` (mint, then a long poll on the pairing id).
@@ -72,6 +74,10 @@ interface ViewState {
   pageBack: number;
   /** Lines in the conversation when the visitor last looked at the newest page. */
   seenLines: number;
+  /** Lines a page held last time (10, or 5 above the ask plate), so paging survives the change. */
+  per?: number;
+  /** The index after the last line on show last time. */
+  lastEnd?: number;
   project?: string;
   notice?: string;
   noticeAt?: number;
@@ -80,6 +86,8 @@ interface ViewState {
 interface Paging {
   pageBack: number;
   seenLines: number;
+  per?: number;
+  lastEnd?: number;
 }
 
 type ActionMap = Map<string, string>;
@@ -177,9 +185,12 @@ export class MissionControlFace implements Face {
   private version = 0;
   private lastKey = "";
   private renders = new Map<number, ActionMap>();
+  /** Which job each cube holds: a cube keeps its job while the job lives (V2_CONTRACT 8.10). */
+  private cubeJobs: (string | undefined)[] = CUBE_SLOTS.map(() => undefined);
 
   reset(): void {
     this.state = { mode: "cubes", pageBack: 0, seenLines: 0 };
+    this.cubeJobs = CUBE_SLOTS.map(() => undefined);
   }
 
   async handle(op: string, req: WorldRequest, ctx: FaceContext): Promise<FaceReply> {
@@ -201,7 +212,7 @@ export class MissionControlFace implements Face {
       const m = ctx.pair.mint();
       if (!m.ok) {
         const why: Record<string, string> = {
-          rate: "Too many pairings just now. Wait a minute, then press the seal again.",
+          rate: "Too many pairings just now. Wait a few seconds, then press the seal again.",
           stopped: "Stopped on the PC. At the desk: npm run unkill",
           off: "Pairing is off on the PC.",
         };
@@ -290,17 +301,18 @@ export class MissionControlFace implements Face {
     const ownerFocus = this.state.focus && store.jobs.has(this.state.focus) ? this.state.focus : undefined;
     const focusId = ownerFocus ?? store.running()[0]?.id;
     const job = focusId ? store.jobs.get(focusId) : undefined;
-    const paging: Paging = focusId === ownerFocus ? { pageBack: this.state.pageBack, seenLines: this.state.seenLines } : { pageBack: 0, seenLines: 0 };
+    const paging: Paging = focusId === ownerFocus ? { pageBack: this.state.pageBack, seenLines: this.state.seenLines, per: this.state.per, lastEnd: this.state.lastEnd } : { pageBack: 0, seenLines: 0 };
     const body = new Snapshot().mode("arc");
     this.renderArc(body, new Map(), ctx, job, paging, "");
     body.dropPrompts();
     // Overrides replace the owner's records, so the owner's watch line (with its code) never reaches a watcher.
-    for (const n of ["BtnWatch", "BtnSignOut", "BtnFold", "TxWatch", "TxStatus"]) body.forget(n);
-    body.visible("BtnWatch", false);
-    body.visible("BtnSignOut", false);
-    body.visible("BtnFold", false);
+    // A watcher is drawn no action button (V2_CONTRACT 8.10): every arc button but the rail's
+    // rows is hidden, and the start-a-job set's project line with them.
+    for (const n of [...WATCHER_HIDDEN, "TxProject", "TxWatch", "TxStatus"]) body.forget(n);
+    for (const n of WATCHER_HIDDEN) body.visible(n, false);
+    body.hide("TxProject");
     const pressed = this.lastPress ? [clipWidth(`pressed: ${pressLabel(this.lastPress.node)} ${formatElapsed(Date.now() - this.lastPress.at)} ago`, W.status)] : [];
-    body.text("TxWatch", "Watching (read-only)");
+    body.text("TxWatch", clipWidth("read-only", W.watch));
     body.text("TxStatus", label([clipWidth("Watching Mission Control", W.status), ...pressed]));
     const key = body.contentKey();
     if (key !== this.watchKey) {
@@ -582,6 +594,9 @@ export class MissionControlFace implements Face {
     body.buzz(store.approvalsEver);
     this.renderLedge(body, actions, ctx);
     this.renderPuck(body, actions, ctx);
+    // Sign out is offered folded and unfolded (V2_CONTRACT 8.7).
+    body.visible("BtnSignOut", true);
+    actions.set("BtnSignOut", "signout");
     if (mode === "arc") {
       const job = this.state.focus ? store.jobs.get(this.state.focus) : undefined;
       this.renderArc(body, actions, ctx, job, this.state, this.statusLine(ctx));
@@ -591,7 +606,9 @@ export class MissionControlFace implements Face {
       for (const n of ARC_TEXT_NODES) body.hide(n);
     }
 
-    const key = body.contentKey();
+    // The key holds what every press means too (the oldest pending approval's id among them), so
+    // two renders that read the same but act differently never share a version (V2_CONTRACT 8.10).
+    const key = `${body.contentKey()}\n#${[...actions].map(([n, a]) => `${n}=${a}`).join(" ")}`;
     if (forceNewVersion || key !== this.lastKey) {
       this.version++;
       this.lastKey = key;
@@ -612,8 +629,17 @@ export class MissionControlFace implements Face {
   private renderLedge(s: Snapshot, actions: ActionMap, ctx: FaceContext): void {
     const store = ctx.bridge.store;
     const running = store.running();
+    const live = new Set(running.map((j) => j.id));
+    // A cube keeps its job while the job runs; a new job takes the first free cube.
+    this.cubeJobs = this.cubeJobs.map((id) => (id && live.has(id) ? id : undefined));
+    for (const j of running) {
+      if (this.cubeJobs.includes(j.id)) continue;
+      const free = this.cubeJobs.indexOf(undefined);
+      if (free >= 0) this.cubeJobs[free] = j.id;
+    }
     CUBE_SLOTS.forEach((slot, i) => {
-      const job = running[i];
+      const id = this.cubeJobs[i];
+      const job = id ? store.jobs.get(id) : undefined;
       const node = `Cube${slot}`;
       if (!job) {
         s.visible(node, false);
@@ -642,19 +668,17 @@ export class MissionControlFace implements Face {
       return;
     }
     const job = store.jobs.get(a.jobId);
-    const proj = clipWidth(toWallAscii(shortProject(job?.project ?? "?")), W.puck);
-    const head = [proj, clipWidth(a.title, W.puck)];
-    const cmd = wrapWidth(a.command, W.puck);
-    // The same rule as the ask plate: every character of the command on the label (two lines at
-    // most, no byte clip, nothing lost to wrapping) and nothing redacted.
-    const shownAll = cmd.length <= 2 && fitsLabel([...head, ...cmd]) && sameNonSpace(cmd.join(""), a.command);
-    const approvable = a.exact && shownAll;
+    const proj = toWallAscii(shortProject(job?.project ?? "?"));
+    // ONE line, "<project>: <verb> <command>" (V2_CONTRACT 8.5). Approvable only when that whole
+    // line fits the puck (width, the host's byte limit, one line) and nothing was redacted: the ask
+    // plate's "you approve what you read". Otherwise it says to open the cube; Deny stays.
+    const line = `${proj}: ${puckVerb(a)} ${a.command}`;
+    const approvable = a.exact && !line.includes("\n") && estimateWidthM(line) <= W.puck && line.length <= WORLD_TEXT_MAX_BYTES;
     if (approvable) {
-      s.text("TxPuck", label([...head, ...cmd]));
+      s.text("TxPuck", line);
     } else {
-      // The reason before the command, so the byte clip can only shorten the command.
-      const why = a.exact ? "Too long here: open its cube." : "Desk only: approve it at the PC.";
-      s.text("TxPuck", label([proj, ...wrapWidth(why, W.puck).slice(0, 2), clipWidth((cmd[0] ?? "") + (cmd.length > 1 ? " ..." : ""), W.puck)]));
+      const tail = ": open its cube";
+      s.text("TxPuck", `${clipWidth(proj, Math.max(0.1, W.puck - estimateWidthM(tail)))}${tail}`);
     }
     s.visible("BtnPuckApprove", approvable);
     if (approvable) actions.set("BtnPuckApprove", `approve:${a.id}`);
@@ -662,7 +686,7 @@ export class MissionControlFace implements Face {
     actions.set("BtnPuckDeny", `deny:${a.id}`);
   }
 
-  /** The arc: left = jobs, centre = `job`'s conversation (or none), right = the page spot. */
+  /** The arc: left = jobs, centre = `job`'s conversation (or the start-a-job set), the chrome bar, right = the page spot. */
   private renderArc(s: Snapshot, actions: ActionMap, ctx: FaceContext, job: Job | undefined, paging: Paging, status: string): void {
     const store = ctx.bridge.store;
     const running = store.running();
@@ -693,40 +717,43 @@ export class MissionControlFace implements Face {
       s.visible(`RailSel${slot}`, j.id === job?.id);
       actions.set(`Rail${slot}`, `rail:${j.id}`);
     });
-    const project = this.project(ctx);
-    for (const [node, id] of Object.entries(PRESET_BUTTONS)) {
-      s.visible(node, true);
-      actions.set(node, `preset:${id}`);
-    }
-    s.visible("BtnNewTask", true);
-    s.prompt("BtnNewTask", `New task for Claude in ${project || "the default project"}: what should it do?`);
-    actions.set("BtnNewTask", "new");
-    s.text("TxProject", label([clipWidth(`Project: ${project || "none set"}`, W.project)]));
-    s.visible("BtnProject", true);
-    actions.set("BtnProject", "project");
-    const recent = done.slice(-2).reverse().map((j) => clipWidth(`${j.title} (${j.project})${j.outcome ? ": " + j.outcome : ""}`, W.done));
-    s.text("TxDone", label([`Done today: ${done.length}`, ...recent]));
+    const last = done[done.length - 1];
+    s.text("TxDone", clipWidth(`Done today: ${done.length}${last ? `  |  ${last.title}` : ""}`, W.done));
 
-    // ---- centre: the conversation -------------------------------------------
+    // ---- centre: the conversation, or (no job open) the start-a-job set -------
     s.visible("BtnFold", true);
     actions.set("BtnFold", "fold");
     s.text("TxStatus", status);
-    const code = ctx.bridge.watch.current;
-    s.text("TxWatch", code ? `Group can watch  |  code ${code.slice(0, 3)} ${code.slice(3)}` : "Let my group watch: off");
-    s.visible("BtnWatch", true);
-    actions.set("BtnWatch", "watch");
-    s.visible("BtnSignOut", true);
-    actions.set("BtnSignOut", "signout");
 
     if (!job) {
-      s.text("TxHeader", label([clipWidth("No job open", W.header), clipWidth("Pick one on the left, or start one there.", W.header)]));
+      s.text("TxHeader", label([clipWidth("No job open", W.header), clipWidth("Pick one on the left, or start one below.", W.header)]));
       CONV_SLOTS.forEach((slot) => s.hide(`TxConv${slot}`));
       s.hide("TxPage");
       for (const n of ["BtnPageUp", "BtnPageDown", "BtnStop", "BtnReply", ...Object.keys(QUICK_BUTTONS)]) s.visible(n, false);
       this.renderAsk(s, actions, undefined);
+      const project = this.project(ctx);
+      for (const [node, id] of Object.entries(PRESET_BUTTONS)) {
+        s.visible(node, true);
+        actions.set(node, `preset:${id}`);
+      }
+      s.visible("BtnNewTask", true);
+      s.prompt("BtnNewTask", `New task for Claude in ${project || "the default project"}: what should it do?`);
+      actions.set("BtnNewTask", "new");
+      s.text("TxProject", label([clipWidth(`Project: ${project || "none set"}`, W.project)]));
+      s.visible("BtnProject", true);
+      actions.set("BtnProject", "project");
     } else {
+      // A job is open: the conversation uses the start set's space.
+      for (const n of START_SET) s.visible(n, false);
+      s.hide("TxProject");
       this.renderConversation(s, actions, job, store.pendingFor(job.id), paging, now);
     }
+
+    // ---- the chrome bar under the centre: group watch (Sign out is the owner render's) ----
+    const code = ctx.bridge.watch.current;
+    s.text("TxWatch", clipWidth(code ? `code ${code.slice(0, 3)} ${code.slice(3)}` : "off", W.watch));
+    s.visible("BtnWatch", true);
+    actions.set("BtnWatch", "watch");
 
     // ---- right: the page spot (DB-043's dock; a placeholder until that panel ships) ----
     s.text("TxPageSpot", label(wrapAll(["Page panel (DB-043)", "A pinned web page will show here."], W.pageSpot)));
@@ -746,11 +773,19 @@ export class MissionControlFace implements Face {
     // While an approval shows, the ask plate covers the lower lines, so a page holds only the
     // lines above it (newest last); the rest of the slots are hidden.
     const per = a ? CONV_ABOVE_ASK : CONV_SLOTS.length;
+    if (paging.per !== undefined && paging.per !== per && paging.pageBack > 0 && paging.lastEnd !== undefined) {
+      // The page size changed under a reader paged back: pick the page that still shows the line
+      // that was last on show, so the text doesn't jump elsewhere (V2_CONTRACT 8.10). Lines only
+      // grow at the end, so that line keeps its index.
+      paging.pageBack = Math.max(0, Math.floor((lines.length - paging.lastEnd) / per));
+    }
+    paging.per = per;
     const pages = Math.max(1, Math.ceil(lines.length / per));
     if (paging.pageBack > pages - 1) paging.pageBack = pages - 1;
     const end = lines.length - paging.pageBack * per;
     const start = Math.max(0, end - per);
     const shown = lines.slice(start, end);
+    paging.lastEnd = end;
     if (paging.pageBack === 0) paging.seenLines = lines.length;
     CONV_SLOTS.forEach((slot, i) => {
       const line = shown[i];
@@ -817,6 +852,33 @@ export class MissionControlFace implements Face {
     actions.set("BtnDeny", `deny:${a.id}`);
     s.visible("BtnWhy", true);
     actions.set("BtnWhy", `why:${a.id}`);
+  }
+}
+
+/** The start-a-job set: shown in the centre only while no job is open (V2_CONTRACT 8.2). */
+const START_SET = [...Object.keys(PRESET_BUTTONS), "BtnNewTask", "BtnProject"];
+
+/** Every arc button a watcher must not be drawn: all but the rail's rows (V2_CONTRACT 8.10). */
+const WATCHER_HIDDEN = ARC_BUTTON_NODES.filter((n) => !/^Rail[A-D]$/.test(n));
+
+/** The puck's verb for a tool, in the bridge's own words ("run npm test"). */
+export function puckVerb(a: Pick<Approval, "tool">): string {
+  switch (a.tool) {
+    case "Bash":
+    case "PowerShell":
+      return "run";
+    case "Edit":
+    case "MultiEdit":
+    case "NotebookEdit":
+      return "edit";
+    case "Write":
+      return "write";
+    case "WebFetch":
+      return "open";
+    case "WebSearch":
+      return "search";
+    default:
+      return `use ${toWallAscii(a.tool).slice(0, 24)}`;
   }
 }
 
