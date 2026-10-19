@@ -14,6 +14,10 @@
  *   agent-bridge unlock                     clear the lock left by too many wrong passphrases
  *   agent-bridge status                     what is set, without printing any secret
  *   agent-bridge make-relay-secret          the shared secret for the relay Worker (DB-044 option A)
+ *   agent-bridge approve [code]             approve the Pairing Seal's code (v2); no code = is one waiting?
+ *
+ * Pairing approval is LOCAL ONLY (pairing.ts): `serve` reads PAIR_APPROVE every second beside the
+ * STOP check, and, in a terminal, asks for the code itself. Neither ever prints the code.
  */
 
 import crypto from "node:crypto";
@@ -29,6 +33,16 @@ import { clearHardLock, isHardLocked, isKilled, kill, stopFile, unkill } from ".
 import { loadFaces } from "./faces/registry.js";
 import { createServer } from "./server.js";
 import { setTextScale } from "./sanitize.js";
+import {
+  attachPendingFile,
+  clearPairingFiles,
+  describeWaitingFromFile,
+  pairApproveFile,
+  pairResultFile,
+  pollApproveFile,
+  startConsoleApprover,
+  writeApproveFile,
+} from "./pairing.js";
 import { ClaudeAdapter } from "./adapters/claude.js";
 import { FakeAdapter } from "./adapters/fake.js";
 
@@ -143,9 +157,46 @@ async function main(): Promise<void> {
       clearHardLock();
       console.log("Sign-in is unlocked.");
       return;
+    case "approve": {
+      const typed = process.argv.slice(3).join("");
+      if (!typed.trim()) {
+        console.log(describeWaitingFromFile());
+        return;
+      }
+      fs.rmSync(pairResultFile(), { force: true });
+      writeApproveFile(typed);
+      // The bridge reads it within a second. If nothing takes it, remove it: a stale file must never
+      // approve a later pairing (serve also clears it at start).
+      for (let i = 0; i < 30 && fs.existsSync(pairApproveFile()); i++) await new Promise((r) => setTimeout(r, 100));
+      if (fs.existsSync(pairApproveFile())) {
+        fs.rmSync(pairApproveFile(), { force: true });
+        console.error("The bridge didn't pick it up. Is `npm start` running? Nothing was approved.");
+        process.exitCode = 1;
+        return;
+      }
+      let outcome = "";
+      for (let i = 0; i < 20 && !outcome; i++) {
+        try {
+          outcome = fs.readFileSync(pairResultFile(), "utf8").trim();
+        } catch {
+          await new Promise((r) => setTimeout(r, 50));
+        }
+      }
+      const words: Record<string, string> = {
+        approved: "Approved. The headset signs in on its next check (about a second).",
+        wrong: "That is not the code on the waiting ring. Read it off your own ring and try again.",
+        cancelled: "Five wrong codes: the waiting pairing was cancelled. Press the seal again.",
+        none: "No pairing is waiting (it may have expired, or another headset replaced it).",
+        refused: "The bridge refused the file.",
+      };
+      console.log(words[outcome] ?? "The bridge took it; see its console for the answer.");
+      if (outcome && outcome !== "approved") process.exitCode = 1;
+      return;
+    }
     case "status":
       console.log(`home:        ${bridgeHome()}`);
-      console.log(`passphrase:  ${config.passphrase ? "set" : "NOT SET"}`);
+      console.log(`passphrase:  ${config.passphrase ? "set" : "NOT SET"}${config.passphraseSignIn ? "" : " (passphrase sign-in OFF)"}`);
+      console.log(`pairing:     ${config.pairSignIn ? "on" : "OFF"}  |  ${describeWaitingFromFile()}`);
       console.log(`stopped:     ${isKilled() ? "YES (npm run unkill)" : "no"}`);
       console.log(`locked:      ${isHardLocked() ? "YES (npm run unlock)" : "no"}`);
       console.log(`port:        127.0.0.1:${config.port}`);
@@ -158,7 +209,7 @@ async function main(): Promise<void> {
       const adapterName = arg("--adapter") ?? "claude";
       const adapter = adapterName === "fake" ? new FakeAdapter(1000) : new ClaudeAdapter({ model: config.model, executable: config.claudeExecutable, alwaysAsk: config.alwaysAsk });
       if (adapterName === "fake" && config.projects.length === 0) config.projects = [{ name: "demo-project", path: os.tmpdir() }];
-      if (!config.passphrase) console.warn("WARNING: no passphrase is set, so nobody can sign in. Run: npm run set-passphrase");
+      if (!config.passphrase && config.passphraseSignIn) console.warn("WARNING: no passphrase is set, so the passphrase fallback can't sign in. Run: npm run set-passphrase");
       if (config.projects.length === 0) console.warn("WARNING: no project folders are allowed. Run: npm run init");
       setTextScale(config.textScale ?? 1);
       const bridge = new Bridge(config, adapter);
@@ -173,9 +224,16 @@ async function main(): Promise<void> {
         return;
       }
       const server = createServer(bridge, faces, { port, publicHost });
-      // Watch the stop file even when no request arrives, so `npm run kill` stops jobs at once.
+      // Pairing: nothing left from before a restart may approve anything.
+      clearPairingFiles();
+      const detachPending = attachPendingFile(bridge.pairing);
+      // In a terminal, the console asks for the code itself (it never prints it).
+      const stopConsole = process.stdin.isTTY ? startConsoleApprover(bridge.pairing, process.stdin, (s) => process.stdout.write(s)) : () => {};
+      // Watch the stop file even when no request arrives, so `npm run kill` stops jobs at once;
+      // beside it, approve from PAIR_APPROVE (`npm run approve -- <code>`).
       const watch = setInterval(() => {
         if (isKilled()) void bridge.enforceKill();
+        pollApproveFile(bridge.pairing, (l) => console.log(l));
       }, 1000);
       server.listen(port, "127.0.0.1", () => {
         console.log(`agent-bridge (${adapter.name}${adapterName === "fake" ? ", FAKE demo adapter" : ""}) on http://127.0.0.1:${port}`);
@@ -184,6 +242,8 @@ async function main(): Promise<void> {
       });
       const shutdown = async () => {
         clearInterval(watch);
+        stopConsole();
+        detachPending();
         server.close();
         await bridge.shutdown();
         process.exit(0);
@@ -193,7 +253,7 @@ async function main(): Promise<void> {
       return;
     }
     default:
-      console.log("agent-bridge init | set-passphrase | add-project <name> <path> | serve [--adapter fake] | kill | unkill | unlock | status");
+      console.log("agent-bridge init | set-passphrase | add-project <name> <path> | serve [--adapter fake] | kill | unkill | unlock | status | approve [code]");
   }
 }
 

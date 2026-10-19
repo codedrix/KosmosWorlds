@@ -1,0 +1,45 @@
+AB1
+V 2
+M cubes
+Z 2
+U CubeA 1
+H CubeA calm
+T TxCubeA registry
+U CubeB 1
+H CubeB calm
+T TxCubeB portal
+U CubeC 1
+H CubeC calm
+T TxCubeC web
+U CubeD 0
+H CubeD off
+X TxCubeD
+U CubePlus 1
+H Puck calm
+X TxPuck
+U BtnPuckApprove 0
+U BtnPuckDeny 0
+X TxTicker
+X TxStatus
+X TxProject
+X TxRailA
+X TxRailB
+X TxRailC
+X TxRailD
+X TxDone
+X TxHeader
+X TxConvA
+X TxConvB
+X TxConvC
+X TxConvD
+X TxConvE
+X TxConvF
+X TxConvG
+X TxConvH
+X TxConvI
+X TxConvJ
+X TxPage
+X TxAskA
+X TxAskB
+X TxWatch
+X TxPageSpot

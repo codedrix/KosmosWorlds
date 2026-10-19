@@ -1,0 +1,10 @@
+AB1
+V 1000001
+M pair
+I <pairid>
+T TxSeal JBN MKC
+T TxSealHint At the PC, type this code\nto approve. It lasts 2 minutes.
+H SealRing armed
+U BtnSealType 1
+P BtnSealType Mission Control passphrase (it shows on screen as you type)
+E pair_wait

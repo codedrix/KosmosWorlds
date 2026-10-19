@@ -70,7 +70,7 @@ export function sleep(ms: number): Promise<void> {
 
 /** Parse a wire snapshot into a small map for assertions. */
 export function parseSnapshot(body: string) {
-  const out = { v: -1, mode: "", token: "", events: [] as string[], text: new Map<string, string>(), hidden: new Set<string>(), visible: new Map<string, boolean>(), gauge: new Map<string, number>(), offset: new Map<string, number>(), copies: new Map<string, number>(), prompt: new Map<string, string>(), buzz: -1, same: false, raw: body };
+  const out = { v: -1, mode: "", token: "", events: [] as string[], text: new Map<string, string>(), hidden: new Set<string>(), visible: new Map<string, boolean>(), gauge: new Map<string, number>(), offset: new Map<string, number>(), copies: new Map<string, number>(), prompt: new Map<string, string>(), hue: new Map<string, string>(), pairId: "", texts: 0, buzz: -1, same: false, raw: body };
   for (const line of body.split("\n")) {
     const [k, a, ...rest] = line.split(" ");
     const b = rest.join(" ");
@@ -79,7 +79,9 @@ export function parseSnapshot(body: string) {
       case "M": out.mode = a ?? ""; break;
       case "K": out.token = a ?? ""; break;
       case "E": out.events.push(a ?? ""); break;
-      case "T": out.text.set(a ?? "", b.replace(/\\n/g, "\n").replace(/\\\\/g, "\\")); out.hidden.delete(a ?? ""); break;
+      case "I": out.pairId = a ?? ""; break;
+      case "H": out.hue.set(a ?? "", b); break;
+      case "T": out.texts++; out.text.set(a ?? "", b.replace(/\\n/g, "\n").replace(/\\\\/g, "\\")); out.hidden.delete(a ?? ""); break;
       case "X": out.hidden.add(a ?? ""); out.text.delete(a ?? ""); break;
       case "U": out.visible.set(a ?? "", b === "1"); break;
       case "G": out.gauge.set(a ?? "", Number(b)); break;
