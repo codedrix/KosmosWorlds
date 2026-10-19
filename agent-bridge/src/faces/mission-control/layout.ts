@@ -22,6 +22,12 @@
 
 export const RAIL_SLOTS = ["A", "B", "C", "D"] as const;
 export const CONV_SLOTS = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"] as const;
+/**
+ * Conversation lines that stay above the ask plate while an approval shows. The plate sits
+ * 8 cm in front of the panel with its top at z 1.358 (build_panel.py), and line E's baseline
+ * is at 1.374, so lines F-J would be hidden behind it: they carry the newest words.
+ */
+export const CONV_ABOVE_ASK = 5;
 export const CUBE_SLOTS = ["A", "B", "C", "D"] as const;
 
 /** The arc's world text (24 anchors). */

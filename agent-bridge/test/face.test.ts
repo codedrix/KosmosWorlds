@@ -132,7 +132,10 @@ test("the + cube opens the arc with no job; a preset opens its job; an approval 
   const all = conversationLines(job.events);
   assert.ok(all.some((t) => t.startsWith("Claude: ")), "Claude speaks behind its name");
   assert.ok(all.includes("   - Read 3 files"));
-  assert.deepEqual(conv.map(([, t]) => t), all.slice(-10).filter((t) => t !== ""), "the newest page: the last ten lines");
+  // With the ask plate up, only the five lines above it are used (newest last); F-J would sit
+  // behind the plate, so they are hidden rather than written there.
+  assert.deepEqual(conv.map(([, t]) => t), all.slice(-5).filter((t) => t !== ""), "with an approval up: the last five lines, above the plate");
+  for (const slot of ["F", "G", "H", "I", "J"]) assert.ok(withApproval.hidden.has(`TxConv${slot}`), `TxConv${slot} is hidden behind the plate`);
   for (const [n] of conv) assert.ok(withApproval.offset.has(n));
   assert.equal(withApproval.visible.get("BtnKeep"), false, "quick replies wait while an approval is open");
   assert.ok(withApproval.texts <= 29);

@@ -46,6 +46,7 @@ import {
   BUTTON_NODES,
   CONV_LEFT_M,
   CONV_SLOTS,
+  CONV_ABOVE_ASK,
   CUBE_SLOTS,
   HUE_NODES,
   RAIL_SLOTS,
@@ -742,7 +743,9 @@ export class MissionControlFace implements Face {
 
     // The conversation, paged.
     const lines = conversationLines(job.events);
-    const per = CONV_SLOTS.length;
+    // While an approval shows, the ask plate covers the lower lines, so a page holds only the
+    // lines above it (newest last); the rest of the slots are hidden.
+    const per = a ? CONV_ABOVE_ASK : CONV_SLOTS.length;
     const pages = Math.max(1, Math.ceil(lines.length / per));
     if (paging.pageBack > pages - 1) paging.pageBack = pages - 1;
     const end = lines.length - paging.pageBack * per;

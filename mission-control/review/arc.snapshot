@@ -19,7 +19,7 @@ H Puck need
 T TxPuck registry\nRun a command\nnpm test
 U BtnPuckApprove 1
 U BtnPuckDeny 1
-T TxTicker 3 working  |  1 needs you\n2 done today  |  13:59
+T TxTicker 3 working  |  1 needs you\n2 done today  |  17:09
 U RailA 1
 T TxRailA registry: Run all tests\nNEEDS YOU  4m 12s
 U RailSelA 1
@@ -48,27 +48,22 @@ U BtnWatch 1
 U BtnSignOut 1
 T TxHeader Run all tests\nregistry  |  NEEDS YOU 4m 12s
 U BtnStop 1
-T TxConvA   rate limiter keys on the client address, but
-O TxConvA -21
-T TxConvB   behind the tunnel every request comes
-O TxConvB -62
-T TxConvC   from the same loopback address, so one
-O TxConvC -37
-T TxConvD   busy client throttles everyone. I changed it
-O TxConvD -13
-T TxConvE   to key on the session instead and added a
-O TxConvE -18
-T TxConvF   test for two sessions at once. Next I want
-O TxConvF -27
-T TxConvG   to run the full test suite to make sure
-O TxConvG -89
-T TxConvH   nothing else depended on the old key.
-O TxConvH -75
-T TxConvI    - Ran tests
-O TxConvI -428
-T TxConvJ !! Needs you: Run a command: npm test
-O TxConvJ -62
-T TxPage 2/2
+T TxConvA   test for two sessions at once. Next I want
+O TxConvA -27
+T TxConvB   to run the full test suite to make sure
+O TxConvB -89
+T TxConvC   nothing else depended on the old key.
+O TxConvC -75
+T TxConvD    - Ran tests
+O TxConvD -428
+T TxConvE !! Needs you: Run a command: npm test
+O TxConvE -62
+X TxConvF
+X TxConvG
+X TxConvH
+X TxConvI
+X TxConvJ
+T TxPage 3/3
 U BtnPageUp 1
 U BtnPageDown 0
 U AskPanel 1

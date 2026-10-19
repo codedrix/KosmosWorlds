@@ -79,7 +79,8 @@ from mathutils import Matrix, Vector
 HERE = os.path.dirname(os.path.abspath(__file__))
 PKG = os.path.dirname(HERE)
 REVIEW = os.path.join(PKG, "review")
-SNAPS = os.environ.get("MC_SNAPSHOTS", os.path.join(REVIEW, "synthetic"))
+# The real bridge snapshots (agent-bridge/scripts/capture-review-snapshots.mjs); MC_SNAPSHOTS=review/synthetic for the hand-made ones.
+SNAPS = os.environ.get("MC_SNAPSHOTS", REVIEW)
 NODES = json.load(open(os.path.join(PKG, "nodes.json"), encoding="utf-8"))
 FONT_DIR = "E:/Epic Games/UE_5.7/Engine/Content/Slate/Fonts"
 ARGS = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
