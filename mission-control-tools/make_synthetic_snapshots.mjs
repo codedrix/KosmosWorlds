@@ -32,7 +32,8 @@ const ADV = [
 ];
 const GLYPH_M = 0.08;
 // V2_CONTRACT.md section 2 (layout.ts W).
-const W = { ticker: 0.95, status: 1.2, project: 0.85, rail: 0.85, done: 0.9, header: 1.2, conv: 1.2, ask: 1.1, pageSpot: 0.9, cube: 0.34, puck: 0.8, seal: 0.45, sealHint: 1.0 };
+// v2.1 (contract section 8): the side panels are 0.85 m wide and the chrome bar has 0.50 m for TxWatch.
+const W = { ticker: 0.78, status: 1.2, project: 0.85, rail: 0.74, done: 0.78, watch: 0.5, header: 1.2, conv: 1.2, ask: 1.1, pageSpot: 0.72, cube: 0.34, puck: 0.8, seal: 0.45, sealHint: 1.0 };
 const CONV_LEFT_M = -0.6;
 
 const width = (s) => [...s].reduce((a, ch) => a + (ADV[ch.charCodeAt(0) - 32] ?? 0.5), 0) * GLYPH_M;
@@ -96,7 +97,7 @@ function ledge(s, need) {
   }
   s.u("CubePlus", true);
   if (need) {
-    s.r("H", "Puck", "need").t("TxPuck", clip("registry: npm test", W.puck)).u("BtnPuckApprove", true).u("BtnPuckDeny", true);
+    s.r("H", "Puck", "need").t("TxPuck", clip("registry: run npm test", W.puck)).u("BtnPuckApprove", true).u("BtnPuckDeny", true);
   } else {
     s.r("H", "Puck", "calm").t("TxPuck", "").u("BtnPuckApprove", false).u("BtnPuckDeny", false);
   }
@@ -128,14 +129,15 @@ function arc(v, forWatcher) {
   if (!forWatcher) s.r("Z", 1);
   s.t("TxTicker", clip("3 working | 1 needs you | 22:00", W.ticker));
   s.t("TxStatus", clip(forWatcher ? "Watching  |  pressed: Run all tests" : "Signed in  |  3/4 jobs  |  Stop: npm run kill", W.status));
-  s.t("TxProject", clip("Project: kosmos-registry", W.project));
+  // A job is open: the start-a-job set (inside the centre) is hidden (contract 8.2).
+  s.t("TxProject", "");
   const rails = [["registry", "NEEDS YOU"], ["portal", "WORKING"], ["web", "WORKING"], ["", ""]];
   ["A", "B", "C", "D"].forEach((slot, i) => {
     const [p, st] = rails[i];
     s.u(`Rail${slot}`, !!p).u(`RailSel${slot}`, i === 0).t(`TxRail${slot}`, p ? `${clip(p, W.rail)}\n${st}` : "");
   });
-  for (const b of ["BtnTests", "BtnPrs", "BtnToday", "BtnNotes", "BtnNewTask", "BtnProject"]) s.u(b, true);
-  s.t("TxDone", clip("Done: Summarize today (portal)", W.done));
+  for (const b of ["BtnTests", "BtnPrs", "BtnToday", "BtnNotes", "BtnNewTask", "BtnProject"]) s.u(b, false);
+  s.t("TxDone", clip("Done today: 2", W.done));
   s.t("TxHeader", clip("Run all tests  |  registry  |  NEEDS YOU 4m", W.header));
   s.u("BtnFold", !forWatcher).u("BtnStop", true);
   CONV.forEach((line, i) => {
@@ -148,7 +150,7 @@ function arc(v, forWatcher) {
   s.u("BtnApprove", true).u("BtnDeny", true).u("BtnWhy", true);
   for (const b of ["BtnKeep", "BtnSimple", "BtnSummary", "BtnReply"]) s.u(b, false);
   s.t("TxPageSpot", clip("A pinned web page docks here", W.pageSpot));
-  s.u("BtnWatch", !forWatcher).t("TxWatch", forWatcher ? "Watching (read-only)" : "Let my group watch: off");
+  s.u("BtnWatch", !forWatcher).t("TxWatch", clip(forWatcher ? "read-only" : "off", W.watch));
   s.u("BtnSignOut", !forWatcher);
   if (!forWatcher) ledge(s, true);
   return s;
