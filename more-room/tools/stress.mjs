@@ -58,22 +58,18 @@ for (const v of ["vr", "mr"]) {
   }
   const live = [...host.nodes.values()].filter((n) => n.alive && n.created);
   const msgCards = live.filter((n) => n.source?.startsWith("TplMsg")).length;
-  // 12 desk slots + 5 Later + 5 Done + 6 shelf = 28 cards at most, plus 8 events.
-  // 12 on the desk + 2 waiting on the tray + 5 Later + 5 Done + 6 on the shelf.
+  // 12 on the landing arc + 2 waiting in the well + 5 Later + 5 Done + 6 on the shelf.
   if (msgCards !== 30) fail(`${v}: expected 30 drawn cards, got ${msgCards}`);
-  if (live.filter((n) => n.source === "TplEvent").length !== 8) fail(`${v}: 8 events`);
+  if (live.filter((n) => n.source?.startsWith("TplEvent")).length !== 8) fail(`${v}: 8 events`);
   if (maxPerFrame > LIMITS.createsPerFrame) fail(`${v}: ${maxPerFrame} creates in one frame`);
-  // 14 in the inbox: 12 on the desk and 2 on the tray, so nothing is "+N more".
-  if (!/^Inbox 14/.test(host.textOf("InboxTray") ?? "") || /more/.test(host.textOf("InboxTray") ?? "")) fail(`${v}: inbox count (${host.textOf("InboxTray")})`);
-  // Triage with a card open, the draft waiting, and a prep sheet up: the busiest screen.
+  // 14 in the inbox: 12 on the arc and 2 in the well, so nothing is "+N more".
+  if (!/^Inbox 14/.test(host.textOf("InboxWell") ?? "") || /more/.test(host.textOf("InboxWell") ?? "")) fail(`${v}: inbox count (${host.textOf("InboxWell")})`);
+  // Triage with the fan up, a card being read, the draft waiting and both piles counted: the busiest screen.
   host.press("BtnModeTriage");
-  host.run(0.2);
-  const card = live.find((n) => n.source?.startsWith("TplMsg") && n.pos[0] > 0.5 && n.pos[0] < 1.0 && Math.abs(n.pos[2]) < 0.5);
-  host.press(card.handle);
-  host.run(0.2);
-  const ev = live.find((n) => n.source === "TplEvent");
-  host.press(ev.handle);
-  host.run(0.3);
+  host.run(0.8);
+  host.press("FanB");
+  host.run(0.8);
+  if (!["FanA", "FanB", "FanC", "FanD", "FanE"].every((f) => host.byName.get(f).visible)) fail(`${v}: the fan refills around the card being read`);
   if (host.texts.size > LIMITS.maxTexts) fail(`${v}: ${host.texts.size} texts`);
   if (host.textRefusals.length) fail(`${v}: text refused ${JSON.stringify(host.textRefusals[0])}`);
   if (!/More 1\/\d/.test(host.textOf("BtnMore") ?? "")) fail(`${v}: a long draft pages (${host.textOf("BtnMore")})`);

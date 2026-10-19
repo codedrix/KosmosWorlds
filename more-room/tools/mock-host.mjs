@@ -415,6 +415,20 @@ export class Host {
     for (const n of this.nodes.values()) {
       if (!n.alive || !n.visible || !n.half) continue;
       if (n.half.every((h) => h < 0.006)) continue; // 1 cm text studs
+      if (n.extras.hollow) {
+        // A ring (radii r0..r1, heights y0..y1 about its node): sample the ray through the band.
+        const [r0, r1, y0, y1] = n.extras.hollow;
+        for (let k = 1; k < 600; k++) {
+          const t = k / 600;
+          const p = [o[0] + d[0] * t - n.pos[0], o[1] + d[1] * t - n.pos[1], o[2] + d[2] * t - n.pos[2]];
+          const r = Math.hypot(p[0], p[2]);
+          if (r >= r0 && r <= r1 && p[1] >= y0 && p[1] <= y1) {
+            if (!best || t < best.t) best = { t, node: n };
+            break;
+          }
+        }
+        continue;
+      }
       // Into the box's frame (yaw about +Y).
       const c = Math.cos(-n.yaw), s = Math.sin(-n.yaw);
       const rel = o.map((v, i) => v - n.pos[i]);
