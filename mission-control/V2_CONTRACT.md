@@ -139,7 +139,7 @@ Face actions (press map):
   16 random bytes in hex.
 - **Lifetime:** 120 s. **Single use:** the first poll after approval takes the token, and the
   pairing is deleted.
-- **Pending slots: see §8.9** (up to 4, keyed by id; the oldest is replaced). Originally: a new mint replaced the pending one. A stranger can't hold a slot,
+- **Pending slots: see §8.9** (up to 16, keyed by id). Originally: a new mint replaced the pending one. A stranger can't hold a slot,
   and a replaced code can no longer be approved.
 - **Mint rate:** at most 6 a minute across everyone, and at least 3 s apart; beyond that,
   `pair_refused`. The kill switch refuses minting and clears what is pending.
@@ -242,8 +242,12 @@ for DB-045. This revision fixes what today's API can fix.
    while the world holds a token, the world closes fully (Closed, everything parked, the ring down).
    It never shows a blank ring. The owner presses the seal to start again.
 9. **Pairing slots** (security LOW-1, which replaces §5's "one pending at a time"):
-   - Up to 4 pending pairings, each keyed by its id. A new mint fills a free slot, else replaces the
-     OLDEST, so a stranger pressing every 3 s can no longer cancel the owner's code within 3 s.
+   - Up to **16** pending pairings, each keyed by its id. The mint rate (6 a minute, 3 s apart) and
+     the 120 s TTL allow at most 12 alive at once, so rate-limited minting can never evict a live
+     pairing. Replacing the OLDEST stays only as a backstop for a full table. (First drafted as 4 slots;
+     the bridge builder showed a stranger at the cap would evict the owner after about 12 s.)
+   - **Residual risk:** a bot minting at the cap uses up the mint rate, so the owner's press can be
+     refused (`pair_refused`). That is a nuisance, not a takeover; the passphrase fallback remains.
    - Approval by typed code matches whichever pending pairing has that code. The owner types the code
      on his own ring, so a stranger's pairing is never approved by accident.
    - Mint rate unchanged.
