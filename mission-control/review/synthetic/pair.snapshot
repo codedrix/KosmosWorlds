@@ -1,0 +1,10 @@
+AB1
+V 1000002
+M pair
+I 5f0c1e9a7b3d48e2a6c4f1d0b9e8a7c6
+T TxSeal KXT WMP
+T TxSealHint At the PC, type this code to approve
+H SealRing armed
+U BtnSealType 1
+P BtnSealType Mission Control passphrase (it shows on screen as you type)
+E pair_wait
