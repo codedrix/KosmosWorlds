@@ -13,6 +13,7 @@
 import fs from "node:fs";
 import { AuthGate } from "./auth.js";
 import { WatchGate } from "./watch.js";
+import { Pairing } from "./pairing.js";
 import { type BridgeConfig, verifyPassphrase } from "./config.js";
 import { type Decision, type Job, JobStore } from "./jobs.js";
 import { isKilled } from "./killswitch.js";
@@ -36,6 +37,8 @@ export class Bridge {
   readonly auth: AuthGate;
   /** Group watching (off until the owner turns it on from the panel). */
   readonly watch: WatchGate;
+  /** The Pairing Seal (v2). Approved only at the PC; see pairing.ts. */
+  readonly pairing: Pairing;
   private stopping = false;
 
   constructor(
@@ -46,19 +49,21 @@ export class Bridge {
     this.store = new JobStore(now);
     this.auth = new AuthGate((p) => verifyPassphrase(p, this.config.passphrase), () => !!this.config.passphrase, now);
     this.watch = new WatchGate(now);
+    this.pairing = new Pairing(now, () => this.store.poke());
   }
 
   get killed(): boolean {
     return isKilled();
   }
 
-  /** The kill switch was found on: end the sign-in, deny every approval, stop every job. */
+  /** The kill switch was found on: end the sign-in and any pairing, deny every approval, stop every job. */
   async enforceKill(): Promise<void> {
     if (this.stopping) return;
     this.stopping = true;
     try {
       this.auth.signOut();
       this.watch.close();
+      this.pairing.clear();
       this.store.cancelApprovals();
       await this.adapter.stopAll();
       this.store.poke();

@@ -1,50 +1,71 @@
 /**
- * faces/mission-control/index.ts -- the Mission Control wall and its chat.
+ * faces/mission-control/index.ts -- Mission Control v2: the Pairing Seal, Job Cubes, the decision
+ * puck and the three-panel arc.
  *
- * @kosmos-system  Agent bridge (Mission Control, DB-044)
+ * @kosmos-system  Agent bridge (Mission Control, DB-044 v2)
  * @kosmos-owner   Platform
  *
- * Three modes:
+ * The contract is mission-control/V2_CONTRACT.md. Modes (`M`):
  *
- *   lock  signed out (or stopped on the PC): the title, one line and SIGN IN.
- *   wall  the ticker; "Start a job" on the left; "Working now" cards in the
- *         centre (a card waiting on the CEO turns amber); "Needs you" on the
- *         right; "Done today" on the shelf below.
- *   chat  pressing a card, a "Needs you" item or New task turns the centre into
- *         that job's conversation: a slim agent rail on the left, a header with
- *         Stop and Back to wall, the conversation (paged), an inline approval
- *         with the exact command, quick replies and a reply field.
+ *   lock   anonymous: nothing of the owner's is shown; the seal waits on the throne.
+ *   pair   a pairing is waiting: the ring shows its code (only to the headset holding the id).
+ *   cubes  signed in, arc folded: the ledge holds one cube per running job (calm / needs you /
+ *          idle) and a "+" cube; the puck on the left armrest shows the oldest pending approval.
+ *   arc    signed in, arc open: left = jobs (ticker, rail, presets, project, done today);
+ *          centre = one job's conversation (header, 10 lines, the ask plate, quick replies,
+ *          reply, fold, stop, status, watch, sign-out); right = the page spot (DB-043, a
+ *          placeholder). The ledge and the puck stay.
+ *
+ * Ops: `view` (long poll), `press`, `signin` (the passphrase fallback), `watch` (a group member's
+ * read-only arc) and `pair` (mint, then a long poll on the pairing id).
  *
  * SECURITY, BY CONSTRUCTION:
- *   - Agent text appears only in TxConv* lines, behind "Claude:". Every header,
- *     button, card status, approval title and the ticker are the bridge's own
- *     words; an approval shows the agent's REQUEST (tool + exact command), never
- *     its prose.
- *   - A press names a node and the snapshot version the world was showing. The
- *     face looks up what that node meant IN THAT SNAPSHOT, so a press can never
- *     land on something the visitor did not see (an approval that changed, a
- *     card that moved).
- *   - An approval is only approvable from the headset when its whole command is
- *     on the wall and nothing in it was redacted: "you approve what you read".
+ *   - Agent text appears only on TxConv* lines, behind "Claude:". Every header, button, cube label,
+ *     puck label, approval title and the ticker are the bridge's own words; an approval shows the
+ *     agent's REQUEST (tool + exact command, cleaned by jobs.ts), never its prose. Everything an
+ *     agent or a tool wrote was redacted and defanged when it entered the store (jobs.ts).
+ *   - A press names a node and the snapshot version the world was showing. The face looks up what
+ *     that node meant IN THAT SNAPSHOT, so a press can never land on something the visitor did not
+ *     see. Anonymous callers have their own version space and press map.
+ *   - An approval is approvable from the headset (the ask plate or the puck) only when its whole
+ *     command is on show and nothing in it was redacted: "you approve what you read".
+ *   - The pairing code appears only in answers to the `pair` op, for the holder of its id. No op
+ *     approves a pairing (ctx.pair has no such verb).
+ *   - Colour is chosen in ONE function, `paint`; text and visibility in the render functions.
  */
 
 import type { Job, JobEvent, Approval } from "../../jobs.js";
 import { PRESETS, QUICK_REPLIES } from "../../presets.js";
+import { formatPairCode } from "../../pairing.js";
 import { clipBytes, clipWidth, estimateWidthM, toWallAscii, wrapWidth, WORLD_TEXT_MAX_BYTES } from "../../sanitize.js";
-import { Snapshot, type WorldRequest } from "../../wire.js";
+import { Snapshot, type HueState, type WorldRequest } from "../../wire.js";
 import type { Face, FaceContext, FaceReply } from "../types.js";
-import { BUTTON_NODES, CARD_SLOTS, CONV_LEFT_M, CONV_SLOTS, MAX_CHIPS, NEED_SLOTS, RAIL_SLOTS, SHOW_NODES, TEXT_NODES, W } from "./layout.js";
+import {
+  ARC_BUTTON_NODES,
+  ARC_TEXT_NODES,
+  BUTTON_NODES,
+  CONV_LEFT_M,
+  CONV_SLOTS,
+  CUBE_SLOTS,
+  HUE_NODES,
+  RAIL_SLOTS,
+  SHOW_NODES,
+  TEXT_NODES,
+  W,
+} from "./layout.js";
 
 export const WORLD_ADDRESS = "world://lobby.micknerks";
 /** A long poll waits at most this long for a change (the headset gives up at 10 s). */
 export const LONG_POLL_MS = 6500;
 /** Snapshots kept for press lookups. */
 const KEEP_RENDERS = 12;
+/** A notice stays on the status line this long. */
+const NOTICE_MS = 20000;
 
-type Mode = "lock" | "wall" | "chat";
+type OwnerMode = "cubes" | "arc";
 
 interface ViewState {
-  mode: Mode;
+  mode: OwnerMode;
   focus?: string;
   /** Pages up from the newest (0 = follow the newest lines). */
   pageBack: number;
@@ -55,10 +76,16 @@ interface ViewState {
   noticeAt?: number;
 }
 
+interface Paging {
+  pageBack: number;
+  seenLines: number;
+}
+
 type ActionMap = Map<string, string>;
 
 const PRESET_BUTTONS: Record<string, string> = { BtnTests: "tests", BtnPrs: "prs", BtnToday: "today", BtnNotes: "notes" };
 const QUICK_BUTTONS: Record<string, string> = { BtnKeep: "keep", BtnSimple: "simple", BtnSummary: "summary" };
+const HUE_BASES = Object.keys(HUE_NODES);
 
 const STATUS_WORD: Record<Job["status"], string> = {
   starting: "STARTING",
@@ -69,6 +96,9 @@ const STATUS_WORD: Record<Job["status"], string> = {
   failed: "FAILED",
   stopped: "STOPPED",
 };
+
+const SEAL_HINT = ["At the PC, type this code", "to approve. It lasts 2 minutes."];
+const PASSPHRASE_QUESTION = "Mission Control passphrase (it shows on screen as you type)";
 
 export function formatElapsed(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000));
@@ -100,32 +130,118 @@ function sameNonSpace(a: string, b: string): boolean {
   return a.replace(/\s+/g, "") === b.replace(/\s+/g, "");
 }
 
+/** Wrap each paragraph to `maxM` metres. */
+function wrapAll(paras: string[], maxM: number): string[] {
+  return paras.flatMap((p) => wrapWidth(p, maxM));
+}
+
+// ---------------------------------------------------------------------------
+// Colour: the ONE place a state becomes a colour state (DB-045 replaces only the world's side).
+// ---------------------------------------------------------------------------
+
+export type Paint =
+  | { kind: "job"; job: Job; needsYou: boolean }
+  | { kind: "empty" }
+  | { kind: "puck"; pending: boolean }
+  | { kind: "seal"; stage: "waiting" | "locked" | "closed" };
+
+export function paint(s: Snapshot, node: string, p: Paint): void {
+  let state: HueState;
+  switch (p.kind) {
+    case "job":
+      state = p.needsYou ? "need" : p.job.status === "idle" ? "idle" : "calm";
+      break;
+    case "empty":
+      state = "off";
+      break;
+    case "puck":
+      state = p.pending ? "need" : "calm";
+      break;
+    case "seal":
+      state = p.stage === "waiting" ? "armed" : p.stage === "locked" ? "locked" : "off";
+      break;
+  }
+  const allowed = HUE_NODES[node];
+  if (!allowed || (state !== "off" && !allowed.includes(state))) throw new Error(`no ${state} variant for ${node}`);
+  s.hue(node, state);
+}
+
 export class MissionControlFace implements Face {
   readonly name = "mission-control";
   readonly worlds = [WORLD_ADDRESS] as const;
 
   /** How long a view waits for a change before answering "same" (tests shorten it). */
   longPollMs = LONG_POLL_MS;
-  private state: ViewState = { mode: "lock", pageBack: 0, seenLines: 0 };
+  private state: ViewState = { mode: "cubes", pageBack: 0, seenLines: 0 };
   private version = 0;
   private lastKey = "";
   private renders = new Map<number, ActionMap>();
 
   reset(): void {
-    this.state = { mode: "lock", pageBack: 0, seenLines: 0 };
+    this.state = { mode: "cubes", pageBack: 0, seenLines: 0 };
   }
 
   async handle(op: string, req: WorldRequest, ctx: FaceContext): Promise<FaceReply> {
     if (op === "view") return this.view(req, ctx);
     if (op === "press") return this.press(req, ctx);
-    // The Lobby ritual: the first call a world makes, with the passphrase as its text.
+    // The passphrase fallback ("Use passphrase" under the ring): the passphrase as the text.
     if (op === "signin") return this.signIn(req, ctx);
     if (op === "watch") return this.watchView(req, ctx);
+    if (op === "pair") return this.pair(req, ctx);
     return { status: 404, body: "unknown op\n" };
   }
 
   // -------------------------------------------------------------------------
-  // watch: a group member's read-only copy of the owner's wall
+  // pair: the Pairing Seal (anonymous; approval happens only at the PC)
+  // -------------------------------------------------------------------------
+
+  private async pair(req: WorldRequest, ctx: FaceContext): Promise<FaceReply> {
+    if (!req.pair) {
+      const m = ctx.pair.mint();
+      if (!m.ok) {
+        const why: Record<string, string> = {
+          rate: "Too many pairings just now. Wait a minute, then press the seal again.",
+          stopped: "Stopped on the PC. At the desk: npm run unkill",
+          off: "Pairing is off on the PC.",
+        };
+        return this.reply(this.renderPairEnd(ctx, why[m.reason] ?? "Refused.").event("pair_refused"));
+      }
+      return this.reply(this.renderSeal(ctx, m.code, m.id).event("pair_wait"));
+    }
+    let st = ctx.pair.state(req.pair);
+    if (st.state === "pending") {
+      // A long poll: answer when the owner approves at the PC, or the code expires, or after the wait.
+      const deadline = Math.min(Date.now() + this.longPollMs, st.expiresAt + 50);
+      while (Date.now() < deadline) {
+        await ctx.waitForChange(Math.max(1, deadline - Date.now()));
+        st = ctx.pair.state(req.pair);
+        if (st.state !== "pending") break;
+      }
+    }
+    if (st.state === "approved") {
+      const r = ctx.pair.signIn(req.pair);
+      if (r.ok) return this.paired(ctx, r.token);
+      st = { state: "expired" };
+    }
+    if (st.state === "pending") return this.reply(this.renderSeal(ctx, st.code).event("pair_wait"));
+    if (ctx.killed) return this.reply(this.renderPairEnd(ctx, "Stopped on the PC. At the desk: npm run unkill").event("pair_refused"));
+    return this.reply(this.renderPairEnd(ctx, "That code expired. Press the seal for a new one.").event("pair_expired"));
+  }
+
+  /** The approved pairing's answer: K, E paired, the ring locked, then the owner's cubes. */
+  private paired(ctx: FaceContext, token: string): FaceReply {
+    this.state = { mode: "cubes", pageBack: 0, seenLines: 0 };
+    this.anonNotice = null;
+    this.note("Signed in at the seal.");
+    const body = this.renderWith({ ...ctx, authed: true }, true);
+    const out = new Snapshot().version(body.versionNumber).token(token).event("paired");
+    paint(out, "SealRing", { kind: "seal", stage: "locked" });
+    // The token rides in this one reply; it is never logged.
+    return this.reply(out.extend(body));
+  }
+
+  // -------------------------------------------------------------------------
+  // watch: a group member's read-only copy of the owner's arc
   // -------------------------------------------------------------------------
 
   private watchVersion = 0;
@@ -133,7 +249,7 @@ export class MissionControlFace implements Face {
   private lastPress: { node: string; at: number } | null = null;
 
   private async watchView(req: WorldRequest, ctx: FaceContext): Promise<FaceReply> {
-    const verdict = ctx.bridge.watch.check(req.fields.watch);
+    const verdict = ctx.killed || !ctx.bridge.auth.signedIn ? "off" : ctx.bridge.watch.check(req.fields.watch);
     if (verdict === "too_many") {
       // Someone is guessing codes. That must not end a real watcher's view: answer "nothing new"
       // (no watch_refused, so the headset keeps polling) and let the guesser wait out the minute.
@@ -163,18 +279,28 @@ export class MissionControlFace implements Face {
     return this.reply(snap);
   }
 
-  /** The owner's wall, as the owner sees it, minus anything that acts: no prompts, no token, no watch toggle. */
+  /**
+   * The arc as the owner would see it, always open (focus = the owner's focus, or the first running
+   * job), minus anything that acts: no ledge, puck or seal records, no prompts, no token, no
+   * fold, watch or sign-out buttons. It never reads or changes the owner's press maps or paging.
+   */
   private renderWatcher(ctx: FaceContext): Snapshot {
-    const owner = { ...ctx, authed: ctx.bridge.auth.signedIn };
-    const body = this.renderWith(owner, false, true);
+    const store = ctx.bridge.store;
+    const ownerFocus = this.state.focus && store.jobs.has(this.state.focus) ? this.state.focus : undefined;
+    const focusId = ownerFocus ?? store.running()[0]?.id;
+    const job = focusId ? store.jobs.get(focusId) : undefined;
+    const paging: Paging = focusId === ownerFocus ? { pageBack: this.state.pageBack, seenLines: this.state.seenLines } : { pageBack: 0, seenLines: 0 };
+    const body = new Snapshot().mode("arc");
+    this.renderArc(body, new Map(), ctx, job, paging, "");
     body.dropPrompts();
     // Overrides replace the owner's records, so the owner's watch line (with its code) never reaches a watcher.
-    for (const n of ["BtnWatch", "BtnSignOut", "TxWatch", "TxStatus"]) body.forget(n);
+    for (const n of ["BtnWatch", "BtnSignOut", "BtnFold", "TxWatch", "TxStatus"]) body.forget(n);
     body.visible("BtnWatch", false);
     body.visible("BtnSignOut", false);
-    const pressed = this.lastPress ? `  |  pressed: ${pressLabel(this.lastPress.node)} ${formatElapsed(Date.now() - this.lastPress.at)} ago` : "";
+    body.visible("BtnFold", false);
+    const pressed = this.lastPress ? [clipWidth(`pressed: ${pressLabel(this.lastPress.node)} ${formatElapsed(Date.now() - this.lastPress.at)} ago`, W.status)] : [];
     body.text("TxWatch", "Watching (read-only)");
-    body.text("TxStatus", clipWidth(`Watching Mission Control${pressed}`, W.status));
+    body.text("TxStatus", label([clipWidth("Watching Mission Control", W.status), ...pressed]));
     const key = body.contentKey();
     if (key !== this.watchKey) {
       this.watchVersion++;
@@ -188,7 +314,7 @@ export class MissionControlFace implements Face {
   // -------------------------------------------------------------------------
 
   private async view(req: WorldRequest, ctx: FaceContext): Promise<FaceReply> {
-    // The owner is on the wall: watch codes stay alive only while this keeps happening.
+    // The owner is in Mission Control: watch codes stay alive only while this keeps happening.
     if (ctx.authed) ctx.bridge.watch.ownerSeen();
     let snap = this.render(ctx);
     if (req.v !== undefined && req.v === this.version) {
@@ -216,7 +342,7 @@ export class MissionControlFace implements Face {
     const node = req.press;
     const live = ctx.authed && !ctx.killed;
     // Anonymous callers and the owner have separate snapshots, versions and press maps,
-    // so nothing an anonymous caller sends can touch the owner's wall.
+    // so nothing an anonymous caller sends can touch the owner's view.
     const maps = live ? this.renders : this.anonRenders;
     const map = req.v !== undefined ? maps.get(req.v) : undefined;
     const action = node && map ? map.get(node) : undefined;
@@ -229,6 +355,7 @@ export class MissionControlFace implements Face {
     if (!live) return this.reply(this.render(ctx).event("signed_out"));
 
     const a = ctx.bridge.actions;
+    const store = ctx.bridge.store;
     const [verb, arg, arg2] = action.split(":");
     if (node) this.lastPress = { node, at: Date.now() };
     const text = (req.text ?? "").trim();
@@ -240,6 +367,14 @@ export class MissionControlFace implements Face {
         ctx.signOut();
         this.reset();
         return this.reply(this.render({ ...ctx, authed: false }).event("signed_out"));
+      case "cube":
+        this.state.mode = "arc";
+        this.state.focus = arg && arg !== "none" && store.jobs.has(arg) ? arg : undefined;
+        this.state.pageBack = 0;
+        break;
+      case "fold":
+        this.state.mode = "cubes";
+        break;
       case "preset":
         result = await a.startPreset(arg ?? "", project);
         if (result.ok && result.job) this.focus(result.job.id);
@@ -260,13 +395,8 @@ export class MissionControlFace implements Face {
         }
         break;
       }
-      case "open":
       case "rail":
         this.focus(arg ?? "");
-        break;
-      case "back":
-        this.state.mode = "wall";
-        this.state.focus = undefined;
         break;
       case "stop":
         result = await a.stop(arg ?? "");
@@ -315,10 +445,12 @@ export class MissionControlFace implements Face {
     return this.reply(snap);
   }
 
+  /** The passphrase fallback. Refused with `passphrase_off` when the PC turned it off. */
   private signIn(req: WorldRequest, ctx: FaceContext): FaceReply {
     const r = ctx.signIn(req.text ?? "");
     if (r.ok) {
-      this.state = { mode: "wall", pageBack: 0, seenLines: 0 };
+      this.state = { mode: "cubes", pageBack: 0, seenLines: 0 };
+      this.anonNotice = null;
       this.note("Signed in.");
       // The token rides in the reply that follows sign-in; it is never logged.
       const snap = this.renderWith({ ...ctx, authed: true }, true);
@@ -327,17 +459,23 @@ export class MissionControlFace implements Face {
     }
     const why: Record<string, string> = {
       wrong: "That passphrase is wrong.",
-      locked: `Too many wrong tries. Wait ${Math.ceil((r.retryAfterS ?? 900) / 60)} minutes.`,
+      locked: ctx.killed ? "Stopped on the PC. At the desk: npm run unkill" : `Too many wrong tries. Wait ${Math.ceil((r.retryAfterS ?? 900) / 60)} minutes.`,
       hard_locked: "Locked after too many wrong tries. Unlock it at the PC: npm run unlock.",
       too_fast: "Too fast. Wait two seconds and try again.",
       not_set: "No passphrase is set. At the PC: npm run set-passphrase.",
+      off: "Passphrase sign-in is off. Approve the ring's code at the PC.",
     };
-    this.anonNotice = { text: why[r.reason] ?? "Sign-in refused.", at: Date.now() };
-    return this.reply(this.render(ctx).event("refused"));
+    const text = why[r.reason] ?? "Sign-in refused.";
+    const event = r.reason === "off" ? "passphrase_off" : "refused";
+    // Typed from the raised seal while a pairing waits: keep showing its code, with the reason.
+    const st = req.pair ? ctx.pair.state(req.pair) : undefined;
+    if (st && st.state === "pending") return this.reply(this.renderSeal(ctx, st.code, undefined, text).event(event));
+    this.anonNotice = { text, at: Date.now() };
+    return this.reply(this.render(ctx).event(event));
   }
 
   private focus(jobId: string): void {
-    this.state.mode = "chat";
+    this.state.mode = "arc";
     this.state.focus = jobId;
     this.state.pageBack = 0;
   }
@@ -362,17 +500,14 @@ export class MissionControlFace implements Face {
     return this.renderWith(ctx, false);
   }
 
-  // Anonymous callers (signed out, or the bridge stopped) see the lock screen from their own
+  // Anonymous callers (signed out, pairing, or the bridge stopped) get renders from their own
   // version space and press map. They never read or write the owner's view state.
   private anonVersion = 1_000_000;
   private anonKey = "";
   private anonRenders = new Map<number, ActionMap>();
   private anonNotice: { text: string; at: number } | null = null;
 
-  private renderAnon(ctx: FaceContext): Snapshot {
-    const actions: ActionMap = new Map();
-    const body = new Snapshot().mode("lock");
-    this.renderLock(body, actions, ctx);
+  private versionAnon(body: Snapshot, actions: ActionMap): Snapshot {
     const key = body.contentKey();
     if (key !== this.anonKey) {
       this.anonVersion++;
@@ -383,38 +518,79 @@ export class MissionControlFace implements Face {
     return body.version(this.anonVersion);
   }
 
-  private renderWith(ctx: FaceContext, forceNewVersion: boolean, forWatcher = false): Snapshot {
-    const live = ctx.authed && !ctx.killed;
-    if (!live) return this.renderAnon(ctx);
-    if (forWatcher) {
-      // A watcher's render reads the owner's view state and must never change it (the paging
-      // clamp and the "new below" marker): render from a copy, then put the owner's back.
-      const owner = this.state;
-      this.state = { ...owner };
-      try {
-        return this.renderWithState(ctx, false, true);
-      } finally {
-        this.state = owner;
-      }
-    }
-    return this.renderWithState(ctx, forceNewVersion, false);
+  /** "Use passphrase" under the ring: shown only while the passphrase fallback is on. */
+  private sealTypeButton(s: Snapshot, actions: ActionMap, ctx: FaceContext): void {
+    const on = ctx.bridge.config.passphraseSignIn && !ctx.killed;
+    s.visible("BtnSealType", on);
+    if (!on) return;
+    s.prompt("BtnSealType", PASSPHRASE_QUESTION);
+    actions.set("BtnSealType", "signin");
   }
 
-  private renderWithState(ctx: FaceContext, forceNewVersion: boolean, forWatcher: boolean): Snapshot {
+  /**
+   * lock: everything of the owner's is cleared (every text hidden, every button and panel hidden,
+   * every hue off). Only a notice (a refused sign-in, the stop) may show, under the seal.
+   */
+  private renderAnon(ctx: FaceContext): Snapshot {
+    const actions: ActionMap = new Map();
+    const s = new Snapshot().mode("lock");
+    for (const n of TEXT_NODES) if (n !== "TxSealHint") s.hide(n);
+    for (const n of [...BUTTON_NODES, ...SHOW_NODES]) if (n !== "BtnSealType") s.visible(n, false);
+    for (const n of HUE_BASES) paint(s, n, { kind: "empty" });
+    const n = this.anonNotice;
+    if (ctx.killed) s.text("TxSealHint", label(wrapAll(["Stopped on the PC.", "At the desk: npm run unkill"], W.sealHint)));
+    else if (n && Date.now() - n.at < NOTICE_MS) s.text("TxSealHint", label(wrapWidth(n.text, W.sealHint)));
+    else s.hide("TxSealHint");
+    this.sealTypeButton(s, actions, ctx);
+    return this.versionAnon(s, actions);
+  }
+
+  /** pair: the raised ring with its code, for the holder of the pairing id only. */
+  private renderSeal(ctx: FaceContext, code: string, id?: string, hint?: string): Snapshot {
+    const actions: ActionMap = new Map();
+    const s = new Snapshot().mode("pair");
+    if (id) s.pairId(id);
+    s.text("TxSeal", clipWidth(formatPairCode(code), W.seal));
+    s.text("TxSealHint", label(hint ? wrapWidth(hint, W.sealHint) : wrapAll(SEAL_HINT, W.sealHint)));
+    paint(s, "SealRing", { kind: "seal", stage: "waiting" });
+    this.sealTypeButton(s, actions, ctx);
+    return this.versionAnon(s, actions);
+  }
+
+  /** A pairing that ended without a sign-in (expired, refused): the code is gone, the reason shows. */
+  private renderPairEnd(ctx: FaceContext, why: string): Snapshot {
+    const actions: ActionMap = new Map();
+    const s = new Snapshot().mode("lock");
+    s.hide("TxSeal");
+    s.text("TxSealHint", label(wrapWidth(why, W.sealHint)));
+    paint(s, "SealRing", { kind: "seal", stage: "closed" });
+    this.sealTypeButton(s, actions, ctx);
+    return this.versionAnon(s, actions);
+  }
+
+  private renderWith(ctx: FaceContext, forceNewVersion: boolean): Snapshot {
+    const live = ctx.authed && !ctx.killed;
+    if (!live) return this.renderAnon(ctx);
+    const store = ctx.bridge.store;
     const actions: ActionMap = new Map();
     const body = new Snapshot();
-    // A live owner whose state still says lock (just signed in elsewhere) starts on the wall.
-    if (this.state.mode === "lock") this.state.mode = "wall";
-    if (this.state.mode === "chat" && !ctx.bridge.store.jobs.has(this.state.focus ?? "")) this.state.mode = "wall";
+    if (this.state.focus && !store.jobs.has(this.state.focus)) this.state.focus = undefined;
 
     const mode = this.state.mode;
     body.mode(mode);
-    this.renderCommon(body, actions, ctx);
-    if (mode === "wall") this.renderWall(body, actions, ctx);
-    else this.renderChat(body, actions, ctx);
+    body.buzz(store.approvalsEver);
+    this.renderLedge(body, actions, ctx);
+    this.renderPuck(body, actions, ctx);
+    if (mode === "arc") {
+      const job = this.state.focus ? store.jobs.get(this.state.focus) : undefined;
+      this.renderArc(body, actions, ctx, job, this.state, this.statusLine(ctx));
+    } else {
+      // Folded: the arc's words leave the world at once. Its buttons keep their last U record so
+      // the world can fold them away; the press map below no longer knows them.
+      for (const n of ARC_TEXT_NODES) body.hide(n);
+    }
 
     const key = body.contentKey();
-    if (forWatcher) return body; // a watcher's render never maps presses
     if (forceNewVersion || key !== this.lastKey) {
       this.version++;
       this.lastKey = key;
@@ -424,167 +600,85 @@ export class MissionControlFace implements Face {
     return body.version(this.version);
   }
 
-  private statusLine(ctx: FaceContext, fallback: string): string {
+  private statusLine(ctx: FaceContext): string {
     const n = this.state.notice;
-    if (n && Date.now() - (this.state.noticeAt ?? 0) < 20000) return clipWidth(n, W.status);
-    return clipWidth(fallback, W.status);
+    if (n && Date.now() - (this.state.noticeAt ?? 0) < NOTICE_MS) return clipWidth(n, W.status);
+    const running = ctx.bridge.store.running().length;
+    return clipWidth(`${running}/${ctx.bridge.config.maxJobs} jobs  |  stop at the PC: npm run kill`, W.status);
   }
 
-  private renderLock(s: Snapshot, actions: ActionMap, ctx: FaceContext): void {
-    for (const n of TEXT_NODES) if (n !== "TxTicker" && n !== "TxStatus" && n !== "TxLock") s.hide(n);
-    for (const n of [...BUTTON_NODES, ...SHOW_NODES]) if (n !== "BtnSignIn" && n !== "LockPanel") s.visible(n, false);
-    s.visible("LockPanel", true);
-    s.copies("ChipDone", 0);
-    s.text("TxTicker", "MISSION CONTROL | signed out");
-    if (ctx.killed) {
-      s.visible("BtnSignIn", false);
-      s.text("TxLock", label(["Stopped on the PC.", "At the desk: npm run unkill"]));
-      s.text("TxStatus", "The bridge refuses everything until it is restarted.");
+  /** The ledge: one cube per running job (up to four) and the "+" cube. */
+  private renderLedge(s: Snapshot, actions: ActionMap, ctx: FaceContext): void {
+    const store = ctx.bridge.store;
+    const running = store.running();
+    CUBE_SLOTS.forEach((slot, i) => {
+      const job = running[i];
+      const node = `Cube${slot}`;
+      if (!job) {
+        s.visible(node, false);
+        paint(s, node, { kind: "empty" });
+        s.hide(`TxCube${slot}`);
+        return;
+      }
+      s.visible(node, true);
+      paint(s, node, { kind: "job", job, needsYou: job.status === "waiting" || store.pendingFor(job.id) !== undefined });
+      s.text(`TxCube${slot}`, clipWidth(cubeWord(job.project), W.cube));
+      actions.set(node, `cube:${job.id}`);
+    });
+    s.visible("CubePlus", true);
+    actions.set("CubePlus", "cube:none");
+  }
+
+  /** The puck: the oldest pending approval, approvable only when its whole command is on the label. */
+  private renderPuck(s: Snapshot, actions: ActionMap, ctx: FaceContext): void {
+    const store = ctx.bridge.store;
+    const a = store.pendingApprovals()[0];
+    paint(s, "Puck", { kind: "puck", pending: a !== undefined });
+    if (!a) {
+      s.hide("TxPuck");
+      s.visible("BtnPuckApprove", false);
+      s.visible("BtnPuckDeny", false);
       return;
     }
-    s.visible("BtnSignIn", true);
-    s.prompt("BtnSignIn", "Mission Control passphrase (it shows on screen as you type)");
-    actions.set("BtnSignIn", "signin");
-    s.text("TxLock", label(["Press SIGN IN and type", "your passphrase."]));
-    const n = this.anonNotice;
-    const fallback = "Kosmos sends nothing about you; the passphrase is the only key.";
-    s.text("TxStatus", clipWidth(n && Date.now() - n.at < 20000 ? n.text : fallback, W.status));
+    const job = store.jobs.get(a.jobId);
+    const proj = clipWidth(toWallAscii(shortProject(job?.project ?? "?")), W.puck);
+    const head = [proj, clipWidth(a.title, W.puck)];
+    const cmd = wrapWidth(a.command, W.puck);
+    // The same rule as the ask plate: every character of the command on the label (two lines at
+    // most, no byte clip, nothing lost to wrapping) and nothing redacted.
+    const shownAll = cmd.length <= 2 && fitsLabel([...head, ...cmd]) && sameNonSpace(cmd.join(""), a.command);
+    const approvable = a.exact && shownAll;
+    if (approvable) {
+      s.text("TxPuck", label([...head, ...cmd]));
+    } else {
+      // The reason before the command, so the byte clip can only shorten the command.
+      const why = a.exact ? "Too long here: open its cube." : "Desk only: approve it at the PC.";
+      s.text("TxPuck", label([proj, ...wrapWidth(why, W.puck).slice(0, 2), clipWidth((cmd[0] ?? "") + (cmd.length > 1 ? " ..." : ""), W.puck)]));
+    }
+    s.visible("BtnPuckApprove", approvable);
+    if (approvable) actions.set("BtnPuckApprove", `approve:${a.id}`);
+    s.visible("BtnPuckDeny", true);
+    actions.set("BtnPuckDeny", `deny:${a.id}`);
   }
 
-  private renderCommon(s: Snapshot, actions: ActionMap, ctx: FaceContext): void {
+  /** The arc: left = jobs, centre = `job`'s conversation (or none), right = the page spot. */
+  private renderArc(s: Snapshot, actions: ActionMap, ctx: FaceContext, job: Job | undefined, paging: Paging, status: string): void {
     const store = ctx.bridge.store;
     const running = store.running();
     const pending = store.pendingApprovals();
     const done = store.doneToday();
     const now = ctx.bridge.now();
 
-    s.visible("LockPanel", false);
-    s.visible("BtnSignIn", false);
-    s.hide("TxLock");
-    s.buzz(store.approvalsEver);
-
-    // The ticker: the bridge's own words plus counts. Never agent prose.
-    const parts = [`${running.length} working`, `${pending.length} need${pending.length === 1 ? "s" : ""} you`, `${done.length} done today`, hhmm(now)];
-    s.text("TxTicker", clipWidth(parts.join("  |  "), W.ticker));
-    s.text("TxStatus", this.statusLine(ctx, `Signed in  |  ${running.length}/${ctx.bridge.config.maxJobs} jobs  |  Stop at the PC: npm run kill`));
-    s.visible("BtnSignOut", true);
-    actions.set("BtnSignOut", "signout");
-
-    // Group watching: off by default; the code shows only while it is on.
-    const code = ctx.bridge.watch.current;
-    s.text("TxWatch", code ? `Group can watch  |  code ${code.slice(0, 3)} ${code.slice(3)}` : "Let my group watch: off");
-    s.visible("BtnWatch", true);
-    actions.set("BtnWatch", "watch");
-
-    // Start a job (left).
-    const project = this.project(ctx);
-    s.text("TxProject", label([clipWidth(`Project: ${project || "none set"}`, W.project)]));
-    s.visible("BtnProject", true);
-    actions.set("BtnProject", "project");
-    for (const [node, id] of Object.entries(PRESET_BUTTONS)) {
-      s.visible(node, true);
-      actions.set(node, `preset:${id}`);
-    }
-    s.visible("BtnNewTask", true);
-    s.prompt("BtnNewTask", `New task for Claude in ${project || "the default project"}: what should it do?`);
-    actions.set("BtnNewTask", "new");
-
-    // Needs you (right).
-    NEED_SLOTS.forEach((slot, i) => {
-      const a = pending[i];
-      const node = `Need${slot}`;
-      if (!a) {
-        s.visible(node, false);
-        s.hide(`TxNeed${slot}`);
-        return;
-      }
-      const job = store.jobs.get(a.jobId);
-      s.visible(node, true);
-      s.text(`TxNeed${slot}`, label([clipWidth(job?.project ?? "?", W.need), clipWidth(a.title, W.need), clipWidth(a.command, W.need), "Press to open"]));
-      actions.set(node, `open:${a.jobId}`);
-    });
-  }
-
-  private renderWall(s: Snapshot, actions: ActionMap, ctx: FaceContext): void {
-    const store = ctx.bridge.store;
-    const running = store.running();
-    const now = ctx.bridge.now();
-
-    for (const n of ["ChatPanel", "AskPanel", "BtnStop", "BtnBack", "BtnApprove", "BtnDeny", "BtnWhy", "BtnKeep", "BtnSimple", "BtnSummary", "BtnReply", "BtnPageUp", "BtnPageDown"]) s.visible(n, false);
-    for (const slot of RAIL_SLOTS) {
-      s.visible(`Rail${slot}`, false);
-      s.visible(`RailSel${slot}`, false);
-      s.hide(`TxRail${slot}`);
-    }
-    for (const slot of CONV_SLOTS) s.hide(`TxConv${slot}`);
-    for (const n of ["TxHeader", "TxPage", "TxAskA", "TxAskB"]) s.hide(n);
-    s.visible("WallPanel", true);
-
-    CARD_SLOTS.forEach((slot, i) => {
-      const job = running[i];
-      const card = `Card${slot}`;
-      const show = (n: string, on: boolean) => s.visible(`${n}${slot}`, on);
-      if (!job) {
-        s.visible(card, false);
-        for (const n of ["PillRun", "PillWait", "PillIdle", "Glow", "BarBg", "Bar"]) show(n, false);
-        if (i === 0 && running.length === 0) {
-          s.visible(card, true);
-          s.text(`TxCard${slot}`, label(["Nothing is running.", "Start a job on the left."]));
-        } else s.hide(`TxCard${slot}`);
-        return;
-      }
-      const waiting = job.status === "waiting";
-      s.visible(card, true);
-      show("Glow", waiting);
-      show("PillWait", waiting);
-      show("PillIdle", job.status === "idle");
-      show("PillRun", !waiting && job.status !== "idle");
-      const pct = job.progress !== undefined ? `  ${Math.round(job.progress * 100)}%` : "";
-      const files = job.files.size;
-      s.text(
-        `TxCard${slot}`,
-        label([
-          clipWidth(job.project, W.card),
-          clipWidth(job.title, W.card),
-          clipWidth(`${STATUS_WORD[job.status]}${pct}  ${formatElapsed(now - job.startedAt)}`, W.card),
-          `${files} file${files === 1 ? "" : "s"} touched`,
-        ]),
-      );
-      show("BarBg", job.progress !== undefined);
-      show("Bar", job.progress !== undefined && job.progress > 0);
-      if (job.progress !== undefined) s.gauge(`Bar${slot}`, Math.max(0.02, job.progress));
-      actions.set(card, `open:${job.id}`);
-    });
-
-    // Done today (the shelf).
-    const done = store.doneToday();
-    s.visible("DoneShelf", true);
-    s.copies("ChipDone", Math.min(MAX_CHIPS, done.length));
-    s.visible("ChipDone", done.length > 0);
-    const recent = done.slice(-2).reverse().map((j) => clipWidth(`${j.title} (${j.project})${j.outcome ? ": " + j.outcome : ""}`, W.done));
-    s.text("TxDone", label([`Done today: ${done.length}`, ...recent]));
-  }
-
-  private renderChat(s: Snapshot, actions: ActionMap, ctx: FaceContext): void {
-    const store = ctx.bridge.store;
-    const job = store.jobs.get(this.state.focus ?? "") as Job;
-    const now = ctx.bridge.now();
-
-    s.visible("WallPanel", false);
-    s.visible("DoneShelf", false);
-    s.visible("ChipDone", false);
-    s.copies("ChipDone", 0);
-    s.hide("TxDone");
-    for (const slot of CARD_SLOTS) {
-      s.visible(`Card${slot}`, false);
-      s.hide(`TxCard${slot}`);
-      for (const n of ["PillRun", "PillWait", "PillIdle", "Glow", "BarBg", "Bar"]) s.visible(`${n}${slot}`, false);
-    }
-    s.visible("ChatPanel", true);
-
-    // The rail: the focused job first, then the others still working, then today's.
-    const others = store.running().filter((j) => j.id !== job.id);
-    const rail = [job, ...others, ...store.doneToday().filter((j) => j.id !== job.id).reverse()].slice(0, RAIL_SLOTS.length);
+    // ---- left: jobs --------------------------------------------------------
+    s.text(
+      "TxTicker",
+      label([
+        clipWidth(`${running.length} working  |  ${pending.length} need${pending.length === 1 ? "s" : ""} you`, W.ticker),
+        clipWidth(`${done.length} done today  |  ${hhmm(now)}`, W.ticker),
+      ]),
+    );
+    const others = running.filter((j) => j.id !== job?.id);
+    const rail = [...(job ? [job] : []), ...others, ...done.filter((j) => j.id !== job?.id).reverse()].slice(0, RAIL_SLOTS.length);
     RAIL_SLOTS.forEach((slot, i) => {
       const j = rail[i];
       if (!j) {
@@ -594,16 +688,55 @@ export class MissionControlFace implements Face {
         return;
       }
       s.visible(`Rail${slot}`, true);
-      s.text(`TxRail${slot}`, label([clipWidth(shortProject(j.project), W.rail), clipWidth(STATUS_WORD[j.status], W.rail)]));
-      s.visible(`RailSel${slot}`, j.id === job.id);
+      s.text(`TxRail${slot}`, label([clipWidth(`${toWallAscii(shortProject(j.project))}: ${j.title}`, W.rail), clipWidth(`${STATUS_WORD[j.status]}  ${formatElapsed((j.endedAt ?? now) - j.startedAt)}`, W.rail)]));
+      s.visible(`RailSel${slot}`, j.id === job?.id);
       actions.set(`Rail${slot}`, `rail:${j.id}`);
     });
+    const project = this.project(ctx);
+    for (const [node, id] of Object.entries(PRESET_BUTTONS)) {
+      s.visible(node, true);
+      actions.set(node, `preset:${id}`);
+    }
+    s.visible("BtnNewTask", true);
+    s.prompt("BtnNewTask", `New task for Claude in ${project || "the default project"}: what should it do?`);
+    actions.set("BtnNewTask", "new");
+    s.text("TxProject", label([clipWidth(`Project: ${project || "none set"}`, W.project)]));
+    s.visible("BtnProject", true);
+    actions.set("BtnProject", "project");
+    const recent = done.slice(-2).reverse().map((j) => clipWidth(`${j.title} (${j.project})${j.outcome ? ": " + j.outcome : ""}`, W.done));
+    s.text("TxDone", label([`Done today: ${done.length}`, ...recent]));
 
-    // Header.
+    // ---- centre: the conversation -------------------------------------------
+    s.visible("BtnFold", true);
+    actions.set("BtnFold", "fold");
+    s.text("TxStatus", status);
+    const code = ctx.bridge.watch.current;
+    s.text("TxWatch", code ? `Group can watch  |  code ${code.slice(0, 3)} ${code.slice(3)}` : "Let my group watch: off");
+    s.visible("BtnWatch", true);
+    actions.set("BtnWatch", "watch");
+    s.visible("BtnSignOut", true);
+    actions.set("BtnSignOut", "signout");
+
+    if (!job) {
+      s.text("TxHeader", label([clipWidth("No job open", W.header), clipWidth("Pick one on the left, or start one there.", W.header)]));
+      CONV_SLOTS.forEach((slot) => s.hide(`TxConv${slot}`));
+      s.hide("TxPage");
+      for (const n of ["BtnPageUp", "BtnPageDown", "BtnStop", "BtnReply", ...Object.keys(QUICK_BUTTONS)]) s.visible(n, false);
+      this.renderAsk(s, actions, undefined);
+    } else {
+      this.renderConversation(s, actions, job, store.pendingFor(job.id), paging, now);
+    }
+
+    // ---- right: the page spot (DB-043's dock; a placeholder until that panel ships) ----
+    s.text("TxPageSpot", label(wrapAll(["Page panel (DB-043)", "A pinned web page will show here."], W.pageSpot)));
+  }
+
+  private renderConversation(s: Snapshot, actions: ActionMap, job: Job, a: Approval | undefined, paging: Paging, now: number): void {
     const live = job.status === "running" || job.status === "waiting" || job.status === "starting" || job.status === "idle";
-    s.text("TxHeader", label([clipWidth(`${job.title}  |  ${job.project}  |  ${STATUS_WORD[job.status]} ${formatElapsed((job.endedAt ?? now) - job.startedAt)}`, W.header)]));
-    s.visible("BtnBack", true);
-    actions.set("BtnBack", "back");
+    s.text(
+      "TxHeader",
+      label([clipWidth(job.title, W.header), clipWidth(`${toWallAscii(shortProject(job.project))}  |  ${STATUS_WORD[job.status]} ${formatElapsed((job.endedAt ?? now) - job.startedAt)}`, W.header)]),
+    );
     s.visible("BtnStop", live);
     if (live) actions.set("BtnStop", `stop:${job.id}`);
 
@@ -611,11 +744,11 @@ export class MissionControlFace implements Face {
     const lines = conversationLines(job.events);
     const per = CONV_SLOTS.length;
     const pages = Math.max(1, Math.ceil(lines.length / per));
-    if (this.state.pageBack > pages - 1) this.state.pageBack = pages - 1;
-    const end = lines.length - this.state.pageBack * per;
+    if (paging.pageBack > pages - 1) paging.pageBack = pages - 1;
+    const end = lines.length - paging.pageBack * per;
     const start = Math.max(0, end - per);
     const shown = lines.slice(start, end);
-    if (this.state.pageBack === 0) this.state.seenLines = lines.length;
+    if (paging.pageBack === 0) paging.seenLines = lines.length;
     CONV_SLOTS.forEach((slot, i) => {
       const line = shown[i];
       const node = `TxConv${slot}`;
@@ -627,16 +760,15 @@ export class MissionControlFace implements Face {
       // World text is centred on its anchor; shift it so the line starts at the left edge.
       s.offset(node, CONV_LEFT_M + estimateWidthM(line) / 2);
     });
-    const page = pages - this.state.pageBack;
-    const newBelow = this.state.pageBack > 0 && lines.length > this.state.seenLines;
+    const page = pages - paging.pageBack;
+    const newBelow = paging.pageBack > 0 && lines.length > paging.seenLines;
     s.text("TxPage", pages > 1 ? `${page}/${pages}${newBelow ? "\nnew" : ""}` : job.status === "running" ? "..." : "");
-    s.visible("BtnPageUp", this.state.pageBack < pages - 1);
-    s.visible("BtnPageDown", this.state.pageBack > 0);
+    s.visible("BtnPageUp", paging.pageBack < pages - 1);
+    s.visible("BtnPageDown", paging.pageBack > 0);
     actions.set("BtnPageUp", "pageup");
     actions.set("BtnPageDown", "pagedown");
 
-    // The inline approval.
-    const a = store.pendingFor(job.id);
+    // The ask plate.
     this.renderAsk(s, actions, a);
 
     // Quick replies and the reply field.
@@ -662,8 +794,8 @@ export class MissionControlFace implements Face {
     const cmd = wrapWidth(a.command, W.ask);
     const head = [clipWidth(`!! Claude wants to: ${a.title}`, W.ask), ...cmd.slice(0, 1)];
     const tail = cmd.slice(1, 3);
-    // Approve shows only when every character of the command is on the wall: three lines at
-    // most, neither label cut by the host's 128-byte limit, and nothing lost to wrapping.
+    // Approve shows only when every character of the command is on show: three lines at most,
+    // neither label cut by the host's 128-byte limit, and nothing lost to wrapping.
     const shownAll = cmd.length <= 3 && fitsLabel(head) && fitsLabel(tail) && sameNonSpace(cmd.join(""), a.command);
     const approvable = a.exact && shownAll;
     s.visible("AskPanel", true);
@@ -690,7 +822,7 @@ const PRESS_WORDS: Record<string, string> = {
   BtnDeny: "Deny",
   BtnWhy: "Ask why",
   BtnStop: "Stop",
-  BtnBack: "Back to wall",
+  BtnFold: "Fold",
   BtnKeep: "Keep going",
   BtnSimple: "Explain simply",
   BtnSummary: "Stop + summarize",
@@ -704,23 +836,30 @@ const PRESS_WORDS: Record<string, string> = {
   BtnPageUp: "Page up",
   BtnPageDown: "Page down",
   BtnWatch: "Group watch",
+  CubePlus: "the + cube",
+  BtnPuckApprove: "Approve (puck)",
+  BtnPuckDeny: "Deny (puck)",
 };
 
 /** What a watcher is told the owner pressed: the button's words, never anything typed. */
 export function pressLabel(node: string): string {
   if (PRESS_WORDS[node]) return PRESS_WORDS[node] as string;
-  if (/^Card[A-D]$/.test(node)) return "a job card";
-  if (/^Need[A-C]$/.test(node)) return "a Needs you item";
+  if (/^Cube[A-D]$/.test(node)) return "a job cube";
   if (/^Rail[A-D]$/.test(node)) return "a job on the rail";
   return "a button";
 }
 
-/** "kosmos-registry" reads "registry" on the slim rail. */
+/** "kosmos-registry" reads "registry". */
 export function shortProject(name: string): string {
   return name.replace(/^kosmos-/i, "");
 }
 
-/** The conversation as wall lines: who said it, then what, wrapped by width. */
+/** A cube's one-word label: the short project name's first word, plain ASCII. */
+export function cubeWord(project: string): string {
+  return toWallAscii(shortProject(project)).split(/[\s/\\]+/)[0] ?? "";
+}
+
+/** The conversation as panel lines: who said it, then what, wrapped by width. */
 export function conversationLines(events: JobEvent[]): string[] {
   const out: string[] = [];
   const ordered = [...events].sort((x, y) => x.id - y.id);
@@ -754,4 +893,4 @@ const face = new MissionControlFace();
 export default face;
 
 // For tests and the README's numbers.
-export const _internals = { PRESETS, QUICK_REPLIES };
+export const _internals = { PRESETS, QUICK_REPLIES, ARC_BUTTON_NODES };

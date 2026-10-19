@@ -1,0 +1,48 @@
+AB1
+V 1
+K <token>
+E paired
+H SealRing locked
+M cubes
+Z 0
+U CubeA 0
+H CubeA off
+X TxCubeA
+U CubeB 0
+H CubeB off
+X TxCubeB
+U CubeC 0
+H CubeC off
+X TxCubeC
+U CubeD 0
+H CubeD off
+X TxCubeD
+U CubePlus 1
+H Puck calm
+X TxPuck
+U BtnPuckApprove 0
+U BtnPuckDeny 0
+X TxTicker
+X TxStatus
+X TxProject
+X TxRailA
+X TxRailB
+X TxRailC
+X TxRailD
+X TxDone
+X TxHeader
+X TxConvA
+X TxConvB
+X TxConvC
+X TxConvD
+X TxConvE
+X TxConvF
+X TxConvG
+X TxConvH
+X TxConvI
+X TxConvJ
+X TxPage
+X TxAskA
+X TxAskB
+X TxWatch
+X TxPageSpot

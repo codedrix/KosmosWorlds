@@ -1,102 +1,51 @@
 AB1
 V 1
-M chat
-U LockPanel 0
-U BtnSignIn 0
-X TxLock
-Z 3
-T TxTicker 3 working  |  1 needs you  |  2 done today  |  22:00
-T TxProject Project: kosmos-registry
-U BtnProject 1
+M arc
+T TxTicker 3 working  |  1 needs you\n2 done today  |  13:59
+U RailA 1
+T TxRailA registry: Run all tests\nNEEDS YOU  4m 12s
+U RailSelA 1
+U RailB 1
+T TxRailB portal: Review open PRs\nWORKING  1m 47s
+U RailSelB 0
+U RailC 1
+T TxRailC web: Fix the rate limiter so one\nWORKING  38s
+U RailSelC 0
+U RailD 1
+T TxRailD portal: Draft release notes\nDONE  0s
+U RailSelD 0
 U BtnTests 1
 U BtnPrs 1
 U BtnToday 1
 U BtnNotes 1
 U BtnNewTask 1
-U NeedA 1
-T TxNeedA kosmos-registry\nRun a command\nnpm test\nPress to open
-U NeedB 0
-X TxNeedB
-U NeedC 0
-X TxNeedC
-U WallPanel 0
-U DoneShelf 0
-U ChipDone 0
-C ChipDone 0
-X TxDone
-U CardA 0
-X TxCardA
-U PillRunA 0
-U PillWaitA 0
-U PillIdleA 0
-U GlowA 0
-U BarBgA 0
-U BarA 0
-U CardB 0
-X TxCardB
-U PillRunB 0
-U PillWaitB 0
-U PillIdleB 0
-U GlowB 0
-U BarBgB 0
-U BarB 0
-U CardC 0
-X TxCardC
-U PillRunC 0
-U PillWaitC 0
-U PillIdleC 0
-U GlowC 0
-U BarBgC 0
-U BarC 0
-U CardD 0
-X TxCardD
-U PillRunD 0
-U PillWaitD 0
-U PillIdleD 0
-U GlowD 0
-U BarBgD 0
-U BarD 0
-U ChatPanel 1
-U RailA 1
-T TxRailA registry\nNEEDS YOU
-U RailSelA 1
-U RailB 1
-T TxRailB portal\nWORKING
-U RailSelB 0
-U RailC 1
-T TxRailC web\nWORKING
-U RailSelC 0
-U RailD 1
-T TxRailD portal\nDONE
-U RailSelD 0
-T TxHeader Run all tests  |  kosmos-registry  |  NEEDS YOU 4m 12s
-U BtnBack 1
+T TxProject Project: kosmos-registry
+U BtnProject 1
+T TxDone Done today: 2\nDraft release notes (kosmos-p...\nSummarize today (kosmos-pro...
+T TxHeader Run all tests\nregistry  |  NEEDS YOU 4m 12s
 U BtnStop 1
-T TxConvA You: Run all tests
-O TxConvA -964
-T TxConvB    - Read 3 files
-O TxConvB -999
-T TxConvC    - Updated the plan: 1 of 3 done
-O TxConvC -760
-T TxConvD    - Edited worker/src/index.ts +84 -3
-O TxConvD -702
-T TxConvE Claude: I read the worker and its tests. The rate limiter keys on the client address, but
-O TxConvE -53
-T TxConvF   behind the tunnel every request comes from the same loopback address, so one busy
-O TxConvF -34
-T TxConvG   client throttles everyone. I changed it to key on the session instead and added a test for
-O TxConvG -7
-T TxConvH   two sessions at once. Next I want to run the full test suite to make sure nothing else
-O TxConvH -54
-T TxConvI   depended on the old key.
-O TxConvI -848
-T TxConvJ    - Ran tests
-O TxConvJ -1028
-T TxConvK !! Needs you: Run a command: npm test
-O TxConvK -662
-X TxConvL
-X TxPage
-U BtnPageUp 0
+T TxConvA   rate limiter keys on the client address, but
+O TxConvA -21
+T TxConvB   behind the tunnel every request comes
+O TxConvB -62
+T TxConvC   from the same loopback address, so one
+O TxConvC -37
+T TxConvD   busy client throttles everyone. I changed it
+O TxConvD -13
+T TxConvE   to key on the session instead and added a
+O TxConvE -18
+T TxConvF   test for two sessions at once. Next I want
+O TxConvF -27
+T TxConvG   to run the full test suite to make sure
+O TxConvG -89
+T TxConvH   nothing else depended on the old key.
+O TxConvH -75
+T TxConvI    - Ran tests
+O TxConvI -428
+T TxConvJ !! Needs you: Run a command: npm test
+O TxConvJ -62
+T TxPage 2/2
+U BtnPageUp 1
 U BtnPageDown 0
 U AskPanel 1
 T TxAskA !! Claude wants to: Run a command\nnpm test
@@ -108,7 +57,9 @@ U BtnKeep 0
 U BtnSimple 0
 U BtnSummary 0
 U BtnReply 0
+T TxPageSpot Page panel (DB-043)\nA pinned web page will show\nhere.
 U BtnWatch 0
 U BtnSignOut 0
+U BtnFold 0
 T TxWatch Watching (read-only)
-T TxStatus Watching Mission Control  |  pressed: Group watch 0s ago
+T TxStatus Watching Mission Control\npressed: Group watch 0s ago

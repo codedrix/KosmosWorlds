@@ -21,7 +21,9 @@
  *   GET  /.well-known/world-network.json      the opt-in file (always served)
  *   GET  /privacy                             what this server keeps (the manifest's privacy_url)
  *   GET  /v1/health                           {"ok":true,"stopped":false}
- *   POST /v1/faces/<face>/<op>                a world's wall (wire.ts format)
+ *   POST /v1/faces/<face>/<op>                a world's wall (wire.ts format); Mission Control's
+ *                                             `pair` op mints and takes pairings, never approves
+ *                                             them (approval is local only: pairing.ts, main.ts)
  *   POST /v1/session                          {"passphrase"} -> {"token","expires_in"}
  *   POST /v1/session/end                      {"tok"}
  *   POST /v1/jobs                             {"tok"} -> job summaries
@@ -227,6 +229,7 @@ export function createServer(bridge: Bridge, faces: Map<string, Face>, opts: Ser
         killed,
         signIn: (pass) => {
           if (killed) return { ok: false, reason: "locked" };
+          if (!bridge.config.passphraseSignIn) return { ok: false, reason: "off" };
           const r = bridge.auth.signIn(pass);
           // Every new session starts with watching off: an old code never revives.
           if (r.ok) bridge.watch.close();
@@ -234,9 +237,27 @@ export function createServer(bridge: Bridge, faces: Map<string, Face>, opts: Ser
         },
         signOut: () => {
           bridge.auth.signOut();
-          bridge.watch.close();
+      bridge.watch.close();
           for (const f of faces.values()) f.reset();
           bridge.store.poke();
+        },
+        pair: {
+          mint: () => {
+            if (killed) {
+              bridge.pairing.clear();
+              return { ok: false, reason: "stopped" };
+            }
+            if (!bridge.config.pairSignIn) return { ok: false, reason: "off" };
+            return bridge.pairing.mint();
+          },
+          state: (id) => (killed ? { state: "expired" } : bridge.pairing.state(id)),
+          signIn: (id) => {
+            if (killed || !bridge.config.pairSignIn || !bridge.pairing.take(id)) return { ok: false };
+            const r = bridge.auth.issue();
+            // A paired session starts with watching off, like every sign-in.
+            bridge.watch.close();
+            return r;
+          },
         },
         waitForChange: (ms) => bridge.store.waitForChange(bridge.store.currentVersion, ms),
       });
@@ -259,6 +280,10 @@ export function createServer(bridge: Bridge, faces: Map<string, Face>, opts: Ser
     }
 
     if (p === "/v1/session") {
+      if (!bridge.config.passphraseSignIn) {
+        json(res, 403, { error: "passphrase_off" });
+        return 403;
+      }
       const r = bridge.auth.signIn(typeof j.passphrase === "string" ? j.passphrase : "");
       if (r.ok) {
         bridge.watch.close();

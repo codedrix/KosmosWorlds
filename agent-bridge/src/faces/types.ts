@@ -11,12 +11,25 @@
  *
  * The server owns everything security-relevant, so a face cannot forget it:
  * request size, the kill switch, the token check (`ctx.authed`), sign-in rate
- * limits and the lockout. A face only renders and maps presses to `Actions`.
+ * limits and the lockout, and the pairing's stop and config checks (`ctx.pair`). A face only
+ * renders and maps presses to `Actions`. No face can APPROVE a pairing: `ctx.pair` has no such
+ * verb (approval happens only at the PC, pairing.ts).
  */
 
 import type { Bridge } from "../bridge.js";
 import type { SignInResult } from "../auth.js";
 import type { WorldRequest } from "../wire.js";
+import type { PairState } from "../pairing.js";
+
+/** What a face may do with the Pairing Seal: mint, read its own pairing, and take it once approved. */
+export interface PairAccess {
+  /** A new pairing (replacing any other). Refused while stopped, when pairing is off, or beyond the rate. */
+  mint(): { ok: true; id: string; code: string; expiresAt: number } | { ok: false; reason: "rate" | "stopped" | "off" };
+  /** The state the holder of `id` may see; `expired` while stopped. */
+  state(id: string | undefined): PairState;
+  /** Take an APPROVED pairing (once) and start a session; watching starts off. */
+  signIn(id: string | undefined): { ok: true; token: string; expiresInS: number } | { ok: false };
+}
 
 export interface FaceContext {
   bridge: Bridge;
@@ -26,6 +39,7 @@ export interface FaceContext {
   killed: boolean;
   signIn(passphrase: string): SignInResult;
   signOut(): void;
+  pair: PairAccess;
   /** Resolves when the bridge's jobs change, or after `ms`. */
   waitForChange(ms: number): Promise<void>;
 }

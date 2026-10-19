@@ -56,6 +56,13 @@ export interface BridgeConfig {
   relaySecret?: string;
   /** Tool rules that always ask in a headset job (DB-044 Q3). Unset = ["Bash","PowerShell"]; [] = the CEO's own rules. */
   alwaysAsk?: string[];
+  /**
+   * Mission Control v2: the typed passphrase stays as a fallback beside the Pairing Seal. false =
+   * `signin` (and POST /v1/session) answer "passphrase_off", and the seal hides "Use passphrase".
+   */
+  passphraseSignIn: boolean;
+  /** The Pairing Seal (pairing.ts). false = every pairing is refused ("pair_refused"). */
+  pairSignIn: boolean;
   passphrase?: PassphraseHash;
 }
 
@@ -80,6 +87,8 @@ export function defaultConfig(): BridgeConfig {
     worlds: [],
     projects: [],
     maxJobs: 4,
+    passphraseSignIn: true,
+    pairSignIn: true,
   };
 }
 
@@ -110,6 +119,8 @@ export function normalizeConfig(raw: unknown): BridgeConfig {
   if (typeof r.textScale === "number") c.textScale = r.textScale;
   if (typeof r.relaySecret === "string" && r.relaySecret.length >= 24) c.relaySecret = r.relaySecret;
   if (Array.isArray(r.alwaysAsk)) c.alwaysAsk = r.alwaysAsk.filter((x): x is string => typeof x === "string");
+  if (typeof r.passphraseSignIn === "boolean") c.passphraseSignIn = r.passphraseSignIn;
+  if (typeof r.pairSignIn === "boolean") c.pairSignIn = r.pairSignIn;
   if (r.passphrase && typeof r.passphrase === "object") c.passphrase = r.passphrase as PassphraseHash;
   return c;
 }
