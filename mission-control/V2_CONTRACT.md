@@ -197,3 +197,40 @@ Face actions (press map):
 
 Snapshots come from the real bridge (`scripts/capture-review-snapshots.mjs`): `pair`, `paired`,
 `cubes`, `cubes_need`, `arc`, `watch`.
+
+## 8. Revision v2.1: the look-review of 2026-10-19 (angles, density, grouping)
+
+The coordinator reviewed the renders against the CEO's bar ("modern, sleek"). The look itself waits
+for DB-045. This revision fixes what today's API can fix.
+
+1. **Side panels face the eye, flat.**
+   - Azimuth ±36° (was ±40°), 1.80 m, about 0.85 m wide.
+   - Each panel's normal points at the eye (0, 0, 1.60). Yaw only: **zero pitch and zero roll**.
+   - Check: the centre's half-angle is 20.9° and a side's is 13.3°, so at 36° a side spans
+     22.7°–49.3° and clears the centre.
+2. **Fewer, larger rows.**
+   - **The left panel holds jobs only:** TxTicker (two lines), then RailA–D as four tall rows (each about
+     0.20 m, two-line text), then TxDone (one line) at the bottom.
+   - **The "start a job" set moves into the centre panel:** BtnTests, BtnPrs, BtnToday, BtnNotes,
+     BtnNewTask, BtnProject and TxProject. It shows ONLY when no job is open (after CubePlus). The face
+     shows and hides it with `U` as today. While a job is open, the conversation uses that space.
+   - **The right panel is the browser spot only:** frame, McPageDock and TxPageSpot.
+3. **One slim chrome bar (the "ornament") under the centre panel:**
+   - McMoveLeft/Up/Down/Right, McMoveCloser, McMoveFarther;
+   - BtnWatch with TxWatch beside it, BtnSignOut, McClose.
+   About 0.10 m tall, its top just under the centre panel's bottom edge, facing the eye. Nothing else
+   lives there.
+4. **The ledge moves closer and lower** so it never covers the bar from the throne: about 0.90 m out,
+   top about 0.80 m above the feet. Seen from the eye, the cubes sit below the bar.
+5. **The puck reads as one object:**
+   - **The label:** TxPuck is ONE short line, `<project>: <verb> <command>` (e.g.
+     `registry: run npm test`), on a small dark plate right above the puck, flat and facing the eye.
+     If the whole command doesn't fit the line (W.puck), it reads `<project>: open its cube` and
+     Approve is hidden. Deny stays.
+   - **The buttons:** BtnPuckApprove and BtnPuckDeny become bigger tabs (about 0.22 × 0.10 m) beside the
+     puck, facing the eye, words merged in.
+6. **Renders.**
+   - The eye renders use a headset-like field of view (about 90° horizontal), not a wide angle.
+   - Add `arc_left.jpg` and `arc_right.jpg`, with the head turned to each side panel: that is how a side
+     panel is read.
+   - Keep `seal_ring.jpg` as it is (the review liked it).
