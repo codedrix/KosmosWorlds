@@ -139,7 +139,7 @@ Face actions (press map):
   16 random bytes in hex.
 - **Lifetime:** 120 s. **Single use:** the first poll after approval takes the token, and the
   pairing is deleted.
-- **One pending at a time.** A new mint replaces the pending one. A stranger can't hold the slot,
+- **Pending slots: see §8.9** (up to 4, keyed by id; the oldest is replaced). Originally: a new mint replaced the pending one. A stranger can't hold a slot,
   and a replaced code can no longer be approved.
 - **Mint rate:** at most 6 a minute across everyone, and at least 3 s apart; beyond that,
   `pair_refused`. The kill switch refuses minting and clears what is pending.
@@ -234,3 +234,26 @@ for DB-045. This revision fixes what today's API can fix.
    - Add `arc_left.jpg` and `arc_right.jpg`, with the head turned to each side panel: that is how a side
      panel is read.
    - Keep `seal_ring.jpg` as it is (the review liked it).
+7. **Leaving is always one press away** (correctness MED-1):
+   - McClose lives on the LEDGE's left end, visible whenever the owner is signed in, whether folded or
+     unfolded. The chrome bar has no Close.
+   - Pressing the seal while signed in also closes (signs out, parks everything), so the seal toggles.
+8. **Sign-out and a dropped session close cleanly** (correctness MED-2): on `E signed_out`, or `M lock`
+   while the world holds a token, the world closes fully (Closed, everything parked, the ring down).
+   It never shows a blank ring. The owner presses the seal to start again.
+9. **Pairing slots** (security LOW-1, which replaces §5's "one pending at a time"):
+   - Up to 4 pending pairings, each keyed by its id. A new mint fills a free slot, else replaces the
+     OLDEST, so a stranger pressing every 3 s can no longer cancel the owner's code within 3 s.
+   - Approval by typed code matches whichever pending pairing has that code. The owner types the code
+     on his own ring, so a stranger's pairing is never approved by accident.
+   - Mint rate unchanged.
+10. **Smaller fixes:**
+    - The world ignores face-button presses while that button's group is tweening (security LOW-2).
+    - The face's content key includes the oldest pending approval's id (security LOW-3).
+    - A watcher is drawn no action buttons (Approve, Deny, Ask why, Stop, Fold, the quick replies,
+      Reply).
+    - Cube slots stay with their job while it lives (keyed by job id).
+    - The fold goes back to the cube of the job on show, or the ledge centre if that cube is gone.
+    - The page number doesn't jump when the ask plate appears.
+    - A refused mint says what to do ("wait a few seconds and press the seal again").
+    - The README and API.md are corrected (stale v1 lines; the validate line needs publisher ≥ 0.8.1).
