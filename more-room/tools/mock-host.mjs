@@ -53,6 +53,53 @@ export function readGlb(path) {
 
 const collapse = (name) => name.replace(/_\d+$/, "");
 
+/** The minimum page count the module declares for its imported memory (the wasm import section). */
+export function importedMemoryMinPages(bytes) {
+  let p = 8;
+  const u32 = () => {
+    let r = 0;
+    let shift = 0;
+    let b;
+    do {
+      b = bytes[p++];
+      r |= (b & 0x7f) << shift;
+      shift += 7;
+    } while (b & 0x80);
+    return r >>> 0;
+  };
+  const skipName = () => {
+    const n = u32();
+    p += n;
+  };
+  while (p < bytes.length) {
+    const id = bytes[p++];
+    const size = u32();
+    const end = p + size;
+    if (id === 2) {
+      const count = u32();
+      for (let i = 0; i < count; i++) {
+        skipName();
+        skipName();
+        const kind = bytes[p++];
+        if (kind === 0) u32(); // function: type index
+        else if (kind === 1) {
+          p++; // table: element type
+          const f = bytes[p++];
+          u32();
+          if (f & 1) u32();
+        } else if (kind === 2) {
+          const f = bytes[p++];
+          const min = u32();
+          if (f & 1) u32();
+          return min;
+        } else if (kind === 3) p += 2; // global: type + mutability
+      }
+    }
+    p = end;
+  }
+  throw new Error("the module imports no memory (WASM_006)");
+}
+
 export class Host {
   /**
    * @param wasmPath  world.wasm
@@ -131,7 +178,10 @@ export class Host {
     for (const i of this.imports) {
       if (i.kind === "function" && /^k_player_get_/.test(i.name)) throw new Error(`NET_005: a network world may not import ${i.name}`);
     }
-    this.memory = new WebAssembly.Memory({ initial: 17, maximum: 128 });
+    const minPages = importedMemoryMinPages(fs.readFileSync(wasmPath));
+    if (minPages > 128) throw new Error(`the module asks for ${minPages} pages of memory; the host's cap is 128 (8 MB)`);
+    this.memoryPages = minPages;
+    this.memory = new WebAssembly.Memory({ initial: minPages, maximum: 128 });
     const env = { memory: this.memory };
     const kosmos = this.hostFunctions();
     const want = {};

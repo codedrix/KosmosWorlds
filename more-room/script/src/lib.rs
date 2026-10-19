@@ -24,6 +24,14 @@
 //!   it), and the first thing tomorrow.
 //! Pressing an event on the calendar shows its prep on the stage.
 //!
+//! **The room opens on a built-in sample day** (sample_day.txt, baked from the
+//! bridge face's sample-day.ts by tools/gen_sample.mjs), with a banner on every
+//! mode, so it is full without a PC, a bridge or a sign-in; presses then act on
+//! the sample locally and send nothing. "Sign in" switches to the bridge.
+//! "About" opens a short paged panel: what the room is, that the day is a
+//! sample, the modes and piles, how the real one connects, the visitor's
+//! steps and what is coming.
+//!
 //! The brain is the bridge on the CEO's PC (Mission Control's): Claude reads
 //! mail, calendar and Linear there. This world only draws what the bridge's
 //! face says (agent-bridge/src/faces/more-room/day-core.ts, on the shared
@@ -150,6 +158,22 @@ const VIP_LINE_S: f32 = 90.0;
 /// How long an error stays on the status line.
 const STATUS_HOLD_S: f32 = 10.0;
 
+/// The built-in sample day (DAY/1 plus PREPL and REPLY records).
+const SAMPLE: &[u8] = include_bytes!("sample_day.txt");
+/// At most this many calendar labels at once (the rest keep their tiles):
+/// the 32-text budget, DESIGN.md section 4.
+pub const CAL_LABELS: usize = 5;
+/// The About panel, one page per press of Next. Each fits 4 lines of 30 characters.
+pub const ABOUT_PAGES: [&str; 7] = [
+    "More Room. How much of your life do you fit in a rectangle? Here each part of your day has a place.",
+    "SAMPLE DAY. Nothing here is real yet. Every name, message and task is made up.",
+    "Morning: your brief. Focus: one task, the rest dims. Triage: turn cards over. Wrap-up: what got done.",
+    "Done files it. Later snoozes. Mute goes to the shelf behind you. Task makes a ticket. Reply drafts it.",
+    "The real room reads a bridge on your own PC: your Gmail, calendar and Linear. Kosmos never sees your mail.",
+    "Your steps: connect your accounts on your PC. Tell us your phone; iPhone texts cannot be read.",
+    "Coming: pin these cards to your real wall. That needs the room permission sheet first.",
+];
+
 const TICK_SOUND: &str = "tick.wav";
 const PROMPT_TEXT: &str = "Your bridge passphrase. It goes only to your bridge, and the room keeps it for this visit only.";
 const REQ_PROMPT: i32 = 9001;
@@ -236,7 +260,11 @@ struct Nodes {
     panes: [i32; 3],
     veils: [i32; 4],
     /// MR only (absent in VR): dark plates behind text groups, see PLATES.
-    plates: [i32; 9],
+    plates: [i32; 11],
+    about: i32,
+    about_next: i32,
+    txt_about: i32,
+    txt_banner: i32,
     tpl_msg: [i32; 6],
     tpl_event: i32,
     tpl_quiet: i32,
@@ -268,6 +296,10 @@ pub struct App {
     creates_this_tick: i32,
     dirty: bool,
     open: Option<usize>,
+    /// The About panel's page, when it is open.
+    about: Option<usize>,
+    /// The sample's clock: one minute per minute in the room.
+    sample_clock_s: f32,
     draft_page: usize,
     focus_task: Option<usize>,
     focus_left_s: f32,
@@ -308,7 +340,11 @@ const NO_NODES: Nodes = Nodes {
     now_line: 0,
     panes: [0; 3],
     veils: [0; 4],
-    plates: [0; 9],
+    plates: [0; 11],
+    about: 0,
+    about_next: 0,
+    txt_about: 0,
+    txt_banner: 0,
     tpl_msg: [0; 6],
     tpl_event: 0,
     tpl_quiet: 0,
@@ -339,6 +375,8 @@ static mut APP: App = App {
     creates_this_tick: 0,
     dirty: false,
     open: None,
+    about: None,
+    sample_clock_s: 0.0,
     draft_page: 0,
     focus_task: None,
     focus_left_s: FOCUS_S,
@@ -484,8 +522,8 @@ impl App {
     /// A status message. Signed out, it goes on the stage beside the Sign in
     /// button, where you are looking; signed in, on the status line under the window.
     fn status(&mut self, s: &str, hold: bool) {
-        let n = if self.signed_in { self.n.txt_status } else { self.n.txt_stage };
-        let mut l = Lines::new(if self.signed_in { 26 } else { 30 }, 2);
+        let n = self.n.txt_status;
+        let mut l = Lines::new(26, 2);
         l.text(s);
         self.text(n, l.as_bytes(), 0.0);
         if hold {
@@ -494,11 +532,13 @@ impl App {
     }
 
     fn live_status(&mut self) {
-        if self.status_hold_s > 0.0 || !self.signed_in {
+        if self.status_hold_s > 0.0 {
             return;
         }
         let mut b: Buf<64> = Buf::new();
-        if unsafe { host::k_net_status() } != 1 {
+        if !self.signed_in {
+            b.push("Sample day. Sign in for your own.");
+        } else if unsafe { host::k_net_status() } != 1 {
             b.push("Network is off for this world");
         } else {
             b.push("Live. Updated ");
@@ -556,10 +596,14 @@ pub extern "C" fn k_init() {
     n.tpl_event = find("TplEvent");
     n.tpl_quiet = find("TplQuiet");
     n.mr = find("VariantMr") > 0;
+    n.about = find("BtnAbout");
+    n.about_next = find("BtnAboutNext");
+    n.txt_about = find("TxtAbout");
+    n.txt_banner = find("TxtBanner");
 
     let presses = [
         n.mode[0], n.mode[1], n.mode[2], n.mode[3], n.sign_in, n.done, n.later, n.reply, n.task, n.mute, n.focus_go, n.approve, n.deny, n.more,
-        n.prep_close, n.tasks[0], n.tasks[1], n.tasks[2],
+        n.prep_close, n.tasks[0], n.tasks[1], n.tasks[2], n.about, n.about_next,
     ];
     for node in presses {
         subscribe_press(node);
@@ -574,7 +618,18 @@ pub extern "C" fn k_init() {
     let ev = "OnPromptResult";
     unsafe { host::k_event_subscribe_global(ev.as_ptr() as i32, ev.len() as i32, on_prompt_result as usize as i32) };
     log("[more-room] init");
+    load_sample(true);
     render();
+}
+
+/// Fill the room with the built-in sample day (at load, and when the bridge signs the room out).
+fn load_sample(first: bool) {
+    let a = app();
+    if model::read_day(SAMPLE, &mut a.day) {
+        a.have_day = true;
+        a.open = None;
+        reconcile(first);
+    }
 }
 
 #[no_mangle]
@@ -586,6 +641,19 @@ pub extern "C" fn k_tick(delta: f32) {
     a.since_update_s += dt;
     if a.status_hold_s > 0.0 {
         a.status_hold_s -= dt;
+        if a.status_hold_s <= 0.0 {
+            a.live_status(); // the held message has been read; say how things are now
+        }
+    }
+
+    // The sample's clock moves the now line, a minute a minute.
+    if !a.signed_in {
+        a.sample_clock_s += dt;
+        if a.sample_clock_s >= 60.0 {
+            a.sample_clock_s -= 60.0;
+            a.day.now_min += 1;
+            place(a.n.now_line, [L::NOW_LINE_X, L::NOW_LINE_Y, L::cal_z(a.day.now_min)]);
+        }
     }
 
     // Poll "what changed since N".
@@ -676,12 +744,21 @@ pub extern "C" fn on_press(_event_type: i32, node: i32, _p1: i32, _p2: i32) {
         sign_in();
         return;
     }
-    if !a.signed_in {
+    if node == n.about {
+        a.about = if a.about.is_some() { None } else { Some(0) };
+        a.showing_prep = false;
+        render();
+        return;
+    }
+    if node == n.about_next {
+        a.about = Some(a.about.map_or(0, |p| (p + 1) % ABOUT_PAGES.len()));
+        render();
         return;
     }
     if let Some(m) = n.mode.iter().position(|&x| x == node) {
         a.mode = [Mode::Morning, Mode::Focus, Mode::Triage, Mode::Wrap][m];
         a.showing_prep = false;
+        a.about = None;
         if a.mode != Mode::Triage {
             a.open = None;
         }
@@ -708,9 +785,12 @@ pub extern "C" fn on_press(_event_type: i32, node: i32, _p1: i32, _p2: i32) {
     if node == n.approve || node == n.deny {
         if let Some(d) = a.day.pending_draft() {
             let id = a.day.drafts[d].id;
+            let signed_in = a.signed_in;
             act(if node == n.approve { "approve" } else { "deny" }, id.bytes());
-            let msg = if node == n.approve { "Approved. The bridge sends it." } else { "Draft discarded." };
-            a.status(msg, true);
+            if signed_in {
+                let msg = if node == n.approve { "Approved. The bridge sends it." } else { "Draft discarded." };
+                a.status(msg, true);
+            }
         }
         return;
     }
@@ -732,8 +812,19 @@ pub extern "C" fn on_press(_event_type: i32, node: i32, _p1: i32, _p2: i32) {
     // An event tile?
     if let Some(e) = (0..a.n_event_nodes).find(|&e| a.events[e] == node) {
         if e < a.day.n_events && a.mode != Mode::Focus {
-            let id = a.day.events[e].id;
-            prep(id.bytes());
+            if a.signed_in {
+                let id = a.day.events[e].id;
+                prep(id.bytes());
+            } else {
+                // The sample carries its prep with it.
+                let ev = a.day.events[e];
+                a.prep.event = ev.id;
+                a.prep.n = ev.n_prep;
+                a.prep.lines = ev.prep;
+                a.showing_prep = ev.n_prep > 0;
+                a.about = None;
+                render();
+            }
         }
     }
 }
@@ -750,6 +841,7 @@ fn press_card(card: usize) {
     }
     a.mode = Mode::Triage;
     a.showing_prep = false;
+    a.about = None;
     a.open = Some(m);
     if !a.day.msgs[m].read {
         a.day.msgs[m].read = true; // turned over now; the bridge confirms on the next poll
@@ -782,8 +874,9 @@ fn press_action(op: &'static str) {
             a.open = None;
             reconcile(false);
         }
-        "draft" => a.status("Claude is drafting a reply...", true),
-        "task" => a.status("Making a task...", true),
+        // Signed in, the bridge answers later; in the sample, local_act already said what happened.
+        "draft" if a.signed_in => a.status("Claude is drafting a reply...", true),
+        "task" if a.signed_in => a.status("Making a task...", true),
         _ => {}
     }
     render();
@@ -817,8 +910,8 @@ fn shown_task(t: usize) -> Option<usize> {
     for i in 0..a.day.n_tasks {
         let task = &a.day.tasks[i];
         let wanted = match a.mode {
-            Mode::Wrap => task.state == TaskState::Open,
-            _ => task.pin && task.state == TaskState::Open,
+            Mode::Wrap => task.state == TaskState::Open || task.state == TaskState::Doing,
+            _ => task.pin && (task.state == TaskState::Open || task.state == TaskState::Doing),
         };
         if wanted {
             if k == t {
@@ -920,6 +1013,10 @@ fn poll() {
 }
 
 fn act(op: &str, id: &[u8]) {
+    if !app().signed_in {
+        local_act(op, id);
+        return;
+    }
     let body = body_start();
     body_token(body);
     body.push(",\"op\":");
@@ -931,6 +1028,85 @@ fn act(op: &str, id: &[u8]) {
         // Hear the result soon.
         app().poll_s = POLL_S - 0.6;
     }
+}
+
+/// The sample's presses, done in the room itself: nothing is sent anywhere.
+fn local_act(op: &str, id: &[u8]) {
+    let a = app();
+    match op {
+        "draft" => {
+            let Some(m) = a.day.msg_index(id) else { return };
+            let Some(r) = a.day.reply_for(id) else { return };
+            if a.day.n_drafts == model::MAX_DRAFTS {
+                // Keep the newest: drop the oldest.
+                for k in 1..model::MAX_DRAFTS {
+                    a.day.drafts[k - 1] = a.day.drafts[k];
+                }
+                a.day.n_drafts -= 1;
+            }
+            let d = &mut a.day.drafts[a.day.n_drafts];
+            let mut did: Buf<40> = Buf::new();
+            did.push("s-");
+            did.bytes(id);
+            d.id.set(did.as_bytes());
+            d.msg.set(id);
+            d.state = model::DraftState::Pending;
+            d.to = {
+                let mut t: S<24> = S::new();
+                t.set(a.day.msgs[m].from.bytes());
+                t
+            };
+            d.text = a.day.replies[r].1;
+            a.day.n_drafts += 1;
+            a.draft_page = 0;
+            a.status("Draft ready: Approve or Deny", true);
+        }
+        "approve" | "deny" => {
+            let Some(d) = (0..a.day.n_drafts).find(|&k| a.day.drafts[k].id.eq(id)) else { return };
+            if op == "approve" {
+                a.day.drafts[d].state = model::DraftState::Sent;
+                let msg = a.day.drafts[d].msg;
+                if let Some(m) = a.day.msg_index(msg.bytes()) {
+                    a.day.msgs[m].pile = Pile::Done;
+                    a.day.msgs[m].read = true;
+                }
+                a.status("Sent (sample: nothing left the room)", true);
+            } else {
+                a.day.drafts[d].state = model::DraftState::Denied;
+                a.status("Draft discarded.", true);
+            }
+            a.open = None;
+        }
+        "task" => {
+            let Some(m) = a.day.msg_index(id) else { return };
+            if a.day.n_tasks < model::MAX_TASKS {
+                let n = a.day.n_tasks;
+                let mut key: Buf<40> = Buf::new();
+                key.push("KOS-SAMPLE-");
+                key.int(n as i32 + 1);
+                let t = &mut a.day.tasks[n];
+                t.id.set(key.as_bytes());
+                t.pin = false;
+                t.state = TaskState::Open;
+                let mut title: Buf<64> = Buf::new();
+                title.bytes(key.as_bytes());
+                title.push(" ");
+                title.bytes(a.day.msgs[m].subject.bytes());
+                t.title.set(title.as_bytes());
+                a.day.n_tasks += 1;
+                let mut note: Buf<64> = Buf::new();
+                note.bytes(key.as_bytes());
+                note.push(" made (sample)");
+                a.status(note.as_str(), true);
+            } else {
+                a.status("The task list is full.", true);
+            }
+        }
+        // turn, done, later, quiet and roll already changed the day where they were pressed.
+        _ => {}
+    }
+    reconcile(false);
+    render();
 }
 
 fn prep(event: &[u8]) {
@@ -995,6 +1171,8 @@ pub extern "C" fn on_net_result(_event_type: i32, _node: i32, request_id: i32, s
     if status == 401 && kind != Req::Session {
         a.signed_in = false;
         a.token = S::new();
+        a.have_day = false;
+        load_sample(false);
         a.status("Signed out by the bridge. Sign in again.", true);
         render();
         return;
@@ -1019,6 +1197,7 @@ pub extern "C" fn on_net_result(_event_type: i32, _node: i32, request_id: i32, s
                 if let Some((tok, _ttl)) = model::read_pair(body, b"TOKEN") {
                     a.token.set(tok);
                     a.signed_in = true;
+                    a.have_day = false; // the bridge's first answer replaces the sample in place
                     a.status("Signed in.", true);
                     a.poll_s = 0.0;
                     poll();
@@ -1116,6 +1295,30 @@ fn tick_sound() {
     unsafe { host::k_audio_play(node, TICK_SOUND.as_ptr() as i32, TICK_SOUND.len() as i32) };
 }
 
+/// The message ids this room last drew, to tell a new message from a moved one.
+static mut KNOWN: [S<32>; model::MAX_MSGS] = [S::new(); model::MAX_MSGS];
+static mut N_KNOWN: usize = 0;
+
+fn known_contains(id: &[u8]) -> bool {
+    #[allow(static_mut_refs)]
+    unsafe {
+        let known = &*core::ptr::addr_of!(KNOWN);
+        known[..N_KNOWN].iter().any(|k| k.eq(id))
+    }
+}
+
+fn remember_known() {
+    let a = app();
+    #[allow(static_mut_refs)]
+    unsafe {
+        let known = &mut *core::ptr::addr_of_mut!(KNOWN);
+        for m in 0..a.day.n_msgs {
+            known[m] = a.day.msgs[m].id;
+        }
+        N_KNOWN = a.day.n_msgs;
+    }
+}
+
 /// Bring every card, event tile and shelf item in line with `app().day`.
 /// `first`: the first day since sign-in (cards appear in place, nothing ticks).
 fn reconcile(first: bool) {
@@ -1130,69 +1333,105 @@ fn reconcile(first: bool) {
         }
     }
 
-    // 2. Where every message lives now.
+    // 2. Where every message lives now: first the place, then the cards.
+    // A slot is held only by a card whose message is still in the inbox, so a slot
+    // freed by Done, Later or Mute is filled in this same pass.
     let mut used = [false; L::GRID_SLOTS];
     for c in a.cards.iter() {
         if c.alive && c.slot != NO_SLOT && c.slot < L::GRID_SLOTS {
-            used[c.slot] = true;
+            let still_in = a.day.msg_index(c.id.bytes()).is_some_and(|m| a.day.msgs[m].pile == Pile::In);
+            if still_in {
+                used[c.slot] = true;
+            }
         }
     }
+    let n_msgs = a.day.n_msgs;
+    let mut targets: [Option<[f32; 3]>; model::MAX_MSGS] = [None; model::MAX_MSGS];
+    let mut slots = [NO_SLOT; model::MAX_MSGS];
+    let mut cards_of = [usize::MAX; model::MAX_MSGS];
+    // Inbox messages still looking for a place, in order of importance.
+    let mut waiting = [0usize; model::MAX_MSGS];
+    let mut n_waiting = 0;
     let (mut later_k, mut done_k, mut quiet_k) = (0usize, 0usize, 0usize);
-    let mut vip_landed: Option<usize> = None;
-    for m in 0..a.day.n_msgs {
+    for m in 0..n_msgs {
         let msg = a.day.msgs[m];
         let card_i = (0..a.cards.len()).find(|&c| a.cards[c].alive && a.cards[c].id.eq(msg.id.bytes()));
-        let is_new = card_i.is_none();
-
-        // Target position, or None when this message is counted but not drawn.
-        let mut slot = NO_SLOT;
-        let target: Option<[f32; 3]> = match msg.pile {
+        cards_of[m] = card_i.unwrap_or(usize::MAX);
+        targets[m] = match msg.pile {
             Pile::In => {
-                let keep = card_i.map(|c| a.cards[c].slot).filter(|&s| s != NO_SLOT && s < L::GRID_SLOTS);
-                slot = match keep {
-                    Some(s) => s,
-                    None => match used.iter().position(|&u| !u) {
-                        Some(s) => {
-                            used[s] = true;
-                            s
-                        }
-                        None => NO_SLOT,
-                    },
-                };
-                if slot == NO_SLOT { None } else { Some(L::grid_slot(slot)) }
+                // A card on the desk keeps its slot: nothing shuffles under your hand.
+                match card_i.map(|c| a.cards[c].slot).filter(|&s| s != NO_SLOT && s < L::GRID_SLOTS) {
+                    Some(s) => {
+                        slots[m] = s;
+                        Some(L::grid_slot(s))
+                    }
+                    None => {
+                        waiting[n_waiting] = m;
+                        n_waiting += 1;
+                        None
+                    }
+                }
             }
             Pile::Later => {
                 let k = later_k;
                 later_k += 1;
-                if k < L::PILE_SHOWN {
-                    Some([L::PILE_LATER[0], L::PILE_LATER[1] + k as f32 * L::PILE_STEP_Y, L::PILE_LATER[2]])
-                } else {
-                    None
-                }
+                (k < L::PILE_SHOWN).then(|| [L::PILE_LATER[0], L::PILE_LATER[1] + k as f32 * L::PILE_STEP_Y, L::PILE_LATER[2]])
             }
             Pile::Done => {
                 let k = done_k;
                 done_k += 1;
-                if k < L::PILE_SHOWN {
-                    Some([L::PILE_DONE[0], L::PILE_DONE[1] + k as f32 * L::PILE_STEP_Y, L::PILE_DONE[2]])
-                } else {
-                    None
-                }
+                (k < L::PILE_SHOWN).then(|| [L::PILE_DONE[0], L::PILE_DONE[1] + k as f32 * L::PILE_STEP_Y, L::PILE_DONE[2]])
             }
             Pile::Quiet => {
                 let k = quiet_k;
                 quiet_k += 1;
-                if k < L::SHELF_SLOTS.len() {
-                    Some([L::SHELF_X, L::SHELF_Y, L::SHELF_SLOTS[k]])
-                } else {
-                    None
-                }
+                (k < L::SHELF_SLOTS.len()).then(|| [L::SHELF_X, L::SHELF_Y, L::SHELF_SLOTS[k]])
             }
         };
+    }
+    // Order what waits: unread VIPs first, then the newest (messages arrive at the end).
+    let important = |m: usize| {
+        let x = &a.day.msgs[m];
+        x.vip && !x.read
+    };
+    let mut order = [0usize; model::MAX_MSGS];
+    let mut n_order = 0;
+    for pass in 0..2 {
+        for k in (0..n_waiting).rev() {
+            let m = waiting[k];
+            if important(m) == (pass == 0) {
+                order[n_order] = m;
+                n_order += 1;
+            }
+        }
+    }
+    // Free desk slots go in that order; the next few wait on the inbox tray, the most
+    // important on top; the rest are counted ("+N more"), not drawn.
+    let mut on_tray = 0usize;
+    for &m in &order[..n_order] {
+        if let Some(s) = used.iter().position(|&u| !u) {
+            used[s] = true;
+            slots[m] = s;
+            targets[m] = Some(L::grid_slot(s));
+        } else if on_tray < L::TRAY_SHOWN {
+            let level = (L::TRAY_SHOWN - 1 - on_tray) as f32;
+            targets[m] = Some([L::INBOX[0], L::INBOX[1] + 0.008 + level * L::PILE_STEP_Y, L::INBOX[2]]);
+            on_tray += 1;
+        }
+    }
 
-        match (card_i, target) {
+    let mut vip_landed: Option<usize> = None;
+    for m in 0..n_msgs {
+        let msg = a.day.msgs[m];
+        let card_i = if cards_of[m] == usize::MAX { None } else { Some(cards_of[m]) };
+        let slot = slots[m];
+        // New = not in the last day this room drew. A VIP ticks even when the desk is full.
+        if !first && msg.pile == Pile::In && msg.vip && !known_contains(msg.id.bytes()) {
+            vip_landed = Some(m);
+        }
+        match (card_i, targets[m]) {
             (Some(c), None) => {
-                // Counted, not drawn (a full pile, a full desk).
+                // Counted, not drawn (a full pile, a full tray).
                 let (node, sub) = (a.cards[c].node, a.cards[c].sub);
                 a.destroy(node, sub);
                 a.cards[c] = EMPTY_CARD;
@@ -1214,9 +1453,6 @@ fn reconcile(first: bool) {
                 let from = if first { to } else { L::INBOX };
                 a.cards[free] = Card { id: msg.id, node, look, slot, pos: from, from, to, t: if first { 1.0 } else { 0.0 }, alive: true, sub };
                 place(node, from);
-                if !first && is_new && msg.pile == Pile::In && msg.vip {
-                    vip_landed = Some(m);
-                }
             }
             (Some(c), Some(to)) => {
                 let look = look_for(&msg);
@@ -1242,6 +1478,7 @@ fn reconcile(first: bool) {
             }
         }
     }
+    remember_known();
 
     // 3. The calendar.
     while a.n_event_nodes < a.day.n_events {
@@ -1312,32 +1549,50 @@ fn counts() -> (i32, i32, i32, i32, i32) {
     (inbox, vip, later, done, quiet)
 }
 
+/// Tasks by state: (to do, doing, done).
+fn task_counts() -> (i32, i32, i32) {
+    let d = &app().day;
+    let (mut todo, mut doing, mut done) = (0, 0, 0);
+    for t in &d.tasks[..d.n_tasks] {
+        match t.state {
+            TaskState::Open => todo += 1,
+            TaskState::Doing => doing += 1,
+            TaskState::Done => done += 1,
+            TaskState::Rolled => {}
+        }
+    }
+    (todo, doing, done)
+}
+
 pub fn render() {
     let a = app();
     let n = a.n;
     let mode = a.mode;
-    let on = a.signed_in;
+    let on = true;
+    let about_open = a.about.is_some();
 
     // --- Buttons and groups.
-    visible(n.sign_in, !on);
+    visible(n.sign_in, !a.signed_in);
+    visible(n.about, true);
+    visible(n.about_next, about_open);
     for b in n.mode {
         visible(b, on);
     }
-    let triage_open = on && mode == Mode::Triage && a.open.is_some();
+    let triage_open = on && !about_open && mode == Mode::Triage && a.open.is_some();
     for b in [n.done, n.later, n.reply, n.task, n.mute] {
         visible(b, triage_open);
     }
-    visible(n.focus_go, on && mode == Mode::Focus);
-    let draft = if on && mode == Mode::Triage { a.day.pending_draft() } else { None };
+    visible(n.focus_go, on && !about_open && mode == Mode::Focus);
+    let draft = if on && !about_open && mode == Mode::Triage { a.day.pending_draft() } else { None };
     for b in [n.approve, n.deny, n.more] {
         visible(b, draft.is_some());
     }
-    visible(n.prep_close, on && a.showing_prep);
+    visible(n.prep_close, on && !about_open && a.showing_prep);
     for v in n.veils {
         visible(v, on && mode == Mode::Focus);
     }
     for (k, &t) in n.tasks.iter().enumerate() {
-        let shown = on && mode != Mode::Focus && mode != Mode::Triage && shown_task(k).is_some();
+        let shown = on && !about_open && mode != Mode::Focus && mode != Mode::Triage && shown_task(k).is_some();
         visible(t, shown);
     }
     visible(n.now_line, on);
@@ -1362,35 +1617,53 @@ pub fn render() {
     }
     place(n.now_line, [L::NOW_LINE_X, L::NOW_LINE_Y, L::cal_z(a.day.now_min)]);
 
-    // --- Texts. Signed out: the sign-in label and the status only.
+    // --- Texts. Always: the mode column with About and Sign in, the banner, the status.
     let all = [
-        n.mode[0], n.mode[1], n.mode[2], n.mode[3], n.done, n.later, n.reply, n.task, n.mute, n.focus_go, n.approve, n.deny, n.more, n.prep_close,
-        n.tasks[0], n.tasks[1], n.tasks[2], n.txt_open, n.txt_draft, n.txt_stage, n.txt_low, n.txt_next, n.txt_window, n.txt_quiet, n.inbox,
-        n.pile_later, n.pile_done,
+        n.done, n.later, n.reply, n.task, n.mute, n.focus_go, n.approve, n.deny, n.more, n.prep_close, n.tasks[0], n.tasks[1], n.tasks[2],
+        n.txt_open, n.txt_draft, n.txt_stage, n.txt_low, n.txt_next, n.txt_window, n.txt_quiet, n.inbox, n.pile_later, n.pile_done, n.txt_vip,
     ];
-    if !on {
-        // The stage keeps a held message (a refusal you need to read); status() writes it.
+    let si = n.sign_in;
+    if a.signed_in {
+        a.untext(si);
+    } else {
+        a.text_str(si, "Sign in", 0.035);
+    }
+    let ab = n.about;
+    a.text_str(ab, if about_open { "Close about" } else { "About" }, 0.035);
+    {
+        let node = n.txt_banner;
+        if a.day.note.is_empty() {
+            a.untext(node);
+        } else {
+            let note = a.day.note;
+            a.text(node, note.bytes(), 0.0);
+        }
+    }
+    if let Some(p) = a.about {
+        // About: one short page, close to you, and nothing else on the walls.
         for node in all {
-            if node != n.txt_stage || a.status_hold_s <= 0.0 {
-                a.untext(node);
-            }
+            a.untext(node);
         }
         for e in 0..a.n_event_nodes {
             let node = a.events[e];
             a.untext(node);
         }
-        let st = n.txt_status;
-        a.untext(st);
-        let si = n.sign_in;
-        a.text_str(si, "Sign in", 0.07);
-        if a.status_hold_s <= 0.0 {
-            a.status("More Room. Sign in to your bridge.", false);
-        }
-        show_plates();
-        return;
+        let mut l = Lines::new(30, 4);
+        l.text(ABOUT_PAGES[p % ABOUT_PAGES.len()]);
+        let ta = n.txt_about;
+        a.text(ta, l.as_bytes(), 0.0);
+        let mut b: Buf<16> = Buf::new();
+        b.push("Next ");
+        b.int((p % ABOUT_PAGES.len()) as i32 + 1);
+        b.push("/");
+        b.int(ABOUT_PAGES.len() as i32);
+        let nx = n.about_next;
+        a.text(nx, b.as_bytes(), 0.06);
+    } else {
+        let (ta, nx) = (n.txt_about, n.about_next);
+        a.untext(ta);
+        a.untext(nx);
     }
-    let si = n.sign_in;
-    a.untext(si);
 
     // Mode bar: the current mode is marked.
     let names = ["Morning", "Focus", "Triage", "Wrap-up"];
@@ -1407,6 +1680,11 @@ pub fn render() {
         let node = a.n.mode[k];
         a.text(node, b.as_bytes(), 0.035);
     }
+    if about_open {
+        a.live_status();
+        show_plates();
+        return;
+    }
 
     let (inbox, vip, later, done, quiet) = counts();
 
@@ -1420,7 +1698,8 @@ pub fn render() {
             b.int(vip);
             b.push(" VIP");
         }
-        let hidden = (inbox as usize).saturating_sub(L::GRID_SLOTS);
+        // Counted but not drawn: past the desk and the tray's stack.
+        let hidden = (inbox as usize).saturating_sub(L::GRID_SLOTS + L::TRAY_SHOWN);
         if hidden > 0 {
             b.push("\n+");
             b.int(hidden as i32);
@@ -1475,10 +1754,10 @@ pub fn render() {
         a.text(node, l.as_bytes(), 0.0);
     }
 
-    // The window: weather, sunset, one headline. Dimmed (no text) in focus.
+    // The window: weather, sunset, one headline. No caption in focus (dimmed) or triage (desk work, and the text budget).
     {
         let node = a.n.txt_window;
-        if mode == Mode::Focus {
+        if mode == Mode::Focus || mode == Mode::Triage {
             a.untext(node);
         } else {
             let mut l = Lines::new(22, 3);
@@ -1493,10 +1772,14 @@ pub fn render() {
         }
     }
 
-    // The calendar: every event labelled, at alternating heights, except in focus.
+    // The calendar: up to CAL_LABELS labels around now (the one just past, then the next ones),
+    // at alternating heights; every tile stays pressable. None in focus.
+    let n_ev = a.day.n_events.min(a.n_event_nodes);
+    let next = (0..n_ev).find(|&e| a.day.events[e].end >= a.day.now_min).unwrap_or(n_ev.saturating_sub(1));
+    let first_label = next.saturating_sub(1).min(n_ev.saturating_sub(CAL_LABELS));
     for e in 0..a.n_event_nodes {
         let node = a.events[e];
-        if mode == Mode::Focus || e >= a.day.n_events {
+        if mode == Mode::Focus || e >= a.day.n_events || e < first_label || e >= first_label + CAL_LABELS {
             a.untext(node);
             continue;
         }
@@ -1563,7 +1846,8 @@ pub fn render() {
                     l.words(a.day.brief[k].bytes());
                 }
                 a.text(stage, l.as_bytes(), 0.0);
-                let mut b: Buf<64> = Buf::new();
+                let (todo, doing, tdone) = task_counts();
+                let mut b: Buf<96> = Buf::new();
                 b.int(inbox);
                 b.push(" messages");
                 if vip > 0 {
@@ -1571,6 +1855,13 @@ pub fn render() {
                     b.int(vip);
                     b.push(" from VIPs");
                 }
+                b.push("\nTasks: ");
+                b.int(todo);
+                b.push(" to do, ");
+                b.int(doing);
+                b.push(" doing, ");
+                b.int(tdone);
+                b.push(" done");
                 a.text(low, b.as_bytes(), 0.0);
             }
             Mode::Focus => {
@@ -1730,7 +2021,9 @@ pub fn render() {
 }
 
 /// MR plates, in the order of `Nodes::plates` (mirrors PLATES in tools/build_glb.mjs).
-const PLATES: [&str; 9] = ["PlateStage", "PlateCal", "PlateOpen", "PlateDraft", "PlateTasks", "PlateModes", "PlateWindow", "PlateVip", "PlateQuiet"];
+const PLATES: [&str; 11] = [
+    "PlateStage", "PlateCal", "PlateOpen", "PlateDraft", "PlateTasks", "PlateModes", "PlateWindow", "PlateVip", "PlateQuiet", "PlateBanner", "PlateAbout",
+];
 
 /// MR only: show each dark plate only while a text it frames is showing.
 /// (World text is always white; a light real wall behind it is unreadable.)
@@ -1743,15 +2036,17 @@ fn show_plates() {
     let held = |node: i32| node > 0 && a.texts[..a.n_texts].contains(&node);
     let events = (0..a.n_event_nodes).any(|e| held(a.events[e]));
     let wanted = [
-        held(n.txt_stage) || held(n.txt_low),
+        held(n.txt_stage) || held(n.txt_low) || held(n.prep_close),
         events || held(n.txt_next),
         held(n.txt_open) || held(n.done),
         held(n.txt_draft),
         n.tasks.iter().any(|&t| held(t)),
-        n.mode.iter().any(|&m| held(m)),
+        n.mode.iter().any(|&m| held(m)) || held(n.about) || held(n.sign_in),
         held(n.txt_window) || held(n.txt_status),
         held(n.txt_vip),
         held(n.txt_quiet),
+        held(n.txt_banner),
+        held(n.txt_about) || held(n.about_next),
     ];
     for k in 0..PLATES.len() {
         visible(n.plates[k], wanted[k]);
@@ -1760,7 +2055,9 @@ fn show_plates() {
 
 fn shown_first_open() -> Option<usize> {
     let d = &app().day;
-    (0..d.n_tasks).find(|&i| d.tasks[i].pin && d.tasks[i].state == TaskState::Open)
+    (0..d.n_tasks)
+        .find(|&i| d.tasks[i].pin && d.tasks[i].state == TaskState::Doing)
+        .or_else(|| (0..d.n_tasks).find(|&i| d.tasks[i].pin && d.tasks[i].state == TaskState::Open))
 }
 
 const DRAFT_W: usize = 26;
@@ -1828,6 +2125,15 @@ pub fn draft_page_into(text: &[u8], page: usize, out: &mut Lines) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn about_pages_fit_without_a_cut() {
+        for (k, p) in ABOUT_PAGES.iter().enumerate() {
+            let mut l = Lines::new(30, 4);
+            l.text(p);
+            assert!(!l.cut, "About page {} is cut: {}", k + 1, core::str::from_utf8(l.as_bytes()).unwrap());
+        }
+    }
 
     #[test]
     fn draft_pages_count() {

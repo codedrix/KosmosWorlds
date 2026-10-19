@@ -11,8 +11,9 @@
 
 use crate::text::S;
 
-pub const MAX_EVENTS: usize = 8;
-pub const MAX_TASKS: usize = 16;
+pub const MAX_EVENTS: usize = 10;
+pub const MAX_REPLIES: usize = 13;
+pub const MAX_TASKS: usize = 24;
 pub const MAX_MSGS: usize = 48;
 pub const MAX_DRAFTS: usize = 4;
 pub const MAX_BRIEF: usize = 4;
@@ -40,6 +41,7 @@ pub enum Pile {
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum TaskState {
     Open,
+    Doing,
     Done,
     Rolled,
 }
@@ -58,6 +60,9 @@ pub struct Event {
     pub end: i32,
     pub title: S<16>,
     pub has_prep: bool,
+    /// Prep lines carried with the day (the built-in sample's PREPL records); a live day fetches prep per event.
+    pub prep: [S<32>; MAX_PREP],
+    pub n_prep: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -95,6 +100,8 @@ pub struct Day {
     pub now_min: i32,
     pub sunset_min: i32,
     pub date: S<16>,
+    /// A banner for every mode (the NOTE record), e.g. "SAMPLE DAY: nothing here is real yet".
+    pub note: S<40>,
     pub brief: [S<32>; MAX_BRIEF],
     pub n_brief: usize,
     pub events: [Event; MAX_EVENTS],
@@ -108,13 +115,16 @@ pub struct Day {
     pub weather: S<16>,
     pub headline: S<60>,
     pub first_tomorrow: S<36>,
+    /// Canned replies carried with the day (REPLY records; id "*" is the default).
+    pub replies: [(Id, S<304>); MAX_REPLIES],
+    pub n_replies: usize,
     /// Records this reader did not know (a newer bridge).
     pub unknown: i32,
     /// The answer was a complete DAY/1 document (it ended with END).
     pub complete: bool,
 }
 
-const EMPTY_EVENT: Event = Event { id: S::new(), start: 0, end: 0, title: S::new(), has_prep: false };
+const EMPTY_EVENT: Event = Event { id: S::new(), start: 0, end: 0, title: S::new(), has_prep: false, prep: [S::new(); MAX_PREP], n_prep: 0 };
 const EMPTY_TASK: Task = Task { id: S::new(), pin: false, state: TaskState::Open, title: S::new() };
 const EMPTY_MSG: Msg = Msg { id: S::new(), src: Src::Other, vip: false, pile: Pile::In, read: false, from: S::new(), subject: S::new(), preview: S::new() };
 const EMPTY_DRAFT: Draft = Draft { id: S::new(), msg: S::new(), state: DraftState::Pending, to: S::new(), text: S::new() };
@@ -127,6 +137,7 @@ impl Day {
             now_min: 9 * 60,
             sunset_min: 19 * 60,
             date: S::new(),
+            note: S::new(),
             brief: [S::new(); MAX_BRIEF],
             n_brief: 0,
             events: [EMPTY_EVENT; MAX_EVENTS],
@@ -140,6 +151,8 @@ impl Day {
             weather: S::new(),
             headline: S::new(),
             first_tomorrow: S::new(),
+            replies: [(S::new(), S::new()); MAX_REPLIES],
+            n_replies: 0,
             unknown: 0,
             complete: false,
         }
@@ -154,6 +167,11 @@ impl Day {
 
     pub fn msg_index(&self, id: &[u8]) -> Option<usize> {
         (0..self.n_msgs).find(|&i| self.msgs[i].id.eq(id))
+    }
+
+    /// The canned reply for a message: its own, else the default ("*").
+    pub fn reply_for(&self, msg: &[u8]) -> Option<usize> {
+        (0..self.n_replies).find(|&i| self.replies[i].0.eq(msg)).or_else(|| (0..self.n_replies).find(|&i| self.replies[i].0.eq(b"*")))
     }
 
     pub fn pending_draft(&self) -> Option<usize> {
@@ -238,6 +256,23 @@ pub fn read_day(body: &[u8], day: &mut Day) -> bool {
                 day.sunset_min = int(f[2]);
             }
             b"DATE" if n >= 2 => day.date.set(f[1]),
+            b"NOTE" if n >= 2 => day.note.set(f[1]),
+            b"PREPL" if n >= 3 => {
+                if let Some(e) = (0..day.n_events).find(|&e| day.events[e].id.eq(f[1])) {
+                    let ev = &mut day.events[e];
+                    if ev.n_prep < MAX_PREP {
+                        ev.prep[ev.n_prep].set(f[2]);
+                        ev.n_prep += 1;
+                    }
+                }
+            }
+            b"REPLY" if n >= 3 => {
+                if day.n_replies < MAX_REPLIES {
+                    day.replies[day.n_replies].0.set(f[1]);
+                    day.replies[day.n_replies].1.set(f[2]);
+                    day.n_replies += 1;
+                }
+            }
             b"BRIEF" if n >= 2 => {
                 if day.n_brief < MAX_BRIEF {
                     day.brief[day.n_brief].set(f[1]);
@@ -252,6 +287,7 @@ pub fn read_day(body: &[u8], day: &mut Day) -> bool {
                     e.end = int(f[3]);
                     e.title.set(f[4]);
                     e.has_prep = f[5] == b"1";
+                    e.n_prep = 0;
                     day.n_events += 1;
                 }
             }
@@ -261,6 +297,7 @@ pub fn read_day(body: &[u8], day: &mut Day) -> bool {
                     t.id.set(f[1]);
                     t.pin = f[2] == b"1";
                     t.state = match f[3] {
+                        b"doing" => TaskState::Doing,
                         b"done" => TaskState::Done,
                         b"rolled" => TaskState::Rolled,
                         _ => TaskState::Open,
@@ -402,6 +439,20 @@ mod tests {
         assert!(d.same);
         assert_eq!(d.n_msgs, 1);
         assert_eq!(d.now_min, 610);
+    }
+
+    #[test]
+    fn reads_the_baked_sample() {
+        let mut d = Day::new();
+        assert!(read_day(include_bytes!("sample_day.txt"), &mut d), "the baked sample is a complete DAY/1 document");
+        assert_eq!(d.n_events, 10);
+        assert!(d.n_msgs >= 25);
+        assert!(d.n_tasks >= 12);
+        assert!(d.note.as_str().starts_with("SAMPLE DAY"));
+        assert!(d.events.iter().take(d.n_events).all(|e| e.n_prep >= 1), "every sample event carries prep");
+        assert!(d.reply_for(b"m-a").is_some() && d.reply_for(b"m-zz").is_some(), "own and default replies");
+        assert!(d.tasks.iter().take(d.n_tasks).any(|t| t.state == TaskState::Doing));
+        assert_eq!(d.unknown, 0);
     }
 
     #[test]

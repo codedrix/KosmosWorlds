@@ -18,6 +18,8 @@ pub const PILE_DONE: [f32; 3] = [0.6, 0.752, 0.72];
 pub const PILE_STEP_Y: f32 = 0.014;
 /// A pile shows at most this many cards; the rest are counted, not drawn.
 pub const PILE_SHOWN: usize = 5;
+/// The inbox tray shows the newest of the messages waiting for a desk slot, at most this many.
+pub const TRAY_SHOWN: usize = 3;
 pub const SHELF_X: f32 = -1.7;
 pub const SHELF_Y: f32 = 1.012;
 pub const SHELF_SLOTS: [f32; 6] = [-0.5, -0.3, -0.1, 0.1, 0.3, 0.5]; // z

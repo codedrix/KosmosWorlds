@@ -59,10 +59,12 @@ for (const v of ["vr", "mr"]) {
   const live = [...host.nodes.values()].filter((n) => n.alive && n.created);
   const msgCards = live.filter((n) => n.source?.startsWith("TplMsg")).length;
   // 12 desk slots + 5 Later + 5 Done + 6 shelf = 28 cards at most, plus 8 events.
-  if (msgCards !== 28) fail(`${v}: expected 28 drawn cards, got ${msgCards}`);
+  // 12 on the desk + 2 waiting on the tray + 5 Later + 5 Done + 6 on the shelf.
+  if (msgCards !== 30) fail(`${v}: expected 30 drawn cards, got ${msgCards}`);
   if (live.filter((n) => n.source === "TplEvent").length !== 8) fail(`${v}: 8 events`);
   if (maxPerFrame > LIMITS.createsPerFrame) fail(`${v}: ${maxPerFrame} creates in one frame`);
-  if (!/Inbox 14/.test(host.textOf("InboxTray") ?? "") || !/\+2 more/.test(host.textOf("InboxTray") ?? "")) fail(`${v}: inbox count (${host.textOf("InboxTray")})`);
+  // 14 in the inbox: 12 on the desk and 2 on the tray, so nothing is "+N more".
+  if (!/^Inbox 14/.test(host.textOf("InboxTray") ?? "") || /more/.test(host.textOf("InboxTray") ?? "")) fail(`${v}: inbox count (${host.textOf("InboxTray")})`);
   // Triage with a card open, the draft waiting, and a prep sheet up: the busiest screen.
   host.press("BtnModeTriage");
   host.run(0.2);
