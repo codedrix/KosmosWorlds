@@ -134,7 +134,28 @@ test("a draft that is a bridge Approval is decided through actions.decide", () =
   assert.equal(core.store.drafts.find((d) => d.id === "d-y")?.state, "pending");
 });
 
-test("wrong guesses through this room stop at 4 a day, so they can never hard-lock the bridge", () => {
+test("the room's guess cap outlives reset(), which the bridge runs on every sign-in and sign-out", async () => {
+  // The face itself, as the server calls it (review round 3, lens A, MED-1).
+  let calls = 0;
+  const ctx = {
+    killed: false,
+    authed: false,
+    signIn: () => (calls++, { ok: false as const, reason: "wrong" as const }),
+    bridge: { actions: { decide: () => ({ ok: true }) } },
+  } as unknown as Parameters<typeof moreRoom.handle>[2];
+  const guess = () => moreRoom.handle("signin", { fields: { pass: "guess" } } as unknown as Parameters<typeof moreRoom.handle>[1], ctx);
+  let r = await guess();
+  for (let k = 0; k < 6 && r.status !== 429; k++) r = await guess();
+  assert.match(String(r.body), /^NO\troom_locked\t/);
+  const spent = calls;
+  moreRoom.reset();
+  moreRoom.reset();
+  r = await guess();
+  assert.match(String(r.body), /^NO\troom_locked\t/, "still paused after the bridge's resets");
+  assert.equal(calls, spent, "no guess reaches the bridge after a reset");
+});
+
+test("wrong guesses through this room stop at 4 a day", () => {
   let t = 1_000_000;
   let calls = 0;
   const core = createCore({ store: createStore(SAMPLE_DAY), nowMs: () => t });
@@ -148,7 +169,7 @@ test("wrong guesses through this room stop at 4 a day, so they can never hard-lo
   assert.equal(fifth.status, 429);
   assert.match(fifth.body, /^NO\troom_locked\t\d+\n$/);
   assert.equal(calls, 4, "the fifth guess never reaches the bridge's lock (which hard-locks at 10)");
-  // Not counted: a refusal that is not a wrong passphrase (too fast, locked).
+  // Not counted: a refusal that checked nothing (too fast).
   t += 24 * 3600 * 1000 + 1;
   const tooFast = { signIn: () => (calls++, { ok: false as const, reason: "too_fast", retryAfterS: 2 }) };
   for (let k = 0; k < 6; k++) assert.equal(core.handle("signin", { pass: "x" }, false, tooFast).status, 429);

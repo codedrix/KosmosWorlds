@@ -112,8 +112,8 @@ Renders: [renders/](renders/), as `vr-<mode>-<view>.jpg` and `mr-<mode>-<view>.j
   2. Sample day: nothing here is real yet.
   3. The four modes.
   4. The piles and actions.
-  5. How the real room connects: your own bridge on your PC, with your Gmail, calendar and Linear; Kosmos never sees your mail.
-  6. Your steps: connect your accounts on your PC, and tell us your phone (iPhone texts can't be read).
+  5. How the real room will connect: its owner's bridge on their PC, with mail, calendar and Linear; Kosmos stores none of the mail.
+  6. Going live needs steps on the owner's PC; iPhone texts can't be read, and Android would need a small app.
   7. What is coming: pinning the cards to your real wall, which needs the room permission sheet first.
 - **Next** pages through them, and **Close about** returns.
 - A test asserts that every page fits whole: 4 lines of 30 characters, no cut.
@@ -141,7 +141,7 @@ Every number below was measured by running the built `world.wasm`:
 | Answer | 256 KiB, text or JSON only | largest 4.7 KB (the whole sample day) | 7.7 KB for 40 messages |
 | Requests | 4 in flight, 1 a second with bursts of 10 | 19 polls in 49 s plus presses; never rate-limited | — |
 | Wasm | 256 KB | 100.3 KB (6.3 KB of it is the built-in sample, about 20 KB a scratch day a live answer is read into before it replaces the room's) | — |
-| Triangles | 1,000,000 | 540 VR, 612 MR (doctor) | — |
+| Triangles | 1,000,000 | 1,248 VR, 1,008 MR (doctor) | — |
 
 **What the room draws when the day doesn't fit:**
 - a full desk shows 12 cards, up to 3 more wait on the inbox tray, and the tray's label counts the rest ("+15 more" on the sample day);
@@ -156,7 +156,7 @@ Every number below was measured by running the built `world.wasm`:
 |---|---|
 | Morning | about 20 |
 | Focus | about 13 |
-| Triage, with a draft | 26 |
+| Triage, with a draft | 26 (28 with the prep sheet open) |
 | Wrap-up | about 20 |
 
 **Test totals:**
@@ -290,7 +290,7 @@ Each was found reading the client at the cooked commit, or in the lit review of 
 ## 9. What is verified, and what is not
 
 **Verified here:**
-- the 215-check scenario on both worlds (the built-in sample with no request, then the live day);
+- the 225-check scenario on both worlds (the built-in sample with no request, then the live day);
 - the face on the real bridge server (the bridge's whole suite, More Room's 11 tests among them);
 - the heavy day;
 - the packaged scenes;
@@ -310,12 +310,12 @@ Each was found reading the client at the cooked commit, or in the lit review of 
 **Device check list (one sitting, on Build 1009 or later at level ≥ 4):**
 1. Open each world: it is full at once on the sample day, with the banner. Press Sign in: the system sheet names the world (its address and author), and the room's own prompt text says the passphrase goes to your bridge. A wrong passphrase says so, and the right one switches to the bridge's day.
 2. About: all seven pages are readable from where you stand, and Next and Close about work.
-3. The text is readable at eye height in VR and in MR (plates against a real wall). Is the open card readable over a real monitor? Do translucent plates and mats draw correctly over passthrough on the headset (mobile alpha)? Do the 1 cm text-anchor studs show as specks on a real wall? Is the inbox count on the desk readable in MR (it has no plate: one there would block the mode column)?
+3. The text is readable at eye height in VR and in MR (plates against a real wall). Is the open card readable over a real monitor? Do translucent plates and mats draw correctly over passthrough on the headset (mobile alpha)? Do the 1 cm text-anchor studs show as specks on a real wall? Is the inbox count on the desk readable in MR (it has its own plate, `PlateInbox`)? Check it all standing **and seated at a real desk**: the plates are sized for any eye from 1.15 m to 1.75 m (`EYE_LOW`, `EYE_HIGH` in `tools/build_glb.mjs`), and the renders include a seated view (`*-seated`).
 4. Presses on clones (cards, events, the top card of the inbox tray) work, including a low controller angle on the tray stack (the tests trace the press from the eye, not the hand). If they don't, the fallback is authored card slots instead of clones.
 5. Turn over, Done, Later, Mute, Task, Reply → Approve: each lands where it lives (in the sample, nothing is sent; signed in, Approve reaches Mission Control's approval log).
 6. Focus: a VIP arriving ticks once from the tray; a normal message is silent.
 7. Put the headset to sleep and wake it, then turn off the PC: the status says "The bridge did not answer. Is the PC awake?", and nothing crashes.
-8. Frame time with the full room visible stays within 13.8 ms. The room is about 600 triangles, 103 authored nodes (VR) and up to about 40 clones, so it is expected to be fine.
+8. Frame time with the full room visible stays within 13.8 ms. The room is about 600 triangles, 105 authored nodes (VR) and up to about 40 clones, so it is expected to be fine.
 
 ## 10. Publishing
 

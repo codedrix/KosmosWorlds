@@ -169,8 +169,8 @@ pub const ABOUT_PAGES: [&str; 7] = [
     "SAMPLE DAY. Nothing here is real yet. Every name, message and task is made up.",
     "Morning: your brief. Focus: one task, the rest dims. Triage: turn cards over. Wrap-up: what got done.",
     "Done files it. Later snoozes. Mute goes to the shelf behind you. Task makes a ticket. Reply drafts it.",
-    "Its owner can connect it to a bridge on their own PC: their mail, calendar and Linear. Kosmos never sees the mail.",
-    "To go live, the owner connects accounts on the PC. iPhone texts cannot be read; Android needs a small app.",
+    "Its owner will be able to link a bridge on their PC: mail, calendar, Linear. Kosmos stores none of the mail.",
+    "Going live needs steps on the owner's PC. iPhone texts cannot be read; Android would need a small app.",
     "Coming: pin these cards to your real wall. That needs the room permission sheet first.",
 ];
 
@@ -1222,7 +1222,7 @@ pub extern "C" fn on_net_result(_event_type: i32, _node: i32, request_id: i32, s
                 (401, b"not_set") => "No passphrase is set on the PC yet.",
                 (401, _) => "Wrong passphrase.",
                 (429, b"too_fast") => "One try every 2 seconds. Press again.",
-                (429, b"room_locked") => "Too many wrong tries here. Sign-in is paused for a day.",
+                (429, b"room_locked") => "Too many wrong tries here. Sign-in is paused for a day, or until the bridge restarts.",
                 (429, b"hard_locked") => "Sign-in is locked. Unlock it on the PC.",
                 (429, _) => "Too many tries. Wait 15 minutes.",
                 (503, _) => "The bridge is stopped on the PC.",
@@ -1235,6 +1235,10 @@ pub extern "C" fn on_net_result(_event_type: i32, _node: i32, request_id: i32, s
             // answer must never leave the room on a half-cleared day (review lens A, MED-1).
             #[allow(static_mut_refs)]
             let scratch = unsafe { &mut *core::ptr::addr_of_mut!(SCRATCH_DAY) };
+            // Start from the room's own clock, so an answer without a NOW line
+            // never brings back an older day's (review round 3, lens A, LOW-3).
+            scratch.now_min = a.day.now_min;
+            scratch.sunset_min = a.day.sunset_min;
             let read = status == 200 && model::read_day(body, scratch);
             if read && scratch.same {
                 a.day.now_min = scratch.now_min;
@@ -1719,7 +1723,9 @@ pub fn render() {
         b.push("Inbox ");
         b.int(inbox);
         if vip > 0 {
-            b.push("\n");
+            // One line with the count, so the label stays low enough to clear the
+            // mode column from a seated eye (review round 3, lens B, MED-1).
+            b.push(", ");
             b.int(vip);
             b.push(" VIP");
         }
@@ -1734,13 +1740,15 @@ pub fn render() {
         if mode == Mode::Focus {
             a.untext(node);
         } else {
-            a.text(node, b.as_bytes(), 0.1);
+            a.text(node, b.as_bytes(), 0.05);
         }
         let mut b: Buf<32> = Buf::new();
         b.push("Later ");
         b.int(later);
         let node = a.n.pile_later;
-        if mode == Mode::Triage {
+        // An empty pile says nothing; its label would only crowd the inbox count
+        // from a seated eye (review round 3, lens B, MED-1).
+        if mode == Mode::Triage && later > 0 {
             a.text(node, b.as_bytes(), 0.12);
         } else {
             a.untext(node);
@@ -1749,7 +1757,7 @@ pub fn render() {
         b.push("Done ");
         b.int(done);
         let node = a.n.pile_done;
-        if mode == Mode::Triage {
+        if mode == Mode::Triage && done > 0 {
             a.text(node, b.as_bytes(), 0.12);
         } else {
             a.untext(node);

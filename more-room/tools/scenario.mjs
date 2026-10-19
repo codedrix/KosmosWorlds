@@ -106,7 +106,7 @@ function runVariant(variant) {
   ok(/Sample day/.test(status()), `the status says it is a sample (${status()})`);
   ok(cardsAt(inGrid).length === 12, `twelve cards on the desk (${cardsAt(inGrid).length})`);
   ok(cardsAt(onTray).length === 3, `three waiting on the inbox tray (${cardsAt(onTray).length})`);
-  ok(/Inbox 30\n2 VIP\n\+15 more$/.test(host.textOf("InboxTray") ?? ""), `the inbox counts the rest (${host.textOf("InboxTray")})`);
+  ok(/Inbox 30, 2 VIP\n\+15 more$/.test(host.textOf("InboxTray") ?? ""), `the inbox counts the rest (${host.textOf("InboxTray")})`);
   ok(events().length === 10, `ten events on the strip (${events().length})`);
   const labelled = events().filter((e) => host.texts.has(e.handle)).length;
   ok(labelled === 5, `five event labels around now, the budget (${labelled})`);
@@ -144,7 +144,7 @@ function runVariant(variant) {
   }
   ok(host.textOf("BtnAboutNext") === "Next 1/7", "Next comes round to the first page");
   ok(pages.every((t) => t.length > 0 && !t.endsWith("...") && t.split("\n").length <= 4), `every About page is whole (${JSON.stringify(pages)})`);
-  ok(/SAMPLE DAY/.test(pages[1]) && /never sees the mail/.test(pages[4]) && /iPhone/.test(pages[5]) && /room permission/.test(pages[6]), "About says sample, how it connects, your steps, and what is coming");
+  ok(/SAMPLE DAY/.test(pages[1]) && /stores none of the\smail/.test(pages[4]) && /iPhone/.test(pages[5]) && /room permission/.test(pages[6]), "About says sample, how it connects, your steps, and what is coming");
   host.press("BtnAbout");
   host.run(0.1);
   ok(host.textOf("TxtAbout") === undefined && (host.textOf("TxtStage") ?? "").startsWith("3 things"), "Close about restores the room");

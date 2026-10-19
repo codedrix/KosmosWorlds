@@ -156,6 +156,13 @@ export interface CoreOptions {
   nowMin?: () => number;
   /** Epoch ms, for the face's own cap on wrong guesses (default Date.now). */
   nowMs?: () => number;
+  /**
+   * The face's log of refused guesses (epoch ms). Pass one array that outlives
+   * the core: the bridge calls reset() on every sign-in and sign-out, and a log
+   * that reset with the core would let the cap be spent again (review round 3,
+   * lens A, MED-1). Default: a log of this core's own.
+   */
+  wrongAt?: number[];
   /** true enables the op "arrive", which lands the next sample message (the mock and its tests only). */
   dev?: boolean;
 }
@@ -186,7 +193,7 @@ export function createCore(opts: CoreOptions): Core {
   // (auth.ts), which would also take Mission Control down. Stopping at
   // WRONG_CAP here keeps any number of visitors' guesses in this room from
   // ever reaching that lock. Only this room's sign-in pauses.
-  const wrongAt: number[] = [];
+  const wrongAt: number[] = opts.wrongAt ?? [];
   const log: Core["log"] = [];
   const bump = () => ++rev;
   const text = (status: number, body: string): Reply => ({ status, body });
@@ -312,7 +319,11 @@ export function createCore(opts: CoreOptions): Core {
         return text(429, `NO\troom_locked\t${retry}\n`);
       }
       const r = hooks.signIn(String(fields.pass ?? ""));
-      if (!r.ok && r.reason === "wrong") wrongAt.push(t);
+      // Count every refusal the bridge may have checked against the passphrase:
+      // "wrong", and also "locked" and "hard_locked", which the bridge answers to
+      // the guess that starts a lock. Over-counting only pauses this room sooner
+      // (review round 3, lens A, LOW-1). "too_fast" and "not_set" check nothing.
+      if (!r.ok && r.reason !== "too_fast" && r.reason !== "not_set") wrongAt.push(t);
       if (r.ok) return text(200, `TOKEN\t${r.token}\t${r.expiresInS}\n`);
       const status = r.reason === "wrong" || r.reason === "not_set" ? 401 : 429;
       return text(status, `NO\t${clean(r.reason, 16)}\t${r.retryAfterS ?? 0}\n`);

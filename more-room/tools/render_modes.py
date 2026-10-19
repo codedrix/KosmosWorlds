@@ -250,6 +250,8 @@ VIEWS = [
     ("eye", EYE, (3.0, 0.0, 1.35), 16),
     ("desk", (0.0, 0.0, 1.62), (0.9, 0.0, 0.72), 18),
     ("overview", (-2.6, -2.2, 2.9), (1.4, 0.2, 1.1), 16),
+    # Seated at a real desk: in MR the floor is the real floor (review round 3, lens B, MED-1).
+    ("seated", (0.0, 0.0, 1.2), (3.0, 0.0, 1.15), 16),
 ]
 
 os.makedirs(OUT, exist_ok=True)

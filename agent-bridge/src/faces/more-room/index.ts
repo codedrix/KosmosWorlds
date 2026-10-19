@@ -30,7 +30,11 @@ import { SAMPLE_DAY } from "./sample-day.js";
 
 export const WORLDS = ["world://more-room.micknerks", "world://more-room-mr.micknerks"] as const;
 
-let core: Core = createCore({ store: createStore(SAMPLE_DAY) });
+// The refused-guess log lives here, outside the core, so reset() (which the
+// bridge calls on every sign-in and sign-out) never clears it. Only a restart
+// of the bridge does.
+const wrongAt: number[] = [];
+let core: Core = createCore({ store: createStore(SAMPLE_DAY), wrongAt });
 
 const face: Face = {
   name: "more-room",
@@ -45,7 +49,8 @@ const face: Face = {
   },
   reset(): void {
     // A new sign-in starts from a fresh sample day; the real day will be re-read.
-    core = createCore({ store: createStore(SAMPLE_DAY) });
+    // The guess log carries over.
+    core = createCore({ store: createStore(SAMPLE_DAY), wrongAt });
   },
 };
 

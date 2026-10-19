@@ -249,14 +249,15 @@ function scripted(g, P, variant) {
   // --- The mode bar: a column floating at chest height on the left, so its labels
   //     face you (world text turns only about the vertical; desk-level labels seen
   //     from 1.6 m are foreshortened and clipped by their own buttons).
-  [["BtnModeMorning", 1.46], ["BtnModeFocus", 1.3], ["BtnModeTriage", 1.14], ["BtnModeWrap", 0.98]].forEach(([n, y]) =>
+  //     Raised 8 cm so its lowest label clears the inbox count from a seated eye (review round 3, lens B, MED-1).
+  [["BtnModeMorning", 1.54], ["BtnModeFocus", 1.38], ["BtnModeTriage", 1.22], ["BtnModeWrap", 1.06]].forEach(([n, y]) =>
     g.box(n, [1.3, y, -1.3], [0.05, 0.05, 0.16], P.mode, PRESS),
   );
   // --- Sign in (top of the mode column; hidden once signed in), then About. Kept off the
   //     column's bottom, where its label collided with the inbox count (lit review, 2026-10-19).
   //     The room opens on its built-in sample day, so Sign in is a choice, not a door.
-  g.box("BtnAbout", [1.3, 1.62, -1.3], [0.05, 0.05, 0.16], P.signin, PRESS);
-  g.box("BtnSignIn", [1.3, 1.78, -1.3], [0.05, 0.05, 0.16], P.focus, PRESS);
+  g.box("BtnAbout", [1.3, 1.7, -1.3], [0.05, 0.05, 0.16], P.signin, PRESS);
+  g.box("BtnSignIn", [1.3, 1.86, -1.3], [0.05, 0.05, 0.16], P.focus, PRESS);
   // --- The About panel: one short page at 1.9 m, with Next to its right.
   stud(g, P, "TxtAbout", [1.9, 1.25, 0]);
   g.box("BtnAboutNext", [1.85, 1.08, 0.72], [0.05, 0.06, 0.14], P.signin, PRESS);
@@ -316,7 +317,7 @@ function scripted(g, P, variant) {
   g.box("VeilCal", [2.85, L.calY + 0.12, 0], [0.02, 0.62, 4.5], P.veil, anchor("veil"));
   g.box("VeilWindow", [1.6, 1.55, -2.35], [1.0, 0.8, 0.02], P.veil, anchor("veil"));
   g.box("VeilTasks", [1.74, 1.36, 2.0], [0.02, 0.85, 0.5], P.veil, anchor("veil"));
-  g.box("VeilDesk", [0.74, 0.79, 0], [0.34, 0.02, 1.1], P.veil, anchor("veil"));
+  g.box("VeilDesk", [0.74, 0.79, 0], [0.42, 0.02, 1.1], P.veil, anchor("veil"));
   // --- Templates the script clones (parked under the floor, hidden at init).
   const T = L.templatePark;
   const card = [0.11, 0.012, 0.22];
@@ -373,7 +374,7 @@ export const PLATES = [
   ["PlateOpen", [1.1, 1.16, 0], [1.05, 0.56]],
   ["PlateDraft", [1.25, 1.25, 1.25], [0.95, 0.62]],
   ["PlateTasks", [1.8, 1.46, 2.0], [0.7, 0.86]],
-  ["PlateModes", [1.3, 1.44, -1.3], [0.36, 1.0]],
+  ["PlateModes", [1.3, 1.52, -1.3], [0.36, 1.0]],
   ["PlateWindow", [1.4, 0.92, -2.35], [0.85, 0.5]],
   ["PlateVip", [2.4, 1.64, 1.55], [0.9, 0.2]],
   ["PlateQuiet", [-1.45, 1.22, 0], [0.85, 0.24]],
@@ -382,15 +383,24 @@ export const PLATES = [
   ["PlateAbout", [1.9, 1.37, 0.15], [1.6, 0.55]],
   // The inbox count, the way into triage (review lens B, MED-3). Low enough to
   // pass under the mode column's lowest button in the laser check.
-  ["PlateInbox", [0.95, 0.97, -0.8], [0.42, 0.3]],
+  ["PlateInbox", [0.95, 0.9, -0.8], [0.42, 0.2]],
 ];
 
+// The eye heights a plate must frame its text from: seated at a desk to standing
+// (review round 3, lens B, MED-1: the room was framed for a 1.62 m eye only).
+export const EYE_LOW = 1.15;
+export const EYE_HIGH = 1.75;
+
 function mrPlates(g, P) {
-  const eyeY = 1.62;
-  for (const [name, c, [w, h]] of PLATES) {
+  for (const [name, c, [w, h0]] of PLATES) {
     const r = Math.hypot(c[0], c[2]);
     const k = (r + 0.5) / r;
-    const pos = [c[0] * k, eyeY + (c[1] - eyeY) * k, c[2] * k];
+    // The text's top seen from the lowest eye lands highest on the plate's plane,
+    // and its bottom seen from the highest eye lands lowest: span both.
+    const top = (c[1] + h0 / 2) * k + EYE_LOW * (1 - k);
+    const bot = (c[1] - h0 / 2) * k + EYE_HIGH * (1 - k);
+    const h = (top - bot) / k;
+    const pos = [c[0] * k, (top + bot) / 2, c[2] * k];
     // Face the spawn: the box's thin axis is X; turn it about +Y onto the radial line.
     const yaw = Math.atan2(-c[2], c[0]);
     g.box(name, pos, [0.01, h * k, w * k], P.plate, anchor("plate"), yaw);

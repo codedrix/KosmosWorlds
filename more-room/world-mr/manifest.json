@@ -4,7 +4,7 @@
     "id": "more-room-mr",
     "name": "More Room (MR)",
     "author": "micknerks",
-    "description": "A sample day, given a place in your real room: cards on your desk, the calendar where a wall would be. Everything shown is invented. Its owner can connect it to a bridge on their own PC.",
+    "description": "A sample day, given a place in your real room: cards at desk height, the calendar where a wall would be. Everything shown is invented. Its owner can connect it to a bridge on their own PC.",
     "version": "1.0.0",
     "spawn_point": {
       "x": 0,

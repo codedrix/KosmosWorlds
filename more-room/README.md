@@ -1,11 +1,11 @@
 # More Room (working title)
 
-Your day, given a place around you: the calendar on the wall, messages face-down on the desk, tasks beside you, a window, and a quiet shelf behind. It is live, from a bridge on your own PC.
+Your day, given a place around you: the calendar on the wall, messages face-down on the desk, tasks beside you, a window, and a quiet shelf behind. It opens on an invented sample day; its owner can later connect it to a bridge on their own PC.
 
 - `world://more-room.micknerks` is the VR version, on a plain grid.
 - `world://more-room-mr.micknerks` is the MR version, in your real room.
 
-Both open on a **built-in sample day** (everything invented, with a banner saying so) and an **About** panel; Sign in switches to the bridge. Both are **built and tested, not published.** Publishing is Class C: see [PUBLISH.md](PUBLISH.md).
+Both open on a **built-in sample day** (everything invented, with a banner saying so) and an **About** panel; Owner sign in switches to the bridge. Both are **built and tested, not published.** Publishing is Class C: see [PUBLISH.md](PUBLISH.md).
 
 | Read | For |
 |---|---|
