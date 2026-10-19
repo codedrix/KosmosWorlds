@@ -261,3 +261,15 @@ for DB-045. This revision fixes what today's API can fix.
     - The page number doesn't jump when the ask plate appears.
     - A refused mint says what to do ("wait a few seconds and press the seal again").
     - The README and API.md are corrected (stale v1 lines; the validate line needs publisher ≥ 0.8.1).
+11. **As built (v2.1, recorded after the lanes reported):**
+    - Line widths for the narrower side panels: ticker 0.78, rail 0.74, done 0.78, page spot 0.72, and a
+      new watch 0.50 (layout.ts pins them; they replace §2's).
+    - The chrome bar is 1.56 m wide, wider than the 1.32 m centre panel, to fit six handles, Sign out,
+      Group watch and its line at fixed 8 cm text.
+    - The centre panel spans z 0.79–2.19, for the two-line header.
+    - The ledge is 1.80 m wide, with six 0.33 m slots: CLOSE, cubes A–D and +.
+    - Eye renders are 1600×1360 (about 90° by 80°).
+    - Five wrong codes at the PC cancel every waiting pairing.
+    - A watcher sees no TxProject.
+    - When the ask plate appears, paging keeps the line you were reading on screen. The page number
+      itself changes, because a page above the plate holds 5 lines, not 10.
