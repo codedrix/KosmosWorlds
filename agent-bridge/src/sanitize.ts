@@ -47,7 +47,9 @@ const SECRET_PATTERNS: RegExp[] = [
   /\bAIza[0-9A-Za-z_-]{30,}/g,
   /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}/g, // JWTs
   /\b(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{16,}/gi,
-  /\b(pass(?:word|wd|phrase)?|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|encryption[_-]?key)(\s*[:=]\s*)("[^"]*"|'[^']*'|\S+)/gi,
+  // Keyword then value. "(?<![A-Za-z0-9])" (not "\b") so DB_PASSWORD= counts; a quoted value
+  // runs to its closing quote OR the end of the text, so a quote still streaming in is hidden.
+  /(?<![A-Za-z0-9])(pass(?:word|wd|phrase)?|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|encryption[_-]?key)(\s*[:=]\s*)("[^"]*(?:"|$)|'[^']*(?:'|$)|\S+)/gi,
   /\b[A-Fa-f0-9]{40,}\b/g, // long hex: keys, never a commit we need to show in full
   /\b[A-Za-z0-9+/]{48,}={0,2}(?![A-Za-z0-9+/=])/g, // long base64 blobs
 ];

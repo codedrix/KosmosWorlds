@@ -125,7 +125,7 @@ Host/Origin checks before a face runs, and passes `ctx.authed`; a face acts only
 
 ## Tests
 
-`npm test`: 57 tests (sanitizing, auth and lockout, jobs and approvals, the HTTP surface and kill
+`npm test`: 59 tests (sanitizing, auth and lockout, jobs and approvals, the HTTP surface and kill
 switch, the Mission Control face end to end with the fake adapter, the Claude adapter against a
 scripted SDK, face discovery, the node contract, the relay Worker in front of a live bridge). A live run against the real SDK turned one real
 Claude Code permission prompt into one approval and got the answer back (2026-10-14).

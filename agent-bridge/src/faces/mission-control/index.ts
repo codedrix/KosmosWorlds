@@ -673,7 +673,8 @@ export class MissionControlFace implements Face {
       else s.hide("TxAskB");
     } else {
       s.text("TxAskA", label(head.slice(0, 1)));
-      s.text("TxAskB", label([clipWidth(cmd[0] ?? "", W.ask), "Can't show all of it here: approve it at the desk."]));
+      // The reason first, so the byte clip can only shorten the command, never the reason.
+      s.text("TxAskB", label(["Not from the headset: approve it at the desk.", clipWidth(cmd[0] ?? "", W.ask)]));
     }
     s.visible("BtnApprove", approvable);
     if (approvable) actions.set("BtnApprove", `approve:${a.id}`);

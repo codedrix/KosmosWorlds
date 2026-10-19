@@ -311,7 +311,9 @@ export class JobStore {
     const job = this.jobs.get(jobId);
     if (!job) return false;
     let shown = cur.raw;
-    if (!final) {
+    // At the raw cap the text is cut mid-stream, so its last word may be a cut-off key: hold
+    // it back even when the message ends.
+    if (!final || cur.raw.length >= MAX_AGENT_RAW_CHARS) {
       const m = /\s(?=\S*$)/.exec(shown);
       shown = m ? shown.slice(0, m.index + 1) : "";
     }
@@ -322,10 +324,9 @@ export class JobStore {
     if (!text) return false;
     if (cur.eventId) {
       const ev = job.events.find((e) => e.id === cur.eventId);
-      if (ev && ev.text !== text) {
-        ev.text = text;
-        this.touch(ev);
-      }
+      if (!ev || ev.text === text) return false;
+      ev.text = text;
+      this.touch(ev);
     } else {
       const e = this.push(jobId, "agent", text);
       if (e) cur.eventId = e.id;
@@ -358,9 +359,11 @@ export class JobStore {
       this.agentRaw.set(jobId, cur);
     }
     if (cur.raw.length < MAX_AGENT_RAW_CHARS) cur.raw = (cur.raw + delta).slice(0, MAX_AGENT_RAW_CHARS);
-    if (!this.renderAgent(jobId, cur, false)) return;
+    const shownChanged = this.renderAgent(jobId, cur, false);
+    const wasQuiet = job.status === "starting" || job.status === "idle";
+    if (!shownChanged && !wasQuiet) return; // nothing new on the wall: wake no long poll
     this.lastActivity.delete(jobId);
-    if (job.status === "starting" || job.status === "idle") job.status = "running";
+    if (wasQuiet) job.status = "running";
     this.changed();
   }
 
@@ -419,9 +422,11 @@ export class JobStore {
     const multiLine = /[\r\n]/.test(raw);
     const cleaned = cleanUntrusted(raw).replace(/\s*\r?\n\s*/g, " [newline] ");
     // A file change outside the project folder is shown with its whole path and approved at the desk.
-    const filePath = str(input.file_path) || str(input.notebook_path);
-    const outside = FILE_TOOLS.has(tool) && !insideProject(filePath, job.cwd);
-    const exact = !multiLine && !outside && cleaned === raw && cleaned.length <= MAX_APPROVAL_COMMAND_CHARS;
+    // A file change outside the project, or to config that runs code by itself (Claude Code's
+    // hooks and MCP servers, git hooks), is shown in full and approved at the desk.
+    const filePath = fileTarget(tool, input);
+    const atDesk = FILE_TOOLS.has(tool) && (!insideProject(filePath, job.cwd) || runsCodeByItself(filePath, job.cwd));
+    const exact = !multiLine && !atDesk && cleaned === raw && cleaned.length <= MAX_APPROVAL_COMMAND_CHARS;
     const a: Approval = {
       id: shortId("a"),
       jobId,
@@ -474,9 +479,30 @@ function str(v: unknown): string {
   return typeof v === "string" ? v : "";
 }
 
+/** The file a file tool changes: NotebookEdit's is notebook_path, whatever else the input carries. */
+function fileTarget(tool: string, input: Record<string, unknown>): string {
+  return tool === "NotebookEdit" ? str(input.notebook_path) : str(input.file_path);
+}
+
+/** Folders and files whose contents run code with no further approval. */
+const RUNS_CODE_DIRS = [".claude", ".git", ".husky", ".vscode", ".devcontainer"];
+const RUNS_CODE_FILES = [".mcp.json", ".claude.json"];
+
+/** True for a project file that runs code by itself (a hook, an MCP server, a git hook). */
+export function runsCodeByItself(p: string, cwd: string): boolean {
+  try {
+    const parts = path.relative(path.resolve(cwd), path.resolve(cwd, p)).split(/[\\/]+/).map((x) => x.toLowerCase());
+    return parts.some((x) => RUNS_CODE_DIRS.includes(x)) || RUNS_CODE_FILES.includes(parts[parts.length - 1] ?? "");
+  } catch {
+    return true;
+  }
+}
+
 /** True when `p` resolves inside the job's project folder. */
 export function insideProject(p: string, cwd: string): boolean {
   if (!p) return false;
+  // A path the shell or the tool might expand (~, %VAR%, $VAR) is never "inside": fail closed.
+  if (/^~|%[^%]+%|\$[A-Za-z_{]/.test(p)) return false;
   try {
     const r = path.relative(path.resolve(cwd), path.resolve(cwd, p));
     return r === "" || (!r.startsWith("..") && !path.isAbsolute(r));
@@ -602,7 +628,7 @@ export function approvalTarget(tool: string, input: Record<string, unknown>, cwd
     case "MultiEdit":
     case "Write":
     case "NotebookEdit":
-      return rel(str(input.file_path) || str(input.notebook_path), cwd);
+      return rel(fileTarget(tool, input), cwd);
     case "WebFetch":
       return str(input.url);
     case "WebSearch":

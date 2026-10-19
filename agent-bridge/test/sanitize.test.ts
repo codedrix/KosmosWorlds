@@ -52,3 +52,9 @@ test("wrapping keeps every line inside the width and every label inside 128 byte
   assert.equal(clipBytes("a".repeat(200), 128).length, 128);
   assert.ok(clipBytes("a".repeat(200), 128).endsWith("..."));
 });
+
+test("a quoted secret still streaming in is hidden, and DB_PASSWORD= counts", () => {
+  assert.equal(redactSecrets('password: "correct horse battery'), "password: [redacted]");
+  assert.equal(redactSecrets('password: "correct horse" and more'), "password: [redacted] and more");
+  assert.equal(redactSecrets("DB_PASSWORD=hunter22 next"), "DB_PASSWORD=[redacted] next");
+});

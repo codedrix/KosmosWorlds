@@ -69,7 +69,7 @@ export interface ServerOptions {
   /** The tunnel's public host name (e.g. "bridge.example.dev"); requests for it are accepted. */
   publicHost?: string;
   log?: (line: string) => void;
-  /** Requests per second across everyone, and the burst (default 10 and 30). */
+  /** Requests per second across everyone, and the burst (default 20 and 60). */
   rate?: { perSecond: number; burst: number };
 }
 

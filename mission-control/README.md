@@ -183,6 +183,10 @@ the text (now matte); a closed ring would have been one solid collision box (GLT
 - Four jobs at once (four cards); a fifth waits for one to stop.
 - The `X-World-Address` header the bridge checks is forgeable by anyone with an HTTP client; the
   passphrase, the relay key and the bridge's own checks are the protection, not the header.
+- A file change to config that runs code by itself (`.claude/`, `.git/`, `.mcp.json`, ...) or
+  outside the project is approved at the desk, never from the headset. An edit to an ordinary
+  project file can still change what a later approved command does (a `package.json` script that
+  `npm test` runs): read edit approvals as "this file", not "this is harmless".
 - **Availability, not safety:** the relay Worker has no rate limit of its own, so a flood through
   its public URL can fill the bridge's one shared bucket and slow the owner's wall (state stays
   safe). A Cloudflare rate-limiting rule on the Worker is the fix; adding one is an account setting,

@@ -154,3 +154,27 @@ test("a shortened Ran line is redacted before it is cut", () => {
   sink.toolUse("b1", "Bash", { command: `curl -H "x-api-key: ${fakeKey}" https://api.example/v1/thing` });
   assert.doesNotMatch(JSON.stringify(s.eventsSince(job.id, 0)), /ABCD/);
 });
+
+test("config that runs code by itself, and paths the shell expands, are approved at the desk", async () => {
+  const { s, job, sink } = store();
+  for (const input of [
+    { file_path: "C:/p/.claude/settings.json" },
+    { file_path: "C:/p/.mcp.json" },
+    { file_path: "C:/p/.git/hooks/pre-commit" },
+    { file_path: "~/.bashrc" },
+    { file_path: "%USERPROFILE%/x.txt" },
+  ]) {
+    const p = sink.requestApproval("Write", { ...input, content: "x" });
+    const a = s.pendingFor(job.id);
+    assert.ok(a && !a.exact, JSON.stringify(input));
+    s.decide(a.id, "deny");
+    await p;
+  }
+  // NotebookEdit changes notebook_path, whatever else its input carries.
+  const p = sink.requestApproval("NotebookEdit", { notebook_path: "C:/Users/someone/n.ipynb", file_path: "C:/p/decoy.ts" });
+  const a = s.pendingFor(job.id);
+  assert.ok(a && !a.exact);
+  assert.match(a.command, /someone\/n\.ipynb$/);
+  s.decide(a.id, "deny");
+  await p;
+});

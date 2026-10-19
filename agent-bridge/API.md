@@ -66,7 +66,9 @@ Event    = { id, seq, at, kind, text, approval|null }
            upsert by id.
 Approval = { id, job, number, title, command, exact }
            number rises across the bridge: a new one is the moment to buzz.
-           exact=false: the command was redacted or is too long; approve it at the desk.
+           exact=false: the command was redacted, is too long or spans lines, or the file is
+           outside the project or runs code by itself (.claude/, .git/, .mcp.json, ...);
+           approve it at the desk.
 ```
 
 There is **no verb that runs text**. Everything a client types is a prompt; Claude Code's own
