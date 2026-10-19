@@ -4,7 +4,7 @@
     "id": "more-room-mr",
     "name": "More Room (MR)",
     "author": "micknerks",
-    "description": "Your day, given a place in your real room: cards on your desk, the calendar where a wall would be. It reads a bridge on your own PC. Private test world.",
+    "description": "A sample day, given a place in your real room: cards on your desk, the calendar where a wall would be. Everything shown is invented. Its owner can connect it to a bridge on their own PC.",
     "version": "1.0.0",
     "spawn_point": {
       "x": 0,
@@ -29,7 +29,7 @@
     "connect": [
       "https://kosmos-agent-bridge.micknerks.workers.dev"
     ],
-    "purpose": "Reads your day (calendar, messages, tasks) from the bridge on your own PC, and sends back your presses.",
+    "purpose": "Lets the room's owner read their day (calendar, messages, tasks) from the bridge on their own PC, and send back presses.",
     "privacy_url": "https://kosmos-agent-bridge.micknerks.workers.dev/privacy",
     "required": false
   },

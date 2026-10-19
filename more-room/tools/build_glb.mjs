@@ -296,12 +296,16 @@ function scripted(g, P, variant) {
     g.box(`HourTick${String.fromCharCode(65 + h - 7)}`, [3.02, L.calY - 0.03, z], [0.02, h % 3 === 0 ? 0.06 : 0.03, 0.006], P.tick);
   }
   g.box("NowLine", [L.calX - 0.02, L.calY + 0.02, 0], [0.02, 0.3, 0.012], P.now, anchor("now"));
-  stud(g, P, "TxtNext", [2.9, 2.32, 0]);
+  // In front of the focus veil (x 2.85), with room to turn (review lens B, LOW-5).
+  stud(g, P, "TxtNext", [2.55, 2.3, 0]);
   // --- The window, on the left.
   g.box("WindowFrame", [1.6, 1.55, -2.45], [0.95, 0.75, 0.04], P.frame);
   g.box("PaneDay", [1.6, 1.55, -2.42], [0.85, 0.65, 0.01], P.paneDay, anchor("pane"));
   g.box("PaneDusk", [1.6, 1.55, -2.415], [0.85, 0.65, 0.01], P.paneDusk, anchor("pane"));
   g.box("PaneNight", [1.6, 1.55, -2.41], [0.85, 0.65, 0.01], P.paneNight, anchor("pane"));
+  // Mullions, so the pane reads as a window, not a lit box (review lens B, LOW-8).
+  g.box("WindowBarV", [1.6, 1.55, -2.405], [0.03, 0.65, 0.012], P.frame);
+  g.box("WindowBarH", [1.6, 1.55, -2.405], [0.85, 0.03, 0.012], P.frame);
   // Under the frame (bottom 1.175 m), never in front of it; status under that.
   stud(g, P, "TxtWindow", [1.4, 0.88, -2.35]);
   stud(g, P, "TxtStatus", [1.4, 0.7, -2.35]);
@@ -364,7 +368,7 @@ function mrRoom(g, P) {
 export const PLATES = [
   // name, text centre (glTF; anchors are text BOTTOMS, so this is higher), text width x height (m)
   // Wide enough to frame the prep sheet's Close button at z 1.1 too (review lens B, MED-1).
-  ["PlateStage", [2.4, 1.32, 0], [2.5, 0.82]],
+  ["PlateStage", [2.4, 1.32, 0], [2.9, 0.82]],
   ["PlateCal", [2.98, 2.28, 0], [4.6, 0.62]],
   ["PlateOpen", [1.1, 1.16, 0], [1.05, 0.56]],
   ["PlateDraft", [1.25, 1.25, 1.25], [0.95, 0.62]],
@@ -376,6 +380,9 @@ export const PLATES = [
   ["PlateBanner", [2.6, 1.84, 0], [1.5, 0.13]],
   // Wide and low enough to frame Next (z 0.72) too (lit review, 2026-10-19).
   ["PlateAbout", [1.9, 1.37, 0.15], [1.6, 0.55]],
+  // The inbox count, the way into triage (review lens B, MED-3). Low enough to
+  // pass under the mode column's lowest button in the laser check.
+  ["PlateInbox", [0.95, 0.97, -0.8], [0.42, 0.3]],
 ];
 
 function mrPlates(g, P) {

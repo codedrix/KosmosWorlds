@@ -76,6 +76,10 @@ export interface Store {
 
 export const WIRE = "DAY/1";
 
+/** Wrong passphrases this face passes to the bridge in 24 h before it pauses its own sign-in (the bridge hard-locks at 10). */
+export const WRONG_CAP = 4;
+const DAY_MS = 24 * 3600 * 1000;
+
 /** Field caps, in characters. Brief and prep lines are 30: 4 x 30 + 3 newlines fits a 128-byte world text. */
 export const CAP = Object.freeze({
   line: 30,
@@ -150,6 +154,8 @@ export interface CoreOptions {
   store: Store;
   /** Minutes after local midnight. */
   nowMin?: () => number;
+  /** Epoch ms, for the face's own cap on wrong guesses (default Date.now). */
+  nowMs?: () => number;
   /** true enables the op "arrive", which lands the next sample message (the mock and its tests only). */
   dev?: boolean;
 }
@@ -174,6 +180,13 @@ export function createCore(opts: CoreOptions): Core {
       return t.getHours() * 60 + t.getMinutes();
     });
   let rev = 1;
+  const nowMs = opts.nowMs ?? (() => Date.now());
+  // Wrong passphrases through THIS face in the last 24 h. The room is an unlisted
+  // link others may open; the bridge hard-locks itself after 10 wrong in 24 h
+  // (auth.ts), which would also take Mission Control down. Stopping at
+  // WRONG_CAP here keeps any number of visitors' guesses in this room from
+  // ever reaching that lock. Only this room's sign-in pauses.
+  const wrongAt: number[] = [];
   const log: Core["log"] = [];
   const bump = () => ++rev;
   const text = (status: number, body: string): Reply => ({ status, body });
@@ -292,7 +305,14 @@ export function createCore(opts: CoreOptions): Core {
 
   function handle(op: string, fields: Record<string, string>, authed: boolean, hooks: Hooks): Reply {
     if (op === "signin") {
+      const t = nowMs();
+      while (wrongAt.length && (wrongAt[0] ?? 0) < t - DAY_MS) wrongAt.shift();
+      if (wrongAt.length >= WRONG_CAP) {
+        const retry = Math.ceil(((wrongAt[0] ?? t) + DAY_MS - t) / 1000);
+        return text(429, `NO\troom_locked\t${retry}\n`);
+      }
       const r = hooks.signIn(String(fields.pass ?? ""));
+      if (!r.ok && r.reason === "wrong") wrongAt.push(t);
       if (r.ok) return text(200, `TOKEN\t${r.token}\t${r.expiresInS}\n`);
       const status = r.reason === "wrong" || r.reason === "not_set" ? 401 : 429;
       return text(status, `NO\t${clean(r.reason, 16)}\t${r.retryAfterS ?? 0}\n`);

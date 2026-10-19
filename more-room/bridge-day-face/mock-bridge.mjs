@@ -42,8 +42,9 @@ export function createMockBridge(opts = {}) {
   const passphrase = opts.passphrase ?? "sample-day";
   const nowMs = opts.nowMs ?? (() => Date.now());
   const store = opts.store ?? createStore(SAMPLE_DAY);
-  const core = createCore({ store, nowMin: opts.nowMin, dev: opts.dev });
+  const core = createCore({ store, nowMin: opts.nowMin, nowMs, dev: opts.dev });
   let session = null; // {hash, createdAt, lastSeen}
+  let cutNext = false; // tests: cut the next whole-day answer short
   let lastAttempt = -1e15;
   let wrongInRow = 0;
   let lockUntil = 0;
@@ -108,6 +109,11 @@ export function createMockBridge(opts = {}) {
         // server.ts falls back to the AB1 line format; More Room never sends it.
       }
       const r = core.handle(fm[2], fields, check(fields.tok), { signIn });
+      if (cutNext && fm[2] === "changes" && r.status === 200 && !r.body.includes("\nSAME\n")) {
+        // Tests only: a whole-day answer cut short, as a dropped connection would leave it.
+        cutNext = false;
+        return { status: 200, contentType: "text/plain; charset=utf-8", body: r.body.slice(0, Math.floor(r.body.length / 2)) };
+      }
       return { status: r.status, contentType: "text/plain; charset=utf-8", body: r.body };
     }
 
@@ -130,5 +136,5 @@ export function createMockBridge(opts = {}) {
     return json(404, { error: "not_here" });
   }
 
-  return { handle, core, store, signOut: () => (session = null) };
+  return { handle, core, store, signOut: () => (session = null), cutNextAnswer: () => (cutNext = true) };
 }

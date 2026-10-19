@@ -52,14 +52,16 @@ test("the registry finds the face by its folder", async () => {
   assert.ok(found.has("mission-control"));
 });
 
-test("the opt-in file lists both More Room worlds beside Mission Control", async () => {
+test("the opt-in file lists both More Room worlds beside every other face's", async () => {
   const r = await call(port, "/.well-known/world-network.json", { method: "GET" });
   const worlds = JSON.parse(r.text).worlds as string[];
-  for (const w of ["world://more-room.micknerks", "world://more-room-mr.micknerks", "world://mission-control.micknerks"]) assert.ok(worlds.includes(w), w);
+  // Mission Control's address is its face's to say (it moved to the Lobby on 2026-10-14).
+  for (const w of ["world://more-room.micknerks", "world://more-room-mr.micknerks", ...mc.worlds]) assert.ok(worlds.includes(w), w);
 });
 
 test("another world's address is refused", async () => {
-  const r = await op("changes", {}, { "X-World-Address": "mission-control.micknerks", "Content-Type": "application/json" });
+  const other = (mc.worlds[0] ?? "world://lobby.micknerks").replace("world://", "");
+  const r = await op("changes", {}, { "X-World-Address": other, "Content-Type": "application/json" });
   assert.equal(r.status, 403);
 });
 
@@ -130,4 +132,25 @@ test("a draft that is a bridge Approval is decided through actions.decide", () =
   const no = core.handle("act", { op: "approve", id: "d-y" }, true, { ...hooks, decide: () => ({ ok: false }) });
   assert.equal(no.status, 409);
   assert.equal(core.store.drafts.find((d) => d.id === "d-y")?.state, "pending");
+});
+
+test("wrong guesses through this room stop at 4 a day, so they can never hard-lock the bridge", () => {
+  let t = 1_000_000;
+  let calls = 0;
+  const core = createCore({ store: createStore(SAMPLE_DAY), nowMs: () => t });
+  const hooks = { signIn: () => (calls++, { ok: false as const, reason: "wrong" }) };
+  for (let k = 0; k < 4; k++) {
+    const r = core.handle("signin", { pass: "guess" }, false, hooks);
+    assert.equal(r.status, 401);
+    t += 3000;
+  }
+  const fifth = core.handle("signin", { pass: "guess" }, false, hooks);
+  assert.equal(fifth.status, 429);
+  assert.match(fifth.body, /^NO\troom_locked\t\d+\n$/);
+  assert.equal(calls, 4, "the fifth guess never reaches the bridge's lock (which hard-locks at 10)");
+  // Not counted: a refusal that is not a wrong passphrase (too fast, locked).
+  t += 24 * 3600 * 1000 + 1;
+  const tooFast = { signIn: () => (calls++, { ok: false as const, reason: "too_fast", retryAfterS: 2 }) };
+  for (let k = 0; k < 6; k++) assert.equal(core.handle("signin", { pass: "x" }, false, tooFast).status, 429);
+  assert.equal(calls, 10, "after a day, and for refusals that are not wrong guesses, the bridge is asked again");
 });

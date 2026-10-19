@@ -169,13 +169,13 @@ pub const ABOUT_PAGES: [&str; 7] = [
     "SAMPLE DAY. Nothing here is real yet. Every name, message and task is made up.",
     "Morning: your brief. Focus: one task, the rest dims. Triage: turn cards over. Wrap-up: what got done.",
     "Done files it. Later snoozes. Mute goes to the shelf behind you. Task makes a ticket. Reply drafts it.",
-    "The real room reads a bridge on your own PC: your Gmail, calendar and Linear. Kosmos never sees your mail.",
-    "Your steps: connect your accounts on your PC. Tell us your phone; iPhone texts cannot be read.",
+    "Its owner can connect it to a bridge on their own PC: their mail, calendar and Linear. Kosmos never sees the mail.",
+    "To go live, the owner connects accounts on the PC. iPhone texts cannot be read; Android needs a small app.",
     "Coming: pin these cards to your real wall. That needs the room permission sheet first.",
 ];
 
 const TICK_SOUND: &str = "tick.wav";
-const PROMPT_TEXT: &str = "Your bridge passphrase. It goes only to your bridge, and the room keeps it for this visit only.";
+const PROMPT_TEXT: &str = "For the room's owner: the bridge passphrase. It goes only to the owner's bridge. Wrong guesses pause sign-in here for a day.";
 const REQ_PROMPT: i32 = 9001;
 
 // ---------------------------------------------------------------------------
@@ -260,7 +260,7 @@ struct Nodes {
     panes: [i32; 3],
     veils: [i32; 4],
     /// MR only (absent in VR): dark plates behind text groups, see PLATES.
-    plates: [i32; 11],
+    plates: [i32; 12],
     about: i32,
     about_next: i32,
     txt_about: i32,
@@ -300,6 +300,8 @@ pub struct App {
     about: Option<usize>,
     /// The sample's clock: one minute per minute in the room.
     sample_clock_s: f32,
+    /// Numbers the sample's local drafts, so a redraft never shares an id.
+    sample_seq: i32,
     draft_page: usize,
     focus_task: Option<usize>,
     focus_left_s: f32,
@@ -340,7 +342,7 @@ const NO_NODES: Nodes = Nodes {
     now_line: 0,
     panes: [0; 3],
     veils: [0; 4],
-    plates: [0; 11],
+    plates: [0; 12],
     about: 0,
     about_next: 0,
     txt_about: 0,
@@ -377,6 +379,7 @@ static mut APP: App = App {
     open: None,
     about: None,
     sample_clock_s: 0.0,
+    sample_seq: 0,
     draft_page: 0,
     focus_task: None,
     focus_left_s: FOCUS_S,
@@ -389,6 +392,8 @@ static mut APP: App = App {
 };
 
 static mut READ_BUF: [u8; READ_BUF_BYTES] = [0; READ_BUF_BYTES];
+/// Where a live answer is read before it replaces the day (see Req::Changes).
+static mut SCRATCH_DAY: Day = Day::new();
 /// The host writes the passphrase here LATER; it is wiped as soon as it is sent.
 static mut PROMPT_BUF: [u8; 256] = [0; 256];
 static mut REQ_BODY: Buf<1024> = Buf::new();
@@ -537,7 +542,7 @@ impl App {
         }
         let mut b: Buf<64> = Buf::new();
         if !self.signed_in {
-            b.push("Sample day. Sign in for your own.");
+            b.push("Sample day. Only the owner can sign in.");
         } else if unsafe { host::k_net_status() } != 1 {
             b.push("Network is off for this world");
         } else {
@@ -950,6 +955,9 @@ impl App {
 fn post(path: &str, kind: Req) -> bool {
     let a = app();
     if a.count_in_flight() >= MAX_IN_FLIGHT {
+        // Never keep a body we did not send: it may hold the passphrase (review lens A, LOW-2).
+        body_start();
+        a.status("Busy. Press again in a moment.", true);
         return false;
     }
     let mut url: Buf<128> = Buf::new();
@@ -1046,7 +1054,10 @@ fn local_act(op: &str, id: &[u8]) {
             }
             let d = &mut a.day.drafts[a.day.n_drafts];
             let mut did: Buf<40> = Buf::new();
-            did.push("s-");
+            a.sample_seq += 1;
+            did.push("s");
+            did.int(a.sample_seq);
+            did.push("-");
             did.bytes(id);
             d.id.set(did.as_bytes());
             d.msg.set(id);
@@ -1062,7 +1073,7 @@ fn local_act(op: &str, id: &[u8]) {
             a.status("Draft ready: Approve or Deny", true);
         }
         "approve" | "deny" => {
-            let Some(d) = (0..a.day.n_drafts).find(|&k| a.day.drafts[k].id.eq(id)) else { return };
+            let Some(d) = (0..a.day.n_drafts).find(|&k| a.day.drafts[k].id.eq(id) && a.day.drafts[k].state == model::DraftState::Pending) else { return };
             if op == "approve" {
                 a.day.drafts[d].state = model::DraftState::Sent;
                 let msg = a.day.drafts[d].msg;
@@ -1161,7 +1172,7 @@ pub extern "C" fn on_net_result(_event_type: i32, _node: i32, request_id: i32, s
             let buf_ptr = core::ptr::addr_of_mut!(READ_BUF) as *mut u8;
             let got = unsafe { host::k_net_read(request_id, buf_ptr as usize as i32, READ_BUF_BYTES as i32) };
             if got > 0 {
-                len = got as usize;
+                len = (got as usize).min(READ_BUF_BYTES);
             }
         }
     }
@@ -1172,7 +1183,7 @@ pub extern "C" fn on_net_result(_event_type: i32, _node: i32, request_id: i32, s
         a.signed_in = false;
         a.token = S::new();
         a.have_day = false;
-        load_sample(false);
+        load_sample(true);
         a.status("Signed out by the bridge. Sign in again.", true);
         render();
         return;
@@ -1211,6 +1222,7 @@ pub extern "C" fn on_net_result(_event_type: i32, _node: i32, request_id: i32, s
                 (401, b"not_set") => "No passphrase is set on the PC yet.",
                 (401, _) => "Wrong passphrase.",
                 (429, b"too_fast") => "One try every 2 seconds. Press again.",
+                (429, b"room_locked") => "Too many wrong tries here. Sign-in is paused for a day.",
                 (429, b"hard_locked") => "Sign-in is locked. Unlock it on the PC.",
                 (429, _) => "Too many tries. Wait 15 minutes.",
                 (503, _) => "The bridge is stopped on the PC.",
@@ -1219,7 +1231,20 @@ pub extern "C" fn on_net_result(_event_type: i32, _node: i32, request_id: i32, s
             a.status(why, true);
         }
         Req::Changes => {
-            if status == 200 && model::read_day(body, &mut a.day) {
+            // Read into a scratch day and take it only when it is complete: a cut
+            // answer must never leave the room on a half-cleared day (review lens A, MED-1).
+            #[allow(static_mut_refs)]
+            let scratch = unsafe { &mut *core::ptr::addr_of_mut!(SCRATCH_DAY) };
+            let read = status == 200 && model::read_day(body, scratch);
+            if read && scratch.same {
+                a.day.now_min = scratch.now_min;
+                a.day.sunset_min = scratch.sunset_min;
+                a.day.rev = scratch.rev;
+                a.day.same = true;
+            } else if read {
+                core::mem::swap(&mut a.day, scratch);
+            }
+            if read {
                 a.since_update_s = 0.0;
                 if !a.day.same {
                     let first = !a.have_day;
@@ -1626,7 +1651,7 @@ pub fn render() {
     if a.signed_in {
         a.untext(si);
     } else {
-        a.text_str(si, "Sign in", 0.035);
+        a.text_str(si, "Owner sign in", 0.035);
     }
     let ab = n.about;
     a.text_str(ab, if about_open { "Close about" } else { "About" }, 0.035);
@@ -2021,8 +2046,9 @@ pub fn render() {
 }
 
 /// MR plates, in the order of `Nodes::plates` (mirrors PLATES in tools/build_glb.mjs).
-const PLATES: [&str; 11] = [
+const PLATES: [&str; 12] = [
     "PlateStage", "PlateCal", "PlateOpen", "PlateDraft", "PlateTasks", "PlateModes", "PlateWindow", "PlateVip", "PlateQuiet", "PlateBanner", "PlateAbout",
+    "PlateInbox",
 ];
 
 /// MR only: show each dark plate only while a text it frames is showing.
@@ -2047,6 +2073,7 @@ fn show_plates() {
         held(n.txt_quiet),
         held(n.txt_banner),
         held(n.txt_about) || held(n.about_next),
+        held(n.inbox),
     ];
     for k in 0..PLATES.len() {
         visible(n.plates[k], wanted[k]);

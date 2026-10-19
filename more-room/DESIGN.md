@@ -75,7 +75,7 @@ The cards float at fixed spots relative to where you stand when the world loads.
 
 One button each, on the mode column. The current mode reads `[Triage]`.
 
-Renders: [renders/](renders/), as `vr-<mode>-<view>.jpg` and `mr-<mode>-<view>.jpg`. The views are eye height, the desk, and an overview. Signed out, the room shows only a Sign in button at eye height in front of the stage, with its messages on the stage (`*-signin-eye.jpg`).
+Renders: [renders/](renders/), as `vr-<mode>-<view>.jpg` and `mr-<mode>-<view>.jpg`. The views are eye height, the desk, and an overview. Signed out is the sample day itself, so Morning shows it.
 
 ### Morning brief
 - **The stage:** Claude's brief, up to four lines ("3 things need you today: …"), and under it the message count ("7 messages, 1 from VIPs").
@@ -88,7 +88,7 @@ Renders: [renders/](renders/), as `vr-<mode>-<view>.jpg` and `mr-<mode>-<view>.j
 - **Everything else is dimmed:** translucent veils fall over the calendar, the window, the tasks and the desk. Event labels hide; only the next event shows ("Next: 10:30 Counsel call").
 - **The desk does not answer in focus:** the veil sits over it, and the laser check in `tools/mock-host.mjs` proves a press on a card is blocked.
 - **Messages keep landing**, face-down and **silent**, in their slots.
-- **A VIP ticks once, from the tray**, and a line reads "VIP: Counsel (sample)" for 90 seconds. Nothing moves toward you.
+- **A VIP ticks once, from the tray**, and a line reads "VIP: Dana Whitfield" for 90 seconds. Nothing moves toward you.
 
 ### Triage
 - **Press a card to turn it over.** It shows its read face, and the open card floats above the action row (from, subject, a two-line preview).
@@ -140,8 +140,8 @@ Every number below was measured by running the built `world.wasm`:
 | Request body | 16 KiB | largest 84 B | — |
 | Answer | 256 KiB, text or JSON only | largest 4.7 KB (the whole sample day) | 7.7 KB for 40 messages |
 | Requests | 4 in flight, 1 a second with bursts of 10 | 19 polls in 49 s plus presses; never rate-limited | — |
-| Wasm | 256 KB | 80.1 KB (6.4 KB of it is the built-in sample) | — |
-| Triangles | 1,000,000 | 504 (doctor) | — |
+| Wasm | 256 KB | 100.3 KB (6.3 KB of it is the built-in sample, about 20 KB a scratch day a live answer is read into before it replaces the room's) | — |
+| Triangles | 1,000,000 | 540 VR, 612 MR (doctor) | — |
 
 **What the room draws when the day doesn't fit:**
 - a full desk shows 12 cards, up to 3 more wait on the inbox tray, and the tray's label counts the rest ("+15 more" on the sample day);
@@ -154,14 +154,13 @@ Every number below was measured by running the built `world.wasm`:
 
 | Mode | Texts |
 |---|---|
-| Signed out | 2 |
 | Morning | about 20 |
 | Focus | about 13 |
 | Triage, with a draft | 26 |
 | Wrap-up | about 20 |
 
 **Test totals:**
-- `tools/scenario.mjs`: 215 checks across both worlds, all passing. Part 1 runs the built-in sample with **no request at all**, the About panel included; part 2 signs in and runs the live day;
+- `tools/scenario.mjs`: 225 checks across both worlds, all passing. Part 1 runs the built-in sample with **no request at all**, the About panel included; part 2 signs in and runs the live day;
 - `cargo test`: 16 host tests, including "the baked sample is a complete DAY/1 day" and "every About page fits whole";
 - `kosmos-wp validate` at publisher main `fced9cf` (CLI 0.8.1, 83 rules) passes both worlds against level 4 (the registry's deployed level since 2026-10-12). The one warning is NET_007, "origin not checked (offline)";
 - `kosmos-wp doctor`: VR 17 ✅, 0 ⚠️, 0 ❌; MR 16 ✅, 1 ⚠️, 0 ❌. The MR warning is head clearance under an hour tick on the calendar strip, which doesn't apply in MR, where the visitor doesn't move by stick (`MOVE_None`);
@@ -197,6 +196,11 @@ More Room is a **face** on that bridge: the folder [agent-bridge/src/faces/more-
 - **The room polls every 4 seconds.** That also keeps the bridge session's 30-minute idle timer alive. The session's 8-hour limit ends with "Signed out by the bridge. Sign in again."
 - **The bridge sends ASCII only, clipped to the field caps.** The world clips again.
 
+**Sign-in is for the room's owner, and guesses can't lock the bridge** (review lens B, 2026-10-19).
+- The worlds are unlisted links that others may open. The bridge locks for 15 minutes after 5 wrong passphrases in a row, and hard-locks after 10 in 24 h; a hard lock also takes Mission Control down until the CEO unlocks it at his PC.
+- So the room says plainly that sign-in is the owner's ("Owner sign in"; "Sample day. Only the owner can sign in."; the sheet's own text says wrong guesses pause sign-in here).
+- The face stops passing wrong guesses to the bridge after **4 in 24 h** (`WRONG_CAP` in `day-core.ts`) and answers `room_locked` ("Too many wrong tries here. Sign-in is paused for a day."). Any number of visitors' guesses in this room can then never reach the bridge's hard lock. Only this room's sign-in pauses. A test pins this: the fifth guess never reaches the bridge.
+
 **One sign-in at a time, for the whole bridge.** Signing in to More Room is signing in to the bridge. If the CEO then signs in from the Lobby (Mission Control), More Room's token stops working, and the room says "Signed out by the bridge"; the same holds the other way round. That is the bridge's rule, and More Room follows it.
 
 **Approve and Deny.** These are the CEO's press in the room.
@@ -206,12 +210,14 @@ More Room is a **face** on that bridge: the folder [agent-bridge/src/faces/more-
 
 **Built against a mock "sample day" only.** [sample-day.ts](../agent-bridge/src/faces/more-room/sample-day.ts) is invented: every person, company and message in it is fake. `node --experimental-strip-types more-room/bridge-day-face/server.mjs --dev` serves it on `http://127.0.0.1:8787`. **Connecting the CEO's real accounts is his act (Class C).**
 
+**When the real day arrives** (review lens A, 2026-10-19): the face must map real ids to short, clean ones (a Linear id is 36 characters; the room's id slot is 32), and a draft that is a bridge Approval must show the Approval's exact text, since that is what Mission Control decides and sends.
+
 **What comes next on the bridge** (verbs to propose for `bridge.ts`, the one shared file, per API.md §4):
 1. **"Today"**: today's calendar with each event's prep (attendees, agenda, related mail and tickets), the inbox summary (sender, subject, a short preview, a VIP flag), pinned and open Linear tasks, the weather, the sunset and one headline. These fill the face's store in place of the sample.
 2. **"Draft a reply to message X"**: a Claude job whose send step becomes a bridge **Approval**. Its id goes on the draft, so Approve is `actions.decide`.
 3. **Message moves:** archive, snooze, mute (labels), and "make a Linear ticket from message X".
 
-**Tested on the real bridge.** In a throwaway copy of Mission Control's branch with this face folder dropped in, `tsc` was clean and the bridge's whole suite passed: 52 of 52, including More Room's 10 in `agent-bridge/test/more-room-face.test.ts`. Those 10 cover:
+**Tested on the real bridge.** In a throwaway copy of Mission Control's branch with this face folder dropped in, `tsc` was clean and the bridge's whole suite passed: the whole suite (on 2026-10-19 the bridge branch had grown to 62 tests), More Room's 11 included in `agent-bridge/test/more-room-face.test.ts`. Those 11 cover:
 - the registry finds the face, and the opt-in file lists both worlds;
 - another world's address is refused, and nothing is served before sign-in;
 - wrong-then-right sign-in through the shared session, whose token also works on `/v1/jobs`;
@@ -219,7 +225,8 @@ More Room is a **face** on that bridge: the folder [agent-bridge/src/faces/more-
 - turn, draft and approve;
 - the dev-only op is absent;
 - sign-out ends the room;
-- a bridge Approval goes through `decide`.
+- a bridge Approval goes through `decide`;
+- wrong guesses through this room stop at 4 a day.
 
 ## 6. Headset facts that shaped the design
 
@@ -284,7 +291,7 @@ Each was found reading the client at the cooked commit, or in the lit review of 
 
 **Verified here:**
 - the 215-check scenario on both worlds (the built-in sample with no request, then the live day);
-- the face on the real bridge server (52 of 52 bridge tests, More Room's 10 among them);
+- the face on the real bridge server (the bridge's whole suite, More Room's 11 tests among them);
 - the heavy day;
 - the packaged scenes;
 - the host tests;
@@ -304,11 +311,11 @@ Each was found reading the client at the cooked commit, or in the lit review of 
 1. Open each world: it is full at once on the sample day, with the banner. Press Sign in: the system sheet names the world (its address and author), and the room's own prompt text says the passphrase goes to your bridge. A wrong passphrase says so, and the right one switches to the bridge's day.
 2. About: all seven pages are readable from where you stand, and Next and Close about work.
 3. The text is readable at eye height in VR and in MR (plates against a real wall). Is the open card readable over a real monitor? Do translucent plates and mats draw correctly over passthrough on the headset (mobile alpha)? Do the 1 cm text-anchor studs show as specks on a real wall? Is the inbox count on the desk readable in MR (it has no plate: one there would block the mode column)?
-4. Presses on clones (cards, events, the top card of the inbox tray) work. If they don't, the fallback is authored card slots instead of clones.
+4. Presses on clones (cards, events, the top card of the inbox tray) work, including a low controller angle on the tray stack (the tests trace the press from the eye, not the hand). If they don't, the fallback is authored card slots instead of clones.
 5. Turn over, Done, Later, Mute, Task, Reply → Approve: each lands where it lives (in the sample, nothing is sent; signed in, Approve reaches Mission Control's approval log).
 6. Focus: a VIP arriving ticks once from the tray; a normal message is silent.
 7. Put the headset to sleep and wake it, then turn off the PC: the status says "The bridge did not answer. Is the PC awake?", and nothing crashes.
-8. Frame time with the full room visible stays within 13.8 ms. The room is about 600 triangles and about 60 objects, so it is expected to be fine.
+8. Frame time with the full room visible stays within 13.8 ms. The room is about 600 triangles, 103 authored nodes (VR) and up to about 40 clones, so it is expected to be fine.
 
 ## 10. Publishing
 

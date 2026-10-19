@@ -38,12 +38,12 @@ export const SAMPLE_DAY: DayData = {
   events: [
     { id: "ev-a", start: h(8, 30), end: h(9), title: "Gym", prep: ["Gym 8:30-9:00", "Nothing to prepare"] },
     { id: "ev-b", start: h(9), end: h(9, 30), title: "Standup", prep: ["Standup 9:00-9:30", "With: Priya, Tomas, Lena", "Agenda: cook 1012, menu lane", "Related: KOS-S12, KOS-S14"] },
-    { id: "ev-c", start: h(10, 30), end: h(11, 30), title: "Counsel call", prep: ["Counsel call 10:30-11:30", "With: Dana Whitfield (counsel)", "Agenda: card scope, terms v2", "Related: 2 threads, 1 draft"] },
+    { id: "ev-c", start: h(10, 30), end: h(11, 30), title: "Counsel call", prep: ["Counsel call 10:30-11:30", "With: Dana Whitfield (counsel)", "Agenda: terms v2, section 4", "Related: 2 threads, 1 draft"] },
     { id: "ev-d", start: h(11, 45), end: h(12, 15), title: "Investor call", prep: ["Investor update 11:45", "With: Sam Okoro", "Agenda: alpha numbers, hiring", "Related: deck v4, 1 mail"] },
     { id: "ev-e", start: h(12, 30), end: h(13, 15), title: "Lunch", prep: ["Lunch with Marisol", "At the taco place on 6th", "Nothing to prepare"] },
     { id: "ev-f", start: h(14), end: h(15), title: "Menu review", prep: ["Menu review 2:00-3:00", "With: Lena (design)", "Agenda: Settings groups", "Related: KOS-S31, 2 mails"] },
     { id: "ev-g", start: h(15, 15), end: h(15, 45), title: "World jam", prep: ["Creator world jam", "With: 6 sample creators", "Agenda: what blocks publish", "Related: #creators thread"] },
-    { id: "ev-h", start: h(16, 30), end: h(17), title: "Tester list", prep: ["Tester list 4:30-5:00", "Agenda: pick the first 10", "Related: waitlist, 214 names", "Decide: headset mix"] },
+    { id: "ev-h", start: h(16, 30), end: h(17), title: "Tester list", prep: ["Tester list 4:30-5:00", "Agenda: pick the first 10", "Related: the waitlist export", "Decide: headset mix"] },
     { id: "ev-i", start: h(17, 15), end: h(17, 45), title: "1:1 Tomas", prep: ["1:1 with Tomas", "Agenda: cook pipeline, load", "Related: KOS-S20"] },
     { id: "ev-j", start: h(18, 30), end: h(19), title: "Walk", prep: ["Walk before sunset", "Sunset 6:58", "Nothing to prepare"] },
   ],
@@ -69,7 +69,7 @@ export const SAMPLE_DAY: DayData = {
 
   // src: gmail | slack | github | linear. Every sender is invented.
   messages: [
-    { id: "m-a", src: "gmail", vip: true, from: "Dana Whitfield", subject: "Terms: one question", preview: "Can we keep the conduit wording as drafted, or do you want the shorter version?" },
+    { id: "m-a", src: "gmail", vip: true, from: "Dana Whitfield", subject: "Terms: one question", preview: "Can we keep section 4 as drafted, or do you want the shorter version?" },
     { id: "m-b", src: "gmail", vip: true, from: "Sam Okoro", subject: "Before our call", preview: "Could you send the alpha numbers ahead of 11:45? Just the three we discussed." },
     { id: "m-c", src: "gmail", vip: false, from: "Marisol Vega", subject: "Lunch still on?", preview: "Taco place on 6th at 12:30? I'll grab a table outside." },
     { id: "m-d", src: "slack", vip: false, from: "#builds (sample)", subject: "Cook 1012 is green", preview: "Build 1012 passed its smoke test on both test headsets." },
@@ -80,7 +80,7 @@ export const SAMPLE_DAY: DayData = {
     { id: "m-i", src: "gmail", vip: false, from: "Office Hub (sample)", subject: "Your desk is booked", preview: "Desk 4 is yours for Thursday and Friday this week." },
     { id: "m-j", src: "github", vip: false, from: "Repo bot (sample)", subject: "Issue 88 commented", preview: "Priya commented: the cache cap needs a device check." },
     { id: "m-k", src: "gmail", vip: false, from: "Newsletter (sample)", subject: "This week in headsets", preview: "Ten stories about headsets you might have missed." },
-    { id: "m-l", src: "slack", vip: false, from: "Tomas", subject: "Load test numbers", preview: "Load time median 3.1 s on the big city world." },
+    { id: "m-l", src: "slack", vip: false, from: "Tomas", subject: "Load test numbers", preview: "Load times look good on the big test world." },
     { id: "m-m", src: "gmail", vip: false, from: "Avery Chen", subject: "Podcast invite", preview: "Would you join our show next month to talk about 3D worlds?" },
     { id: "m-n", src: "linear", vip: false, from: "Tracker (sample)", subject: "KOS-S20 assigned", preview: "KOS-S20 Cook pipeline timing was assigned to you." },
     { id: "m-o", src: "gmail", vip: false, from: "Jordan Pike", subject: "Invoice 1043", preview: "The invoice for September is attached (attachments are not shown here)." },
@@ -110,8 +110,8 @@ export const SAMPLE_DAY: DayData = {
 
   // Drafts the sample's "Claude" writes. The real bridge asks Claude.
   drafts: {
-    "m-a": "Keep the conduit wording as drafted. The shorter version drops the card-data sentence we need. Thanks!",
-    "m-b": "Here are the three: 214 on the waitlist, 31 worlds published, median load 3.1 s. Talk at 11:45.",
+    "m-a": "Let's keep section 4 as drafted. The shorter version drops a sentence we want. Thanks!",
+    "m-b": "Sure, I will send the three numbers before 11:45. Talk then.",
     "m-c": "Yes, 12:30 at the taco place on 6th. See you there!",
     "m-g": "Not yet. I will write a short sound doc this week and share it in the creators channel.",
     "m-m": "Thanks Avery, I would like that. Next month works; send me two dates?",

@@ -14,23 +14,26 @@ It does not cover connecting the CEO's accounts or new bridge verbs.
 
 | # | Step | Whose | Check |
 |---|---|---|---|
-| 0.1 | Settled 2026-10-14: the shared agent bridge's relay Worker, `https://kosmos-agent-bridge.micknerks.workers.dev`, is the origin (in `script/src/lib.rs` `ORIGIN` and both manifests). More Room is the face `more-room` on that bridge (`agent-bridge/src/faces/more-room/`). PR #5 (the bridge) merges before or with PR #4 (this) | Mission Control lane, then the CEO (Class C merges) | the bridge's `npm test` passes with the face folder in it (52 of 52 on 2026-10-14) |
+| 0.1 | Settled 2026-10-14: the shared agent bridge's relay Worker, `https://kosmos-agent-bridge.micknerks.workers.dev`, is the origin (in `script/src/lib.rs` `ORIGIN` and both manifests). More Room is the face `more-room` on that bridge (`agent-bridge/src/faces/more-room/`). PR #5 (the bridge) merges before or with PR #4 (this) | Mission Control lane, then the CEO (Class C merges) | the bridge's `npm test` passes with the face folder in it (More Room's 11 face tests among them) |
 | 0.2 | **The origin must not be a Kosmos host:** not `*.kosmosvr.com` and not `*.theworldpublishing.com` (NET_003 refuses both). A `workers.dev` name or the CEO's own domain works | — | `validate` passes NET_003 |
 | 0.3 | **The always-on front for the opt-in file is Mission Control's relay Worker** (`agent-bridge/relay-worker/`; one front door, one secret, one kill switch; More Room deploys no Worker). It answers the opt-in file while the PC sleeps, which matters: the registry drops an origin whose weekly check and its confirm 1–24 h later both fail, for up to a week. **Its `WORLDS` var must list `world://more-room.micknerks` and `world://more-room-mr.micknerks`** (on 2026-10-14 it lists only Mission Control's world) | Mission Control lane edits `WORLDS`; the **CEO** deploys the Worker (a public endpoint) | `curl -s https://kosmos-agent-bridge.micknerks.workers.dev/.well-known/world-network.json` lists both More Room worlds, status 200, no redirect (on 2026-10-14 the Worker was not deployed yet: Cloudflare error 1042) |
 | 0.4 | `micknerks` is on the registry's `network_registrants` allowlist (it was for net-check on 2026-10-11) | Agent, read-only | `registry_settings.network_registrants` contains `micknerks` |
-| 0.5 | The bridge serves the day face with the **CEO's real connectors** (Gmail, Calendar, Linear) | **CEO** (connecting accounts is Class C) | `POST /v1/faces/more-room/changes` after sign-in returns his day, not the sample (needs the "today" verb, DESIGN.md §5) |
 
 ## 1. Build and check (agent)
 
+Use the publisher CLI at main `fced9cf` or later (0.8.1; on this PC, `node E:/wt/wp-cli-1014/packages/cli/dist/index.js`, written `kosmos-wp` below). The globally installed `kosmos-wp` is 0.3.0 and too old.
+
 ```
+mkdir -p more-room/dist
+node --experimental-strip-types more-room/tools/gen_sample.mjs
 node more-room/tools/build_glb.mjs both
 powershell -NoProfile -ExecutionPolicy Bypass -File more-room\tools\build_wasm.ps1
 node --experimental-strip-types more-room/tools/scenario.mjs --snapshots
 node --experimental-strip-types more-room/tools/stress.mjs
-kosmos-wp validate more-room/world-vr
-kosmos-wp validate more-room/world-mr
-kosmos-wp bundle more-room/world-vr --output more-room/dist/more-room-vr.worldbundle
-kosmos-wp bundle more-room/world-mr --output more-room/dist/more-room-mr.worldbundle
+kosmos-wp validate --deployed-level 4 more-room/world-vr
+kosmos-wp validate --deployed-level 4 more-room/world-mr
+kosmos-wp bundle --deployed-level 4 more-room/world-vr --output more-room/dist/more-room-vr.worldbundle
+kosmos-wp bundle --deployed-level 4 more-room/world-mr --output more-room/dist/more-room-mr.worldbundle
 node more-room/tools/extract_scene.mjs
 node --experimental-strip-types more-room/tools/scenario.mjs --packaged
 ```
@@ -67,6 +70,14 @@ Then record each publish:
 ## 4. The device checkpoint (CEO, on Build 1009 or later)
 
 This is the checklist in [DESIGN.md](DESIGN.md) §9. Record it in `docs/COOK_LEDGER.md` style notes on the More Room ticket. Do not call the room working until it passes. An agent's green checks are not pixels.
+
+## After publishing (optional, not part of this approval)
+
+- Connecting the CEO's real Gmail, calendar and Linear to the bridge is his own step (Class C). It needs the proposed "today" verb (DESIGN.md §5). Until then the room shows the sample day, which is what this publish is.
+
+## Published
+
+_Nothing yet. Each publish adds: world, semver, content_hash, the date, and the DEPLOY_LEDGER row id._
 
 ## Rollback
 

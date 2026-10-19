@@ -1,0 +1,2 @@
+# The baked sample is include_bytes!-ed into the wasm: keep LF so a Windows checkout rebuilds it byte for byte.
+script/src/sample_day.txt text eol=lf

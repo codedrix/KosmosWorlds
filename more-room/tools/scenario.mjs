@@ -99,7 +99,7 @@ function runVariant(variant) {
   host.run(0.5);
   textsOk("sample, morning");
   ok(host.textOf("TxtBanner") === "SAMPLE DAY: nothing here is real yet", `the sample banner shows (${host.textOf("TxtBanner")})`);
-  ok(host.textOf("BtnSignIn") === "Sign in" && host.textOf("BtnAbout") === "About", "Sign in and About are labelled");
+  ok(host.textOf("BtnSignIn") === "Owner sign in" && host.textOf("BtnAbout") === "About", "Owner sign in and About are labelled");
   ok((host.textOf("TxtStage") ?? "").startsWith("3 things need you today"), `the brief is on the stage (${host.textOf("TxtStage")})`);
   ok(/^30 messages, 2 from VIPs\nTasks: 8 to do, 3 doing, 5 done$/.test(host.textOf("TxtStageLow") ?? ""), `messages and tasks are counted (${host.textOf("TxtStageLow")})`);
   ok(/Answer counsel/.test(host.textOf("TaskA") ?? ""), "the first pinned task (a doing one)");
@@ -114,7 +114,6 @@ function runVariant(variant) {
   const now = host.byName.get("NowLine");
   ok(Math.abs(now.pos[2] - (LAYOUT.calZ0 + ((10 * 60 + 5 - 420) / 60) * LAYOUT.calZPerHour)) < 1e-4, "the now line is at 10:05");
   ok(host.byName.get("PaneDay").visible && !host.byName.get("PaneNight").visible, "the window shows day at 10:05");
-  snap("signin");
   snap("morning");
 
   // Prep, from the sample itself.
@@ -145,7 +144,7 @@ function runVariant(variant) {
   }
   ok(host.textOf("BtnAboutNext") === "Next 1/7", "Next comes round to the first page");
   ok(pages.every((t) => t.length > 0 && !t.endsWith("...") && t.split("\n").length <= 4), `every About page is whole (${JSON.stringify(pages)})`);
-  ok(/SAMPLE DAY/.test(pages[1]) && /never sees your mail/.test(pages[4]) && /iPhone/.test(pages[5]) && /room permission/.test(pages[6]), "About says sample, how it connects, your steps, and what is coming");
+  ok(/SAMPLE DAY/.test(pages[1]) && /never sees the mail/.test(pages[4]) && /iPhone/.test(pages[5]) && /room permission/.test(pages[6]), "About says sample, how it connects, your steps, and what is coming");
   host.press("BtnAbout");
   host.run(0.1);
   ok(host.textOf("TxtAbout") === undefined && (host.textOf("TxtStage") ?? "").startsWith("3 things"), "Close about restores the room");
@@ -180,6 +179,15 @@ function runVariant(variant) {
   ok(/Draft ready/.test(status()), `the status says so (${status()})`);
   textsOk("sample triage with a draft");
   snap("triage");
+  // Deny, then draft again: the new draft has its own id and Approve clears it (review lens A, MED-2).
+  host.press("BtnDeny");
+  host.run(0.2);
+  ok(/Draft discarded/.test(status()) && host.textOf("TxtDraft") === undefined, `Deny clears the side table (${status()})`);
+  host.press(cardsAt((n) => n.source === "TplMsgRead" && inGrid(n))[0].handle);
+  host.run(0.2);
+  host.press("BtnReply");
+  host.run(0.2);
+  ok(/^Draft to/.test(host.textOf("TxtDraft") ?? ""), "a second draft waits");
   host.press("BtnApprove");
   host.run(0.7);
   ok(/Sent \(sample/.test(status()), `Approve, in the sample, sends nothing and says so (${status()})`);
@@ -252,6 +260,17 @@ function runVariant(variant) {
   ok(/Signed in/.test(status()), `sign-in is confirmed (${status()})`);
   host.run(10); // "Signed in." is held for 10 s, then the live status takes over
   ok(/Live/.test(status()), `the status says live (${status()})`);
+  // A cut answer: the room keeps its day, says so, and recovers on the next poll (review lens A, MED-1).
+  const inboxBefore = host.textOf("InboxTray");
+  // Move the day on the bridge (a Done made elsewhere), then cut the answer that carries it.
+  bridge.core.handle("act", { op: "done", id: "m-ad" }, true, { signIn: () => ({ ok: false, reason: "wrong" }) });
+  bridge.cutNextAnswer();
+  host.run(4.6);
+  ok(/cannot read/.test(status()), `a cut answer is said (${status()})`);
+  ok(host.textOf("InboxTray") === inboxBefore, `a cut answer leaves the day as it was (${host.textOf("InboxTray")})`);
+  host.run(4.6);
+  ok(/^Inbox 29/.test(host.textOf("InboxTray") ?? ""), `the next poll brings the whole day (${host.textOf("InboxTray")})`);
+  host.run(10);
   ok(cardsAt(inGrid).length === 12 && cardsAt(onTray).length === 3, "the bridge's day fills the desk and the tray");
 
   // Focus while messages arrive: silent, face-down, on the tray; a VIP ticks once.
@@ -295,7 +314,7 @@ function runVariant(variant) {
   bridge.handle("POST", "/v1/session/end", Buffer.from(JSON.stringify({ tok: faceTokens(host)[0] })), addr);
   host.run(4.6);
   ok(/Sign\sin again/.test(status()), `a 401 signs the room out, out loud (${status()})`);
-  ok(host.textOf("TxtBanner") === "SAMPLE DAY: nothing here is real yet" && host.textOf("BtnSignIn") === "Sign in", "signed out: back to the sample, with Sign in");
+  ok(host.textOf("TxtBanner") === "SAMPLE DAY: nothing here is real yet" && host.textOf("BtnSignIn") === "Owner sign in", "signed out: back to the sample, with Owner sign in");
   const n0 = host.requests.length;
   host.run(10);
   ok(host.requests.length === n0, "signed out: polling stops");
