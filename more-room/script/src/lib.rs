@@ -168,6 +168,8 @@ const FOLLOW_PER_S: f32 = 4.0;
 /// A ring label is shown again (and so faces you again) once its event has
 /// moved this far round since it was shown (degrees).
 const LABEL_REFACE_DEG: f32 = 6.0;
+/// How long presses on the action row are ignored after it swaps (actions <-> draft buttons).
+const ROW_SWAP_GUARD_S: f32 = 0.3;
 /// How long the VIP line stays up.
 const VIP_LINE_S: f32 = 90.0;
 /// How long an error stays on the status line.
@@ -361,6 +363,9 @@ pub struct App {
     vip_from: S<24>,
     /// Which card is up in front (the reading card or a draft), as its node.
     read_node: i32,
+    /// When the action row last swapped (five actions <-> Approve, Deny, More): presses
+    /// on that row are ignored for a moment, so a double press on Reply can't Deny.
+    row_swap_at: f32,
     texts: [i32; MAX_TEXTS],
     /// The offset each held text was SHOWN with: the client keeps it when only the words change.
     text_off: [f32; MAX_TEXTS],
@@ -457,6 +462,7 @@ static mut APP: App = App {
     vip_s: 0.0,
     vip_from: S::new(),
     read_node: 0,
+    row_swap_at: -10.0,
     texts: [0; MAX_TEXTS],
     text_off: [0.0; MAX_TEXTS],
     n_texts: 0,
@@ -1052,6 +1058,10 @@ pub extern "C" fn on_press(_event_type: i32, node: i32, _p1: i32, _p2: i32) {
     if let Some(t) = n.tasks.iter().position(|&x| x == node) {
         press_task(t);
         return;
+    }
+    let row = [n.done, n.later, n.reply, n.task, n.mute, n.approve, n.deny, n.more];
+    if row.contains(&node) && a.now_s - a.row_swap_at < ROW_SWAP_GUARD_S {
+        return; // the row just changed under the visitor's hand
     }
     if node == n.approve || node == n.deny {
         if let Some(d) = a.day.pending_draft() {
@@ -2066,6 +2076,9 @@ pub fn render() {
     // The card up in front: a waiting draft takes the reading card's place.
     let draft = if triage { a.day.pending_draft() } else { None };
     let front = if draft.is_some() { n.txt_draft } else if open.is_some() { n.txt_open } else { 0 };
+    if front != a.read_node && (front == n.txt_draft || a.read_node == n.txt_draft) {
+        a.row_swap_at = a.now_s;
+    }
     if front != a.read_node || open != a.read_shown {
         a.read_shown = open;
         a.read_node = front;
@@ -2074,6 +2087,8 @@ pub fn render() {
             place(front, L::at(L::READ_R, 0.0, L::RISE_FROM_Y));
         }
     }
+    // The empty well's ring would sit right behind the centre puck's label (review v2, round 2).
+    visible(n.inbox, !(triage && front > 0));
     visible(n.txt_open, front == n.txt_open && front > 0);
     visible(n.txt_draft, front == n.txt_draft && front > 0);
 
@@ -2091,9 +2106,10 @@ pub fn render() {
         visible(b, open.is_some() && draft.is_none());
     }
     visible(n.focus_go, focus);
-    for b in [n.approve, n.deny, n.more] {
+    for b in [n.approve, n.deny] {
         visible(b, draft.is_some());
     }
+    visible(n.more, draft.is_some_and(|d| draft_pages(a.day.drafts[d].text.bytes()) > 1));
     let staging = about_open || (!focus && !triage) || a.showing_prep;
     visible(n.txt_stage, staging);
     visible(n.prep_close, !about_open && a.showing_prep);

@@ -93,7 +93,7 @@ Renders: [renders/](renders/), as `vr-<mode>-<view>.jpg` and `mr-<mode>-<view>.j
 - **The stage:** Claude's brief, up to four lines ("3 things need you today: …").
 - **The Day Ring:** five labels around now: the event just past, and the next ones.
 - **The tasks:** "8 to do, 3 doing, 5 done", and the three pinned tasks.
-- **The landing arc** with the inbox well: "Inbox 30 / 2 VIP / +15 more".
+- **The landing arc** with the inbox well: "Inbox 30, 2 VIP / +15 more".
 - **Press a task** to focus on it. **Press a card** to read it (that opens Triage). **Press an event** for its prep.
 
 ### Focus
@@ -109,7 +109,7 @@ Renders: [renders/](renders/), as `vr-<mode>-<view>.jpg` and `mr-<mode>-<view>.j
 - **Done** archives it to the Done pile; **Later** snoozes it to the Later pile; **Mute** sends it to the quiet shelf behind you; **Task** ("Make a task") creates a Linear ticket from it, and the status names the ticket.
 - **Reply** ("Claude drafts reply"): the bridge asks Claude for a draft, which takes the reading card's place, front and centre, as "Draft to …" in pages of three lines; **Approve**, **Deny** and **More 1/3** take the action row's place while it waits.
   - **Approve** hands it to the bridge, which sends it through Mission Control's approval path.
-  - **Deny** discards it.
+  - **Deny** discards it. For 0.3 s after the row swaps, its pucks ignore presses, so a double press on Reply can't land on Deny.
   - **Nothing is sent without that press.** The test asserts that no approval reaches the bridge before it.
 - The fan refills from what is left. Leaving triage puts the fan away and the cards back on the arc.
 
@@ -151,7 +151,7 @@ Every number below was measured by running the built `world.wasm`:
 | Request body | 16 KiB | largest 83 B | — |
 | Answer | 256 KiB, text or JSON only | largest 4.8 KB (the whole sample day) | 7.7 KB for 40 messages |
 | Requests | 4 in flight, 1 a second with bursts of 10 | 15 polls plus presses; never rate-limited | — |
-| Wasm | 256 KB | 106.4 KB (6.4 KB of it is the built-in sample, about 20 KB a scratch day a live answer is read into first) | — |
+| Wasm | 256 KB | 107.6 KB (6.4 KB of it is the built-in sample, about 20 KB a scratch day a live answer is read into first) | — |
 | Triangles | 1,000,000 | 10,532 VR, 9,356 MR (doctor) | — |
 
 **Per frame**, the ring moves 10 pills and 13 ticks only when its clock has moved, and sets visibility only when it changes; the cocoon moves 16 facets only while it is closing in or opening out.
@@ -172,7 +172,7 @@ Every number below was measured by running the built `world.wasm`:
 | Wrap-up | about 21 |
 
 **Test totals:**
-- `tools/scenario.mjs`: 298 checks across both worlds, all passing. Part 1 runs the built-in sample with **no request at all**: the ring turning with the clock, a past/now/later pill (and 25 minutes on, the counsel call amber under the now bar), prep, About, the cocoon closing in, the fan rising, the reading card rising, every triage action and the wrap-up. Part 2 signs in and runs the live day: a cut answer, a card falling onto the well, a VIP's single tick in focus, the VIPs leading the fan, Approve reaching the bridge, a sign-out and network off;
+- `tools/scenario.mjs`: 300 checks across both worlds, all passing. Part 1 runs the built-in sample with **no request at all**: the ring turning with the clock, a past/now/later pill (and 25 minutes on, the counsel call amber under the now bar), prep, About, the cocoon closing in, the fan rising, the reading card rising, every triage action and the wrap-up. Part 2 signs in and runs the live day: a cut answer, a card falling onto the well, a VIP's single tick in focus, the VIPs leading the fan, Approve reaching the bridge, a sign-out and network off;
 - `cargo test`: 21 host tests, including "the baked sample is a complete DAY/1 day", "every About page fits whole", the ring's angles, and the sine and cosine the room computes without a math library;
 - `kosmos-wp validate` and `bundle` at publisher main `fced9cf` (CLI 0.8.1, 83 rules) pass both worlds against level 4;
 - `kosmos-wp doctor`: VR 17 ✅, 0 ⚠️, 0 ❌; MR 17 ✅, 0 ⚠️, 0 ❌;
@@ -303,7 +303,7 @@ Each was found reading the client at the cooked commit, or in the lit review of 
 ## 9. What is verified, and what is not
 
 **Verified here:**
-- the 298-check scenario on both worlds (the built-in sample with no request, then the live day);
+- the 300-check scenario on both worlds (the built-in sample with no request, then the live day);
 - the face on the real bridge server (the bridge's whole suite, More Room's 11 tests among them);
 - the heavy day;
 - the packaged scenes;
@@ -331,7 +331,7 @@ Each was found reading the client at the cooked commit, or in the lit review of 
 8. Read, Done, Later, Mute, Task, Reply → Approve: each lands where it lives (in the sample, nothing is sent; signed in, Approve reaches Mission Control's approval log).
 9. Focus: a VIP arriving ticks once from the well; a normal message is silent.
 10. Put the headset to sleep and wake it, then turn off the PC: the status says "The bridge did not answer. Is the PC awake?", and nothing crashes.
-11. Frame time with the full room visible stays within 13.8 ms. The room is about 10,500 triangles, 161 authored nodes (VR) and up to about 40 clones; the ring moves 23 nodes a frame while its clock moves, so it is expected to be fine.
+11. Frame time with the full room visible stays within 13.8 ms. The room is about 10,500 triangles, 159 authored nodes (VR) and up to about 40 clones; the ring moves 23 nodes a frame while its clock moves, so it is expected to be fine.
 
 ## 10. Publishing
 

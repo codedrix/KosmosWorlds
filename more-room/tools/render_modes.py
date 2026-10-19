@@ -33,7 +33,7 @@ from mathutils import Vector
 argv = sys.argv[sys.argv.index("--") + 1:]
 VARIANT, OUT = argv[0], os.path.abspath(argv[1])
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-MODES = ["morning", "now", "prep", "about", "focus", "triage", "triage-after", "wrap"]
+MODES = ["morning", "now", "prep", "about", "focus", "read", "triage", "triage-after", "wrap"]
 EYE = (0.0, 0.0, 1.62)  # Blender Z-up; the visitor at the spawn, standing
 
 
@@ -167,6 +167,11 @@ def add_text(name, body, pos, mat, anchor_ob):
         d = Vector(EYE) - ob.location
     ob.rotation_euler = (math.radians(90), 0, math.atan2(d.y, d.x) + math.radians(90))
     ob.data.materials.append(mat)
+    # The headset's world text casts no shadow; the review rig must not draw one either.
+    try:
+        ob.visible_shadow = False
+    except AttributeError:
+        pass
     return ob
 
 
@@ -300,6 +305,7 @@ for mode in MODES:
         "triage": ["eye", "arc", "overview", "seated"],
         "wrap": ["eye", "right"],
         "now": ["eye", "seated"],
+        "read": ["eye"],
     }.get(mode, ["eye"])
     views = [by[v] for v in views]
     if mode == "triage-after":

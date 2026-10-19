@@ -228,6 +228,7 @@ function runVariant(variant) {
   ok(Math.abs(host.byName.get("TxtOpen").pos[1] - LAYOUT.readY) < 1e-4, "the reading card is up");
   ok(/^(Dana Whitfield|Sam Okoro) \(VIP\)/.test(host.textOf("TxtOpen") ?? ""), `the card is read (${host.textOf("TxtOpen")})`);
   ok(["BtnDone", "BtnLater", "BtnReply", "BtnTask", "BtnMute"].every((b) => host.byName.get(b).visible), "the five actions show");
+  snap("read");
   host.press("BtnReply");
   host.run(0.2);
   ok(/^Draft to (Dana|Sam)/.test(host.textOf("TxtDraft") ?? ""), `the sample's draft waits up front (${host.textOf("TxtDraft")})`);
@@ -246,6 +247,11 @@ function runVariant(variant) {
   host.press("BtnReply");
   host.run(0.2);
   ok(/^Draft to/.test(host.textOf("TxtDraft") ?? ""), "a second draft waits");
+  // A double press on Reply lands on Deny's spot: ignored while the row has just swapped.
+  host.press("BtnDeny");
+  host.run(0.05);
+  ok(/^Draft to/.test(host.textOf("TxtDraft") ?? ""), "a press right after the row swaps is ignored (a double press on Reply cannot Deny)");
+  host.run(0.3);
   host.press("BtnApprove");
   host.run(0.7);
   ok(/Sent \(sample/.test(status()), `Approve, in the sample, sends nothing and says so (${status()})`);

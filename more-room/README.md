@@ -22,7 +22,7 @@ v2 is on branch `feat/more-room-v2-ring` and is **not published**: the live worl
 | `script/` | The world script (no_std Rust): `lib.rs` (modes, the ring, cards, the fan, the cocoon, network, the sample, About), `style.rs` (the one place text placement and state colours are chosen), `model.rs` (the DAY/1 reader), `text.rs` (world-text layout within 128 bytes and 4 lines), `layout.rs` (positions, mirrored from `build_glb.mjs`), `sample_day.txt` (the built-in sample, generated) |
 | `../agent-bridge/src/faces/more-room/` | More Room's **face on the shared agent bridge** (Mission Control's, PR #5): `index.ts` (the Face), `day-core.ts` (the day, the DAY/1 wire and the ops; the one source of truth), `sample-day.ts` (an invented day). Its tests on the real bridge server: `../agent-bridge/test/more-room-face.test.ts` |
 | `bridge-day-face/` | `mock-bridge.mjs` (a model of the bridge server running the real `day-core.ts`, for the world's tests) and `server.mjs` (the same on `http://127.0.0.1:8787`) |
-| `tools/` | `gen_sample.mjs` (bakes the face's sample day into the world), `build_glb.mjs`, `build_wasm.ps1`, `mock-host.mjs` (the client's limits, modelled), `scenario.mjs` (298 checks), `stress.mjs` (a heavy day), `extract_scene.mjs`, `render_modes.py` and `to_jpeg.py` (Blender) |
+| `tools/` | `gen_sample.mjs` (bakes the face's sample day into the world), `build_glb.mjs`, `build_wasm.ps1`, `mock-host.mjs` (the client's limits, modelled), `scenario.mjs` (300 checks), `stress.mjs` (a heavy day), `extract_scene.mjs`, `render_modes.py` and `to_jpeg.py` (Blender) |
 
 ## Rebuild and test
 
