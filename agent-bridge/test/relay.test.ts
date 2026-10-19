@@ -19,7 +19,12 @@ test("the relay serves the opt-in file and the privacy page itself (up when the 
   const wk = await relay.fetch(new Request(`${W}/.well-known/world-network.json`), off);
   assert.equal(wk.status, 200);
   assert.deepEqual(await wk.json(), { world_network: 1, worlds: ["world://lobby.micknerks"] });
-  assert.equal((await relay.fetch(new Request(`${W}/privacy`), off)).status, 200);
+  const privacy = await relay.fetch(new Request(`${W}/privacy`), off);
+  assert.equal(privacy.status, 200);
+  const page = await privacy.text();
+  for (const w of ["world://lobby.micknerks", "world://more-room.micknerks", "world://more-room-mr.micknerks"]) {
+    assert.ok(page.includes(w), `the privacy page covers ${w}`);
+  }
   const down = await relay.fetch(new Request(`${W}/v1/faces/mission-control/view`, { method: "POST", body: "AB1\n" }), off);
   assert.equal(down.status, 502);
 });

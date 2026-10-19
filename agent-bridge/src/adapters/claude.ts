@@ -43,7 +43,9 @@ const HEADSET_REFUSES: Record<string, string> = {
  * Bash(curl:*) among them, 2026-10-14), which at the desk he can watch. In the headset he
  * can't, and a file or page Claude reads could ask for one, so shell commands always ask.
  */
-export const DEFAULT_ALWAYS_ASK = ["Bash", "PowerShell"];
+// Shell commands, and edits to config that runs code by itself, always ask from the headset,
+// even where the desk settings allow them (ask beats allow; Edit rules also govern Write).
+export const DEFAULT_ALWAYS_ASK = ["Bash", "PowerShell", "Edit(**/.claude/**)", "Edit(**/.mcp.json)", "Edit(**/.git/**)"];
 
 const WHY_MESSAGE =
   "The user asked why, from the headset. Before running it, explain in two short sentences why you need this, then request it again.";

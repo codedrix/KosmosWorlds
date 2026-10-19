@@ -24,6 +24,7 @@
  *   - server.ts waits on `waitForChange` for long polls.
  */
 
+import fs from "node:fs";
 import path from "node:path";
 import { cleanUntrusted, toWallAscii } from "./sanitize.js";
 
@@ -421,7 +422,6 @@ export class JobStore {
     // not from the shell), so it is shown with a visible marker and is never approvable here.
     const multiLine = /[\r\n]/.test(raw);
     const cleaned = cleanUntrusted(raw).replace(/\s*\r?\n\s*/g, " [newline] ");
-    // A file change outside the project folder is shown with its whole path and approved at the desk.
     // A file change outside the project, or to config that runs code by itself (Claude Code's
     // hooks and MCP servers, git hooks), is shown in full and approved at the desk.
     const filePath = fileTarget(tool, input);
@@ -485,13 +485,39 @@ function fileTarget(tool: string, input: Record<string, unknown>): string {
 }
 
 /** Folders and files whose contents run code with no further approval. */
-const RUNS_CODE_DIRS = [".claude", ".git", ".husky", ".vscode", ".devcontainer"];
-const RUNS_CODE_FILES = [".mcp.json", ".claude.json"];
+const RUNS_CODE_DIRS = [".claude", ".git", ".githooks", ".husky", ".vscode", ".devcontainer"];
+const RUNS_CODE_FILES = [".mcp.json", ".claude.json", ".envrc"];
+
+/**
+ * The path as the file system will really resolve it: the deepest part that exists goes through
+ * realpath (so a junction, or a Windows 8.3 short name like CLAUDE~1, becomes its true name),
+ * and the rest is appended as written.
+ */
+export function realish(p: string): string {
+  let head = path.resolve(p);
+  const tail: string[] = [];
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync.native(head), ...tail);
+    } catch {
+      const up = path.dirname(head);
+      if (up === head) return path.resolve(p);
+      tail.unshift(path.basename(head));
+      head = up;
+    }
+  }
+}
 
 /** True for a project file that runs code by itself (a hook, an MCP server, a git hook). */
 export function runsCodeByItself(p: string, cwd: string): boolean {
   try {
-    const parts = path.relative(path.resolve(cwd), path.resolve(cwd, p)).split(/[\\/]+/).map((x) => x.toLowerCase());
+    const parts = path
+      .relative(realish(cwd), realish(path.resolve(cwd, p)))
+      .split(/[\\/]+/)
+      // Windows ignores trailing dots and spaces: ".claude." is ".claude".
+      .map((x) => x.toLowerCase().replace(/(?<=.)[. ]+$/, ""));
+    // A segment that still looks like an 8.3 short name didn't resolve to a real one: fail closed.
+    if (parts.some((x) => /~\d/.test(x))) return true;
     return parts.some((x) => RUNS_CODE_DIRS.includes(x)) || RUNS_CODE_FILES.includes(parts[parts.length - 1] ?? "");
   } catch {
     return true;
@@ -504,7 +530,7 @@ export function insideProject(p: string, cwd: string): boolean {
   // A path the shell or the tool might expand (~, %VAR%, $VAR) is never "inside": fail closed.
   if (/^~|%[^%]+%|\$[A-Za-z_{]/.test(p)) return false;
   try {
-    const r = path.relative(path.resolve(cwd), path.resolve(cwd, p));
+    const r = path.relative(realish(cwd), realish(path.resolve(cwd, p)));
     return r === "" || (!r.startsWith("..") && !path.isAbsolute(r));
   } catch {
     return false;

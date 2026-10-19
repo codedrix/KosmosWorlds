@@ -58,3 +58,8 @@ test("a quoted secret still streaming in is hidden, and DB_PASSWORD= counts", ()
   assert.equal(redactSecrets('password: "correct horse" and more'), "password: [redacted] and more");
   assert.equal(redactSecrets("DB_PASSWORD=hunter22 next"), "DB_PASSWORD=[redacted] next");
 });
+
+test("SECRET_KEY= and a quoted JSON key are redacted", () => {
+  assert.equal(redactSecrets("SECRET_KEY=abc123xyz"), "SECRET_KEY=[redacted]");
+  assert.match(redactSecrets('{"password": "hunter2", "user": "a"}'), /"password": \[redacted\], "user": "a"/);
+});

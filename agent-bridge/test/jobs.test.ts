@@ -178,3 +178,38 @@ test("config that runs code by itself, and paths the shell expands, are approved
   s.decide(a.id, "deny");
   await p;
 });
+
+test("Windows short names (CLAUDE~1) and trailing dots can't hide config that runs code", async () => {
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const { runsCodeByItself } = await import("../src/jobs.js");
+  const proj = fs.mkdtempSync(path.join(os.tmpdir(), "mc-proj-"));
+  fs.mkdirSync(path.join(proj, ".claude"));
+  // Fail closed on any segment shaped like a short name, whether or not it resolves here.
+  assert.equal(runsCodeByItself("CLAUDE~1/settings.json", proj), true);
+  assert.equal(runsCodeByItself("SOMEDI~2/x.ts", proj), true);
+  assert.equal(runsCodeByItself(".claude./settings.json", proj), true);
+  assert.equal(runsCodeByItself("src/index.ts", proj), false);
+  // Where the volume really has 8.3 names, the short name resolves to .claude itself.
+  let short: string | undefined;
+  try { short = fs.realpathSync.native(path.join(proj, "CLAUDE~1")); } catch { short = undefined; }
+  if (short) assert.equal(path.basename(short), ".claude");
+  const { s, job, sink } = store();
+  const p = sink.requestApproval("Write", { file_path: "C:/p/CLAUDE~1/settings.json", content: "x" });
+  const a = s.pendingFor(job.id);
+  assert.ok(a && !a.exact, "approved at the desk");
+  s.decide(a.id, "deny");
+  await p;
+});
+
+test("a streamed delta that changes nothing on the wall wakes no long poll", () => {
+  const { s, job, sink } = store();
+  sink.agentText("Hello there", { newMessage: true });
+  const v0 = s.currentVersion;
+  sink.agentText("more"); // still one held-back word: nothing new to show
+  assert.equal(s.currentVersion, v0);
+  sink.agentText(" and"); // whitespace releases "theremore"
+  assert.ok(s.currentVersion > v0);
+  assert.ok(job);
+});

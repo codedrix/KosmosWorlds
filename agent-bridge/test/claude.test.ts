@@ -53,7 +53,7 @@ test("Claude runs with the CEO's settings, 'default' permissions, and every prom
   assert.equal(opts.permissionMode, "default");
   assert.deepEqual(opts.settingSources, ["user", "project", "local"]);
   // The headset policy: shell commands always ask, whatever the CEO's allow rules say.
-  assert.deepEqual(opts.managedSettings, { permissions: { ask: ["Bash", "PowerShell"] } });
+  assert.deepEqual(opts.managedSettings, { permissions: { ask: ["Bash", "PowerShell", "Edit(**/.claude/**)", "Edit(**/.mcp.json)", "Edit(**/.git/**)"] } });
   assert.equal(opts.cwd, "C:/p");
   assert.equal(job.sessionId, "sess-123");
   assert.equal(job.status, "idle", "a conversation waits for the CEO after its turn");

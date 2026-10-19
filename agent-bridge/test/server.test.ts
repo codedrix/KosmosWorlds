@@ -16,7 +16,8 @@ test("the opt-in file lists the world and is served without a sign-in", async ()
 test("the privacy page is served, plain text, without a sign-in", async () => {
   const r = await call(b.port, "/privacy", { method: "GET" });
   assert.equal(r.status, 200);
-  assert.match(r.text, /File contents, command output\nand diffs never leave the computer/);
+  assert.match(r.text, /File contents, command output and diffs\n  never leave the computer/);
+  assert.match(r.text, /world:\/\/more-room\.micknerks and world:\/\/more-room-mr\.micknerks/);
 });
 
 test("a request for another host name is refused (DNS rebinding)", async () => {
