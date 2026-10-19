@@ -383,7 +383,7 @@ export const PLATES = [
   ["PlateAbout", [1.9, 1.37, 0.15], [1.6, 0.55]],
   // The inbox count, the way into triage (review lens B, MED-3). Low enough to
   // pass under the mode column's lowest button in the laser check.
-  ["PlateInbox", [0.95, 0.9, -0.8], [0.42, 0.2]],
+  ["PlateInbox", [0.95, 0.93, -0.8], [0.42, 0.32]],
 ];
 
 // The eye heights a plate must frame its text from: seated at a desk to standing

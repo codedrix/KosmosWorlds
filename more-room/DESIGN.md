@@ -199,7 +199,7 @@ More Room is a **face** on that bridge: the folder [agent-bridge/src/faces/more-
 **Sign-in is for the room's owner, and guesses can't lock the bridge** (review lens B, 2026-10-19).
 - The worlds are unlisted links that others may open. The bridge locks for 15 minutes after 5 wrong passphrases in a row, and hard-locks after 10 in 24 h; a hard lock also takes Mission Control down until the CEO unlocks it at his PC.
 - So the room says plainly that sign-in is the owner's ("Owner sign in"; "Sample day. Only the owner can sign in."; the sheet's own text says wrong guesses pause sign-in here).
-- The face stops passing wrong guesses to the bridge after **4 in 24 h** (`WRONG_CAP` in `day-core.ts`) and answers `room_locked` ("Too many wrong tries here. Sign-in is paused for a day."). Any number of visitors' guesses in this room can then never reach the bridge's hard lock. Only this room's sign-in pauses. A test pins this: the fifth guess never reaches the bridge.
+- The face stops passing wrong guesses to the bridge after **4 in 24 h** (`WRONG_CAP` in `day-core.ts`) and answers `room_locked` ("Too many wrong tries. Wait a day or restart bridge."). Any number of visitors' guesses in this room can then never reach the bridge's hard lock. Only this room's sign-in pauses. A test pins this: the fifth guess never reaches the bridge.
 
 **One sign-in at a time, for the whole bridge.** Signing in to More Room is signing in to the bridge. If the CEO then signs in from the Lobby (Mission Control), More Room's token stops working, and the room says "Signed out by the bridge"; the same holds the other way round. That is the bridge's rule, and More Room follows it.
 

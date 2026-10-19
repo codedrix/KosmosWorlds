@@ -26,7 +26,7 @@ TASK	t-g	0	open	Privacy page wording
 TASK	t-h	0	open	Book flight to the me...
 TASK	t-i	0	open	Review PR 214
 TASK	t-j	0	open	Thumbnail for the gar...
-TASK	t-k	0	done	Cook ledger row
+TASK	t-k	0	done	Release notes row
 TASK	t-l	0	done	Sign the office lease
 TASK	t-m	0	done	Waitlist export
 TASK	t-n	0	done	Fix the login flicker
@@ -41,18 +41,18 @@ MSG	m-f	linear	0	in	0	Tracker (sample)	SAMPLE-31 moved	SAMPLE-31 Onboarding flow
 MSG	m-g	gmail	0	in	0	Theo Lindqvist	Creator jam follow-up	Three creators asked how to add sound. Is there a doc yet?
 MSG	m-h	slack	0	in	0	Lena (design)	Mockup v3 is up	The onboarding mockup v3 is in the review folder.
 MSG	m-i	gmail	0	in	0	Office Hub (sample)	Your desk is booked	Desk 4 is yours for Thursday and Friday this week.
-MSG	m-j	github	0	in	0	Repo bot (sample)	Issue 88 commented	Priya commented: the cache cap needs a device check.
-MSG	m-k	gmail	0	in	0	Newsletter (sample)	This week in headsets	Ten stories about headsets you might have missed.
+MSG	m-j	github	0	in	0	Repo bot (sample)	Issue 88 commented	Priya commented: the image sizes need a phone check.
+MSG	m-k	gmail	0	in	0	Newsletter (sample)	This week in design	Ten stories about design you might have missed.
 MSG	m-l	slack	0	in	0	Tomas	Load test numbers	Load times look good on the big test world.
 MSG	m-m	gmail	0	in	0	Avery Chen	Podcast invite	Would you join our show next month to talk about 3D worlds?
-MSG	m-n	linear	0	in	0	Tracker (sample)	SAMPLE-20 assigned	SAMPLE-20 Cook pipeline timing was assigned to you.
+MSG	m-n	linear	0	in	0	Tracker (sample)	SAMPLE-20 assigned	SAMPLE-20 Build pipeline timing was assigned to you.
 MSG	m-o	gmail	0	in	0	Jordan Pike	Invoice 1043	The invoice for September is attached (attachments are not shown here).
 MSG	m-p	slack	0	in	0	#creators (sample)	Sound question	How do I add a looping sound to my world?
 MSG	m-q	github	0	in	0	Repo bot (sample)	Release 0.9.2 tagged	The publisher release 0.9.2 was tagged.
-MSG	m-r	gmail	0	in	0	Rina Osei	Tester signup	I have two headsets and would love to test. Here is my handle.
+MSG	m-r	gmail	0	in	0	Rina Osei	Tester signup	I have a laptop and a phone and would love to test. Here is my handle.
 MSG	m-s	gmail	0	in	0	Kai Mercer	Tester signup	Teacher here; my class builds worlds. Can we join the alpha?
 MSG	m-t	slack	0	in	0	Priya	Image sizes	I think 1200 px is right for the gallery. Want a check on a phone first?
-MSG	m-u	linear	0	in	0	Tracker (sample)	SAMPLE-14 done	SAMPLE-14 Travel flash fix moved to Done.
+MSG	m-u	linear	0	in	0	Tracker (sample)	SAMPLE-14 done	SAMPLE-14 Login flicker fix moved to Done.
 MSG	m-v	gmail	0	in	0	Building Mgmt (sample)	Fire drill Friday	A short fire drill on Friday at 10:00.
 MSG	m-w	gmail	0	in	0	Noor Haddad	Meetup venue	The meetup venue holds 80 people. Should I confirm?
 MSG	m-x	github	0	in	0	Repo bot (sample)	Dependabot PR 219	A dependency update PR was opened on the portal.
@@ -92,9 +92,9 @@ PREPL	ev-g	Related: #creators thread
 PREPL	ev-h	Tester list 4:30-5:00
 PREPL	ev-h	Agenda: pick the first 10
 PREPL	ev-h	Related: the waitlist export
-PREPL	ev-h	Decide: headset mix
+PREPL	ev-h	Decide: laptop or phone first
 PREPL	ev-i	1:1 with Tomas
-PREPL	ev-i	Agenda: cook pipeline, load
+PREPL	ev-i	Agenda: build pipeline, load
 PREPL	ev-i	Related: SAMPLE-20
 PREPL	ev-j	Walk before sunset
 PREPL	ev-j	Sunset 6:58

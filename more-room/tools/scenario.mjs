@@ -106,7 +106,7 @@ function runVariant(variant) {
   ok(/Sample day/.test(status()), `the status says it is a sample (${status()})`);
   ok(cardsAt(inGrid).length === 12, `twelve cards on the desk (${cardsAt(inGrid).length})`);
   ok(cardsAt(onTray).length === 3, `three waiting on the inbox tray (${cardsAt(onTray).length})`);
-  ok(/Inbox 30, 2 VIP\n\+15 more$/.test(host.textOf("InboxTray") ?? ""), `the inbox counts the rest (${host.textOf("InboxTray")})`);
+  ok(/Inbox 30\n2 VIP\n\+15 more$/.test(host.textOf("InboxTray") ?? ""), `the inbox counts the rest (${host.textOf("InboxTray")})`);
   ok(events().length === 10, `ten events on the strip (${events().length})`);
   const labelled = events().filter((e) => host.texts.has(e.handle)).length;
   ok(labelled === 5, `five event labels around now, the budget (${labelled})`);
@@ -223,7 +223,7 @@ function runVariant(variant) {
   host.press("BtnModeWrap");
   host.run(0.2);
   textsOk("sample wrap-up");
-  ok(/^Done: 5 tasks, 2 messages\n- Cook ledger row\n- Sign the office lease\nPress a task to roll it$/.test(host.textOf("TxtStage") ?? ""), `wrap-up: what got done (${host.textOf("TxtStage")})`);
+  ok(/^Done: 5 tasks, 2 messages\n- Release notes row\n- Sign the office lease\nPress a task to roll it$/.test(host.textOf("TxtStage") ?? ""), `wrap-up: what got done (${host.textOf("TxtStage")})`);
   ok(/First tomorrow:\nSend the tester invites at 9/.test(host.textOf("TxtStageLow") ?? ""), "wrap-up: the first thing tomorrow");
   ok(/^Roll:/.test(host.textOf("TaskA") ?? ""), "wrap-up: open tasks offer to roll");
   host.press("TaskA");

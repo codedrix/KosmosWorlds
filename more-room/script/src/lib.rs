@@ -1222,7 +1222,7 @@ pub extern "C" fn on_net_result(_event_type: i32, _node: i32, request_id: i32, s
                 (401, b"not_set") => "No passphrase is set on the PC yet.",
                 (401, _) => "Wrong passphrase.",
                 (429, b"too_fast") => "One try every 2 seconds. Press again.",
-                (429, b"room_locked") => "Too many wrong tries here. Sign-in is paused for a day, or until the bridge restarts.",
+                (429, b"room_locked") => "Too many wrong tries. Wait a day or restart bridge.",
                 (429, b"hard_locked") => "Sign-in is locked. Unlock it on the PC.",
                 (429, _) => "Too many tries. Wait 15 minutes.",
                 (503, _) => "The bridge is stopped on the PC.",
@@ -1723,9 +1723,9 @@ pub fn render() {
         b.push("Inbox ");
         b.int(inbox);
         if vip > 0 {
-            // One line with the count, so the label stays low enough to clear the
-            // mode column from a seated eye (review round 3, lens B, MED-1).
-            b.push(", ");
+            // Short lines, so the label stays narrow enough to clear Done and low
+            // enough to clear the mode column from a seated eye (review rounds 3-4, lens B).
+            b.push("\n");
             b.int(vip);
             b.push(" VIP");
         }
@@ -1740,7 +1740,7 @@ pub fn render() {
         if mode == Mode::Focus {
             a.untext(node);
         } else {
-            a.text(node, b.as_bytes(), 0.05);
+            a.text(node, b.as_bytes(), 0.02);
         }
         let mut b: Buf<32> = Buf::new();
         b.push("Later ");
