@@ -35,13 +35,16 @@ import { pathToFileURL, fileURLToPath } from "node:url";
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const home = fs.mkdtempSync(path.join(os.tmpdir(), "mc-mockhost-"));
 process.env.AGENT_BRIDGE_HOME = home;
-const dist = path.join(repo, "agent-bridge", "dist", "src");
+// AGENT_BRIDGE_DIST points at another checkout's built bridge (e.g. the bridge lane's worktree).
+const dist = process.env.AGENT_BRIDGE_DIST ?? path.join(repo, "agent-bridge", "dist", "src");
 const load = (p) => import(pathToFileURL(path.join(dist, p)).href);
 const { Bridge } = await load("bridge.js");
 const { FakeAdapter } = await load("adapters/fake.js");
 const { createServer } = await load("server.js");
 const { MissionControlFace } = await load("faces/mission-control/index.js");
 const { hashPassphrase, defaultConfig } = await load("config.js");
+// The PAIR_APPROVE watcher lives in the bridge CLI's serve loop (main.ts); run the same poll here.
+const { pollApproveFile } = await load("pairing.js");
 
 // --- the bridge -------------------------------------------------------------
 const PASS = "mock host passphrase";
@@ -52,6 +55,7 @@ const face = new MissionControlFace();
 face.longPollMs = 400;
 const server = createServer(bridge, new Map([[face.name, face]]), { port: 0, log: () => {} });
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
+const approveTimer = setInterval(() => pollApproveFile(bridge.pairing, () => {}), 250);
 const port = server.address().port;
 
 const nodes = JSON.parse(fs.readFileSync(path.join(repo, "mission-control", "nodes.json"), "utf8"));
@@ -260,11 +264,15 @@ for (const n of ["McCenterFrame", "McLedge", "Puck", "SealRing"]) {
   assert.equal(owner.position.get(n)?.[1], PARKED_Y, `Close parks ${n}`);
   assert.ok(!owner.shown(n));
 }
-await until([watcher], () => watcher.log.fetches.length > before + 1 && !/Watching/.test(watcher.text.get("TxStatus") ?? "Watching"), "the watcher refused after the owner left", 12000);
+await until([watcher], () => /Nobody is sharing|owner has left/.test(watcher.text.get("TxStatus") ?? ""), "the watcher refused after the owner left", 12000);
+const stopped = watcher.log.fetches.length;
+for (let i = 0; i < 80; i++) watcher.tick();
+assert.equal(watcher.log.fetches.length, stopped, "a refused watcher stops polling");
 console.log("9. owner closed (signed out, parked); watcher told:", JSON.stringify(watcher.text.get("TxStatus")));
 
 for (const h of [owner, watcher]) for (const [n, t] of h.text) assert.ok(Buffer.byteLength(t) <= 128, `${h.label} ${n} over 128 bytes`);
 console.log("PASS: two copies of the built Lobby program drove the real bridge end to end (v2).");
+clearInterval(approveTimer);
 server.close();
 await bridge.shutdown();
 process.exit(0);

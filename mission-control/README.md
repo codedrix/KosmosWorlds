@@ -1,196 +1,177 @@
-# Mission Control, inside the Lobby (`world://lobby.micknerks`)
+# Mission Control v2, inside the Lobby (`world://lobby.micknerks`)
 
-The CEO's own Claude Code jobs, running on the CEO's PC, on a panel in the Lobby. Start a job,
-read the conversation and approve what Claude asks to run, without taking the headset off.
-Brief: **DB-044** (kosmos-project). The PC side is `../agent-bridge/` (its contract: `API.md`).
+The CEO's own Claude Code jobs, running on the CEO's PC, in the Lobby. Start a job, read the
+conversation and approve what Claude asks to run, without taking the headset off.
+Brief: **DB-044** and its v2 addendum (kosmos-project #210). The contract between the two halves is
+**`V2_CONTRACT.md`** (beside this file); the PC side is `../agent-bridge/` (its API: `API.md`).
 
-This folder is not a world of its own any more. It builds **the Lobby's program and Mission
-Control's nodes**, and `../mission-control-tools/lobby/package_lobby.mjs` merges them into the live
-Lobby package to make **Lobby 1.2.0**.
+This folder is not a world of its own. It builds **the Lobby's program and Mission Control's
+nodes**, and `../mission-control-tools/lobby/package_lobby.mjs` merges them into the live Lobby
+package.
 
-- **Status:** built, validated (publisher 0.8.1, 83 rules: PASSED, offline) and run end to end
-  against the real bridge; **not published**. Publishing the Lobby is Class C (the CEO's OK is
-  recorded in DB-044, after the independent review).
-- **Host API level:** **4** (`k_net_*`, `OnNetResult`); also level 3 (`k_haptic_pulse`,
-  `k_node_clone`, `k_node_destroy`, `k_log`) and level 2 (`k_ui_prompt`). **Lobby 1.2.0 opens only
-  on a level-4 client** (Build 921 or later); an older headset is told the world isn't available for
-  its version. Both of the CEO's headsets run Build 1009.
+- **Status:** v2 built and validated offline (83 rules: PASSED; every warning is the live Lobby's
+  own), run end to end against the v2 bridge in `mockhost.mjs`, and reviewed in lit renders.
+  **Not published**: the CEO sees the renders first, and publishing the Lobby is Class C. The
+  package version stays 1.2.0 until the lead picks it.
+- **Host API level:** **4** (`k_net_*`, `OnNetResult`); also level 3 (`k_haptic_pulse`, `k_log`)
+  and level 2 (`k_ui_prompt`). Nothing new is asked of the client. v2 no longer imports
+  `k_node_clone` / `k_node_destroy` (no done chips).
 - **Capabilities added to the Lobby's `audio`:** `scene_read`, `scene_write`, `transform`, `events`,
-  `ui_basic`, `player_write` (the buzz), `network`. Never `player_read` (NET_005), `scene_query` or
+  `ui_basic`, `player_write` (the buzz), `network`. Never `player_read`, `scene_query` or
   `spatial_anchor`.
-- **Network:** one origin, `https://kosmos-agent-bridge.micknerks.workers.dev`, the relay Worker in
-  front of the bridge (`../agent-bridge/relay-worker/`). Visibility stays **unlisted**.
+- **Network:** one origin, the relay Worker in front of the bridge. Visibility stays **unlisted**.
 
-## The ritual: a hidden door, not a lock
+## What the owner does
 
-The Lobby looks and sounds exactly as before (the music is ported byte for byte in behaviour), and
-**makes no network call at all** until one of two things happens:
+1. **The Pairing Seal.** Stand on the throne facing the hall and press the seal on the seat
+   (`McSeal`). A ring rises from it to eye height, 1.1 m ahead, and shows a short code (`KXT WMP`).
+   The first network call mints that pairing; the world then polls `pair` about every 1.1 s.
+   **At the PC**, type the code into the bridge's console, or run `npm run approve -- KXT-WMP`.
+   The ring turns amber (0.6 s), shrinks away (0.35 s), and the ledge and the puck grow in (0.4 s).
+   Nothing secret is typed in the headset. **Use passphrase** under the ring opens the old typing
+   sheet (the fallback `signin`); **Cancel** closes everything.
+2. **Job Cubes.** A ledge 1.0 m ahead holds one glass cube per running job (up to four) and a
+   **+** cube. Calm glows blue, "needs you" amber, idle dim; each has its project's name above it.
+3. **Unfold.** Press a cube (or +): the arc unfolds from it, every piece moving out of the cube and
+   growing (0.5 s, eased), the words appearing when it lands: **left** the jobs (rails, presets,
+   New task), **centre** that job's conversation (1.7 m away, 5 degrees below the eye) with the ask
+   plate 8 cm in front, **right** the browser spot (DB-043's dock, a placeholder now) with Group
+   watch, Sign out, the move handles and Close. **Fold** reverses it: the words go at once, the arc
+   folds back into its cube, then hides. The picked cube is hidden while the arc is open.
+4. **The decision puck**, on a stem from the throne's LEFT armrest at hand height. When a job needs
+   the owner it glows amber and shows the oldest approval (project, title, command) with
+   **Approve** / **Deny** beside it: two buzzes and the chime, as before. It approves without
+   opening the arc, under the wall's rule (only when the whole command is shown).
+5. **Watchers** (Group watch, a 6-digit code typed at the Watch post) see the **arc only**, turned
+   to face the hall and lowered to its floor; never the ledge, the puck or the seal; never a token,
+   never a press.
 
-1. **The owner's ritual.** Stand on the stone throne on the gallery dais, facing into the hall.
-   Point at the small dark disc set into the front of the seat (`McSeal`) and press A. The system
-   typing sheet asks for the Mission Control passphrase; the first network call is that sign-in.
-   The panel then rises in front of the throne.
-2. **A watch code.** Press the **Watch** post beside the dais (`McWatchJoin`) and type the 6-digit
-   code the owner shared. That visitor gets a read-only copy of the owner's panel.
+**Closed** (every visitor until one of the two doors above), the program makes **no network call
+at all**, and every node sits parked 200 m below the floor.
 
-Anyone who watches the owner can repeat the gesture, so the gesture hides the door; **the passphrase
-is the lock** (the bridge's lockout: 5 wrong in a row = 15 minutes, 10 in a day = locked until the
-CEO unlocks it at the PC). The ritual can't check that the visitor is really on the throne facing
-the hall: no host function reports where the player stands or looks to world code without
-`player_read`, which a network world may not hold. That check is a platform ask in DB-044.
+## How it works (`src/lib.rs`)
 
-The panel is authored **200 m below the floor** and moved in front of the throne when it opens. It
-exists only on the headset that opened it: other visitors in the Lobby see nothing (the scene is
-not synced).
+The bridge decides every word and every colour (AB1 snapshots); the world decides where things are
+and when its groups show.
 
-## The panel
-
-| Where | What |
-|---|---|
-| Top | the **ticker**: "3 working \| 1 needs you \| 2 done today \| 21:48" |
-| Left | **Start a job**: Run all tests, Review open PRs, Summarize today, Draft release notes, **+ New task**; the project and CHANGE PROJECT; Sign out |
-| Centre | **Working now**: up to four cards (project, task, status, progress, elapsed, files touched); a card waiting on the owner turns **amber**; **Done today** below |
-| Right | **Needs you**: up to three approvals, each opening its job |
-| Bottom row | **Group watch** (and "Let my group watch: off/on, code 123 456"), the move handles **< ^ v > Near Far**, **Close** |
-
-Pressing a card, a "Needs you" item or New task turns the centre into that job's **chat**: an agent
-rail on the left, a header with STOP and BACK TO WALL, twelve conversation lines (paged), the
-approval inline (the exact command; APPROVE / DENY / ASK WHY) and quick replies (Keep going,
-Explain simply, Stop + summarize) plus Reply... (the typing sheet).
-
-A new approval buzzes **both controllers** twice (`k_haptic_pulse`, 0.8 for 140 ms) and plays a
-two-note chime, for the owner only.
-
-**Moving it.** The handles move the panel in 15 cm steps (nearer up to 1.2 m, farther up to 1.0 m,
-up or down up to 0.9 m, sideways up to 1.5 m). **After moving the panel with the handles, press Dock
-again** on the pinned web page beside it, so the page re-reads its dock (`McPageDock`, about 1 m from
-standing eye height) and follows.
-
-**Closing.** Close, or leaving the Lobby, signs out, hides everything and parks the panel again.
-
-## Group watch (off by default)
-
-The owner presses **Group watch**; the bridge makes a 6-digit code (shown on the owner's panel as
-"Let my group watch: on, code 123 456") and the owner reads it out. A watcher types it at the Watch
-post. The watcher's copy is turned to face the hall and lowered to the floor, so it can be read from
-the gallery; it shows what the owner sees plus "pressed: <button>" so the watcher can follow along.
-
-A watcher never signs in, never gets a token and never sends a press (the program refuses to, and
-the bridge refuses a press that carries only a watch code). No typing sheet opens and nothing
-buzzes on a watcher's headset. The code dies when the owner turns watching off, signs out or
-closes the panel, after 45 s without the owner's panel asking for updates (the owner left the Lobby),
-or after 2 hours; ten wrong codes a minute are refused. The owner's own watch line never reaches a
-watcher.
-
-Why a code and not "group members": the publisher has no `multiplayer` block yet (MULTIPLAYER_001–003
-aren't built) and state sync is room-wide and off by default, so world code can't tell who is in the
-owner's group.
-
-## How it works
-
-The program (`src/lib.rs`) is deliberately dumb. The bridge decides every word; the world applies
-the snapshot it is sent (the AB1 line format, `../agent-bridge/src/wire.ts`) and reports presses:
-
-- **One long poll** at a time (`POST /v1/faces/mission-control/view`, or `/watch` for a watcher):
-  the bridge answers when the panel changes, or after 6.5 s with "same". About one request a second
-  at most, inside the host's 1/s refill, leaving its burst of 10 for presses.
-- **A press** sends the node name plus the snapshot version on screen; the bridge resolves what that
-  node meant in that snapshot. The bridge may only name the face's nodes: the seal, the Watch post,
-  the handles, the frames and the Dock spot are the world's own and never the bridge's to move.
-- **Typing** uses the system typing sheet (`k_ui_prompt`), opened inside the press that asked for it.
-- **Text** is world text on 32 anchors (the host's limit). Each anchor is a **3 cm plaque, 2 mm
-  thin**, parallel to its panel, so the client prints the text flat (`KWorldTextPool.cpp`, Build
-  1009). The bridge shifts each conversation line by half its measured width, so centred text
-  reads as left-aligned.
-- **Progress bars** use `k_transform_set_scale(bar, 1, f, 1)` (a raw UE relative scale).
-- **Done chips** are copies of one mesh (`k_node_clone`, up to 12).
+- **Groups by name:** seal (`SealRing*`, `TxSeal*`, `BtnSealType`, `McSealCancel`), ledge
+  (`McLedge`, `Cube*`, `TxCube*`), puck (`Puck*`, `BtnPuck*`, `TxPuck`), arc (everything else);
+  `McSeal` and `McWatchJoin` are fixtures.
+- **Two-layer visibility:** a node shows when the snapshot wants it (`U`, `T` and `H`, stored per
+  node) AND its group is on for the stage (seal / lock animation / signed in) and the mode
+  (`M cubes` or `M arc`; a watcher: the arc). A tween keeps its group on while it runs.
+- **One text function (`show`) and one colour function (`paint(base, state)`):** `paint` shows the
+  `<base><State>` variant and hides the others (`off` hides all). DB-045 (the visual pack) replaces
+  the bodies of those two functions and nothing else.
+- **Animations** run every frame in `k_tick`, moving only the shown nodes of the moving group (a
+  position and a scale each). The worst frame in the host test is 126 host calls (budget 200).
+- **Requests:** `AB1`, then `tok <token>` or (no token yet) `pair <id>`, then `v`, `press`, `---`.
+  A mint carries neither. A watcher's carries only `watch <code>` and `v`.
+- **The handles** move the arc only (the ledge and the puck belong to the throne): 15 cm steps,
+  up to 0.6 m nearer, 1.0 m farther, 0.6 m up or down, 1.2 m sideways.
 - `k_node_find` sees meshes only on device, so every node the program finds is a mesh.
+
+## Geometry (`blender/build_panel.py`, contract section 2)
+
+Viewer frame: origin at the owner's feet, facing +X, +Y the owner's left, eye at 1.60 m; turned 180
+degrees and set on the seat (STAND 14.8, 0, 1.46). Seat and arms measured from the live scene by
+`../mission-control-tools/lobby/measure_throne.py` (arms at y +-1.0, top 2.10).
+
+| Part | Where |
+|---|---|
+| Seal ring | 1.10 m ahead at eye height, 0.50 m across; code inside, hint and buttons below |
+| Ledge | 1.0 m ahead, top **0.95 m**, 1.64 m wide; slots 0.36 m apart, CubePlus on the right |
+| Puck | viewer (0.15, +0.95, 1.00) on a stem from the left arm; Approve to its right, Deny to its left, tilted to the eye; its label 0.18 m above |
+| Centre panel | 1.70 m, azimuth 0, z **0.79 to 2.19**, 1.32 m wide; ask plate 8 cm in front |
+| Side panels | 1.80 m at +-40 degrees, flat facets facing the eye, z **0.83 to 2.16**, 1.02 m wide |
 
 ## Files
 
 | Path | What it is |
 |---|---|
-| `src/lib.rs`, `Cargo.toml`, `build.rs` | the Lobby's program: the music plus Mission Control (no dependencies) |
+| `V2_CONTRACT.md`, `nodes.json` | the contract and the node list (both owned by the bridge lane; a host test pins the node list) |
+| `src/lib.rs`, `src/tests.rs`, `Cargo.toml`, `build.rs` | the Lobby's program (the music plus Mission Control) and its 18 host tests |
 | `world.wasm` | the built program; it becomes the Lobby's `module.wasm` |
-| `mc_assembly.glb` | Mission Control's nodes (parked), merged into the Lobby's `scene.glb` |
-| `lobby-manifest.patch.json` | what 1.2.0 changes in the Lobby's manifest: version, capabilities, host API 4, the chime, the `network` block |
-| `bridge-origin.txt` | the origin compiled into the program (the relay Worker); `../mission-control-tools/set-bridge-host.mjs` sets it and the patch together |
-| `nodes.json` | every node name the program finds. GENERATED from the bridge's face layout; both sides' tests pin it |
+| `mc_assembly.glb` | every node (parked), merged into the Lobby's `scene.glb` |
+| `lobby-manifest.patch.json` | what the package changes in the Lobby's manifest |
+| `bridge-origin.txt` | the origin compiled into the program |
 | `audio/chime.wav` | the approval chime |
-| `blender/build_panel.py` | builds the panel and fixtures, exports `mc_assembly.glb`, renders the review inside the live Lobby |
-| `blender/measure_roboto.py` | measures Roboto's advance widths for the bridge's text layout |
-| `review/*.snapshot`, `review/*.jpg` | the captured snapshots and the lit renders made from them |
+| `blender/build_panel.py` | builds every node, exports `mc_assembly.glb`, renders the review inside the live Lobby |
+| `review/*.jpg` | the v2 lit renders (and the v1 ones they replace, kept for comparison) |
+| `review/synthetic/*.snapshot` | contract-shaped stand-ins, from `make_synthetic_snapshots.mjs` |
 
 Tools live in `../mission-control-tools/` (ASSET_006 refuses a `.ps1` in a bundle):
-`build_wasm.ps1`, `make_chime.mjs`, `set-bridge-host.mjs`, `mockhost.mjs`, and `lobby/`
-(`measure_throne.py`, `merge_glb.mjs`, `package_lobby.mjs`).
+`build_wasm.ps1`, `make_chime.mjs`, `make_synthetic_snapshots.mjs`, `set-bridge-host.mjs`,
+`mockhost.mjs`, and `lobby/`.
 
 ## Rebuilding
 
 ```
-node agent-bridge/scripts/write-nodes-json.mjs          (after npm run build in agent-bridge)
-node agent-bridge/scripts/capture-review-snapshots.mjs
-"E:/Blender/blender-5.1/Blender Foundation/Blender 5.1/blender.exe" -b -P mission-control/blender/build_panel.py
+node agent-bridge/scripts/write-nodes-json.mjs                 (bridge lane; after npm run build)
+node agent-bridge/scripts/capture-review-snapshots.mjs         (bridge lane: review/*.snapshot)
+MC_SNAPSHOTS=<dir with the real snapshots> "E:/Blender/blender-5.1/Blender Foundation/Blender 5.1/blender.exe" -b -P mission-control/blender/build_panel.py
 powershell -NoProfile -ExecutionPolicy Bypass -File mission-control-tools\build_wasm.ps1
-node mission-control-tools/mockhost.mjs
+node mission-control-tools/mockhost.mjs                         (AGENT_BRIDGE_DIST=<dist/src> for another checkout)
 node mission-control-tools/lobby/package_lobby.mjs <live lobby 1.1.1 package> <out>
-node <publisher>/packages/cli/dist/index.js validate <out>
+node <publisher>/packages/cli/dist/index.js validate <out> --offline
 ```
 
-`mockhost.mjs` runs **two copies** of the built program in Node, every `kosmos.*` import stubbed and
-`k_net_*` sent over real HTTP to a local bridge (fake adapter): the Lobby loads with its music and
-zero network calls; the owner does the ritual and signs in; a job raises an approval (two pulses, one
-chime); the owner turns on group watch; the second copy joins with the code and gets the read-only
-copy; the owner closes, and the watcher is told nobody is sharing. It passes. It does not check
-rendering, the real typing sheet or real haptics.
+`build_panel.py` reads `review/synthetic/` unless `MC_SNAPSHOTS` names another folder;
+`-- --only arc,watcher` renders a subset; `-- --no-render` only exports.
 
-## The lit-render review (2026-10-14)
+`mockhost.mjs` runs **two copies** of the built program in Node with every `kosmos.*` import
+stubbed and `k_net_*` sent over real HTTP to a local bridge (fake adapter), and runs the bridge's
+`PAIR_APPROVE` poll (it lives in the bridge CLI's serve loop): the Lobby loads with zero calls; the
+seal mints and polls; the code is approved through `PAIR_APPROVE`; the ring locks, the ledge and
+the puck grow in; CubePlus unfolds the arc; a preset raises an approval (puck amber, two pulses, one
+chime); Fold; Approve on the puck; a job cube unfolds the arc; Group watch; a watcher gets the arc
+only, turned, and sends nothing; Close parks everything and the watcher is told nobody is
+sharing. **It passes** against the v2 bridge lane's build (feat/mc2-bridge 847dce5). It does not
+check rendering, the real typing sheet or real haptics.
 
-The renders import the **live Lobby 1.1.1 scene**, merge the panel, apply the captured snapshots
-exactly as the program does, and draw world text as white Roboto at 8 cm on the plaques. **These
-are renders, not pixels**: the device checkpoint is the real check. `ritual_seal.jpg` (the disc on
-the seat), `watch_button.jpg`, `lock.jpg`, `wall.jpg`, `chat.jpg`, `chat_close.jpg`, `hall_view.jpg`
-(the panel's blank back, from the hall) and `watcher.jpg` (the watcher's copy, from the gallery).
+## The lit-render review (2026-10-19)
 
-What earlier reviews caught and fixed: the width table guessed Roboto about 25% too wide (now
-measured); long lines swung into the panel on non-plane anchors (now plaques); glossy panels mirrored
-the text (now matte); a closed ring would have been one solid collision box (GLTF_007).
+Rendered inside the live Lobby 1.1.1 scene from the **v2 bridge's real snapshots**
+(feat/mc2-bridge 847dce5), applying them the way `lib.rs` does. **Renders, not pixels**: the device
+checkpoint is the real check.
 
-## Device checks owed (the checkpoint, on Build 1009)
+| Render | What it shows |
+|---|---|
+| `seal_ring.jpg` | the ring raised, blue, with its code, the two-line hint, Use passphrase and Cancel |
+| `seal_locked.jpg` | the same ring turned amber (the 0.6 s hold before it shrinks) |
+| `cubes_calm.jpg` | over the owner's shoulder: the ledge with three calm cubes and +, the puck calm |
+| `cubes_need.jpg` | the same with "registry" amber, the puck amber with its three-line label and Approve / Deny |
+| `puck_close.jpg` | the puck from the eye, at hand height |
+| `arc.jpg` | the arc open on a job, from the eye |
+| `arc_unfolding.jpg` | the arc half way out of its cube (no words yet) |
+| `watcher.jpg` | a watcher's copy from the hall: the arc only, turned and lowered |
 
-1. The ritual: the disc on the seat takes the press from the throne, the typing sheet opens, and the
-   panel rises in front of the throne facing the hall; the Watch post opens its sheet.
-2. Text: plaques print flat; 8 cm Roboto is readable; the conversation's left edge is straight. If
-   widths differ on device, set `textScale` in the bridge's config (no new world).
-3. The bars grow left to right; the handles move the panel; Close parks it; leaving the Lobby parks
-   it.
-4. Both controllers buzz and the chime plays on a new approval; nothing buzzes on a press or for a
-   watcher.
-5. Group watch on two headsets: the code joins, the watcher's copy faces the hall, the watcher can't
-   press anything, and closing ends it.
-6. **Dictation:** on the typing sheet's keyboard, does the microphone key appear and type into
-   Kosmos? Found so far, without wearing the headset: Kosmos uses the Oculus Keyboard
-   (`com.oculus.vrshell/...keyboardv2`), the headsets have an on-device speech service
-   (`com.oculus.systemintelligence/.android.speech.OnDeviceRecognitionService`), and Kosmos holds
-   RECORD_AUDIO. Whether the mic key shows and works is **unverified**.
-7. The Lobby itself is unchanged: music, the coastal video, the Omni Demo orb.
+What this review fixed: no labels drawn at all (the review read a text's "wanted" from `U`); every
+label's shadow drawn as a ghost on the panel behind it (the sun now casts none, as on the headset);
+the cubes covering the ask plate's Approve row and the right panel's Close row as the eye sees
+them (the ledge dropped to 0.95 m, the bottom rows raised); the bridge's two-line header and ticker
+and three-line done list and page-spot text running into neighbours (the centre and side panels
+grew upward, the page-spot words moved inside the spot, Group watch joined the Sign out / Close
+row); the seal hint running over the ring; a pale "calm" blue.
+
+## Device checks owed (the checkpoint, on Build 1009 or later)
+
+1. The seal on the seat takes the press; the ring rises from it facing the owner; the code reads.
+2. Approving at the PC locks the ring; the ledge and the puck grow in; nothing is left behind.
+3. Cubes press; the arc unfolds from the pressed cube and folds back into it; texts appear only
+   when it lands; the picked cube is hidden while the arc is open.
+4. Alpha-blended glass and glows read on the mobile renderer (LDR, no bloom).
+5. The puck's Approve / Deny are reachable from the throne with the left hand.
+6. Both controllers buzz and the chime plays on a new approval; never for a watcher.
+7. Group watch on two headsets: the watcher's arc faces the hall; the watcher can't press.
+8. The Lobby itself is unchanged: music, the coastal video, the Omni Demo orb.
 
 ## Known limitations
 
-- The passphrase shows on the typing sheet as it is typed (`k_ui_prompt` has no masked field). The
-  ruled R5 world text field (`k_ui_text_begin`, masked) fixes this once a cook carries it.
-- The ritual can't check where the visitor stands or looks (see above).
-- Four jobs at once (four cards); a fifth waits for one to stop.
-- The `X-World-Address` header the bridge checks is forgeable by anyone with an HTTP client; the
-  passphrase, the relay key and the bridge's own checks are the protection, not the header.
-- A file change to config that runs code by itself (`.claude/`, `.git/`, `.mcp.json`, ...) or
-  outside the project is approved at the desk, never from the headset. An edit to an ordinary
-  project file can still change what a later approved command does (a `package.json` script that
-  `npm test` runs): read edit approvals as "this file", not "this is harmless".
-- **Availability, not safety:** the relay Worker has no rate limit of its own, so a flood through
-  its public URL can fill the bridge's one shared bucket and slow the owner's wall (state stays
-  safe). A Cloudflare rate-limiting rule on the Worker is the fix; adding one is an account setting,
-  so it is the CEO's call.
-- The bridge's `config.json` (the relay key and the passphrase hash) is written with mode 0600,
-  which Windows ignores: any program running as the CEO can read it. That is inside the PC's own
-  trust boundary.
+- The fallback passphrase shows on the typing sheet as it is typed (`k_ui_prompt` has no masked
+  field); the Pairing Seal is the reason it is now a fallback.
+- The seal can't check where the visitor stands or looks (no `player_read` in a network world).
+- A watcher's turned arc stands at the dais steps, in front of the Omni Demo orb's label, on the
+  watcher's headset only.
+- The `X-World-Address` header is forgeable; the pairing approval at the PC, the relay key and
+  the bridge's own checks are the protection.
