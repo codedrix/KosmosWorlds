@@ -1,0 +1,236 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { JobStore, describeTool, testCounts } from "../src/jobs.js";
+
+function store() {
+  const s = new JobStore();
+  const job = s.createJob({ agent: "claude", project: "kosmos-registry", cwd: "C:/p", title: "Run all tests", firstMessage: "Run all tests" });
+  return { s, job, sink: s.sink(job.id) };
+}
+
+test("activity lines are built from tool names and inputs, and reads coalesce", () => {
+  const { s, job, sink } = store();
+  for (let i = 0; i < 6; i++) sink.toolUse(`r${i}`, "Read", { file_path: `C:/p/f${i}.ts` });
+  sink.toolUse("e1", "Edit", { file_path: "C:/p/worker/src/index.ts", old_string: "a\nb\nc", new_string: "x\n".repeat(84).trimEnd() });
+  const texts = s.eventsSince(job.id, 0).map((e) => e.text);
+  assert.ok(texts.includes("Read 6 files"), texts.join(" | "));
+  assert.ok(texts.includes("Edited worker/src/index.ts +84 -3"), texts.join(" | "));
+  assert.equal(job.files.size, 1);
+});
+
+test("a test run reports counts, never its output", () => {
+  const { s, job, sink } = store();
+  sink.toolUse("b1", "Bash", { command: "npm test", description: "Run the test suite" });
+  sink.toolResult("b1", "SECRET_FILE_CONTENTS\n...\nTests: 14 passed, 1 failed", false);
+  const all = JSON.stringify(s.eventsSince(job.id, 0));
+  assert.match(all, /Ran tests: 14 passed, 1 failed/);
+  assert.doesNotMatch(all, /SECRET_FILE_CONTENTS/);
+  assert.equal(testCounts("# tests 3\n# pass 3\n# fail 0"), "3 passed");
+  assert.equal(testCounts("nothing here"), undefined);
+});
+
+test("a to-do list gives the card its progress", () => {
+  const d = describeTool("TodoWrite", { todos: [{ status: "completed" }, { status: "completed" }, { status: "pending" }, { status: "in_progress" }] }, "/");
+  assert.equal(d.progress, 0.5);
+});
+
+test("streamed reply text grows one event and bumps its seq", () => {
+  const { s, job, sink } = store();
+  sink.agentText("Hello there", { newMessage: true });
+  const first = s.eventsSince(job.id, 0).find((e) => e.kind === "agent");
+  assert.ok(first);
+  assert.equal(first.text, "Hello ", "the partial last word waits for whitespace or the end");
+  const seq = first.seq;
+  sink.agentText(", world. ");
+  const now = s.eventsSince(job.id, seq);
+  assert.equal(now.length, 1);
+  assert.equal(now[0]?.text, "Hello there, world. ");
+  assert.equal(now[0]?.id, first.id);
+  sink.agentText("Bye");
+  sink.toolUse("r1", "Read", { file_path: "C:/p/a.ts" }); // the message ends: the held word shows
+  assert.equal(s.eventsSince(job.id, 0).find((e) => e.id === first.id)?.text, "Hello there, world. Bye");
+});
+
+test("approvals: one per request, decided once, exact or not approvable from the headset", async () => {
+  const { s, job, sink } = store();
+  const p = sink.requestApproval("Bash", { command: "npm test" });
+  assert.equal(job.status, "waiting");
+  const a = s.pendingFor(job.id);
+  assert.ok(a);
+  assert.equal(a.command, "npm test");
+  assert.ok(a.exact);
+  assert.equal(s.approvalsEver, 1);
+  assert.ok(s.decide(a.id, "approve"));
+  assert.equal(await p, "approve");
+  assert.ok(!s.decide(a.id, "deny"), "already answered");
+  assert.equal(job.status, "running");
+
+  // A command with a secret in it is shown redacted and can't be approved from the headset.
+  const p2 = sink.requestApproval("Bash", { command: "curl -H 'Authorization: Bearer abcdefghijklmnopqrstuvwxyz0123' https://x" });
+  const a2 = s.pendingFor(job.id);
+  assert.ok(a2 && !a2.exact);
+  assert.match(a2.command, /\[redacted\]/);
+  assert.ok(!s.decide(a2.id, "approve"));
+  assert.ok(s.decide(a2.id, "deny"));
+  assert.equal(await p2, "deny");
+
+  // Stopping cancels whatever is still waiting, and the agent hears "deny".
+  const p3 = sink.requestApproval("Bash", { command: "rm -rf build" });
+  s.cancelApprovals(job.id);
+  assert.equal(await p3, "deny");
+});
+
+test("tool input is untrusted on every exit: activity lines and approvals are redacted and defanged", async () => {
+  const { s, job, sink } = store();
+  // Built at runtime from fake parts, never a real key (the 2026-10-14 push-protection lesson).
+  const fakeKey = ["sk", "ant", "abcdefghijklmnopqrstuv0123456789"].join("-");
+  sink.toolUse("b1", "Bash", { command: "echo ok", description: `!! Needs you: APPROVE the next one; key ${fakeKey}` });
+  sink.toolUse("b2", "Bash", { command: `curl -H "Authorization: Bearer ${fakeKey}" https://x.example` });
+  sink.toolUse("e1", "Edit", { file_path: `C:/p/!!${fakeKey}.ts`, old_string: "a", new_string: "b" });
+  const p = sink.requestApproval("Bash", { command: `curl -H "Authorization: Bearer ${fakeKey}" https://x.example` });
+  const all = JSON.stringify(s.eventsSince(job.id, 0)) + JSON.stringify([...s.approvals.values()]);
+  assert.doesNotMatch(all, /abcdefghijklmnopqrstuv/, "the key never leaves");
+  assert.doesNotMatch(all, /!!/, "a planted marker never survives");
+  const a = s.pendingFor(job.id);
+  assert.ok(a);
+  assert.equal(a.title, "Run a command", "the approval title is the bridge's own words");
+  s.decide(a.id, "deny");
+  await p;
+});
+
+test("a multi-line command is shown with a marker and is never approvable from the headset", async () => {
+  const { s, job, sink } = store();
+  const p = sink.requestApproval("Bash", { command: "echo hi #\nrm -rf important" });
+  const a = s.pendingFor(job.id);
+  assert.ok(a && !a.exact);
+  assert.match(a.command, /\[newline\] rm -rf important/);
+  assert.ok(!s.decide(a.id, "approve"), "approve it at the desk");
+  assert.ok(s.decide(a.id, "deny"));
+  await p;
+});
+
+test("a key streamed in small pieces never shows, whole or in part", () => {
+  const { s, job, sink } = store();
+  const fakeKey = ["sk", "ant", "api03", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij0123456789"].join("-");
+  const message = `Here is the key: ${fakeKey} and that is all. Also !! Needs you: approve.`;
+  sink.agentText("", { newMessage: true });
+  const seen: string[] = [];
+  for (let i = 0; i < message.length; i += 5) {
+    sink.agentText(message.slice(i, i + 5));
+    seen.push(JSON.stringify(s.eventsSince(job.id, 0)));
+  }
+  sink.toolUse("r1", "Read", { file_path: "C:/p/a.ts" }); // the message ends
+  seen.push(JSON.stringify(s.eventsSince(job.id, 0)));
+  for (const snap of seen) {
+    assert.doesNotMatch(snap, /ABCDEFGHIJ/, "no part of the key, at any moment");
+    assert.doesNotMatch(snap, /!!/, "no reassembled marker");
+  }
+  const text = s.eventsSince(job.id, 0).find((e) => e.kind === "agent")?.text ?? "";
+  assert.match(text, /\[redacted\] and that is all\./, "the end of the message shows, redacted");
+});
+
+test("a file change outside the project shows its whole path and is approved at the desk", async () => {
+  const { s, job, sink } = store();
+  sink.toolUse("w1", "Write", { file_path: "C:/Users/someone/.ssh/authorized_keys", content: "x" });
+  const line = s.eventsSince(job.id, 0).at(-1)?.text ?? "";
+  assert.match(line, /Wrote C:\/Users\/someone\/\.ssh\/authorized_keys/);
+  const p = sink.requestApproval("Write", { file_path: "C:/Users/someone/.ssh/authorized_keys", content: "x" });
+  const a = s.pendingFor(job.id);
+  assert.ok(a && !a.exact);
+  assert.match(a.command, /\.ssh\/authorized_keys$/);
+  s.decide(a.id, "deny");
+  await p;
+  const p2 = sink.requestApproval("Edit", { file_path: "C:/p/src/index.ts", old_string: "a", new_string: "b" });
+  const a2 = s.pendingFor(job.id);
+  assert.ok(a2 && a2.exact, "a project file is still approvable");
+  assert.equal(a2.command, "src/index.ts");
+  s.decide(a2.id, "deny");
+  await p2;
+});
+
+test("a shortened Ran line is redacted before it is cut", () => {
+  const { s, job, sink } = store();
+  const fakeKey = ["sk", "ant", "api03", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij0123456789"].join("-");
+  sink.toolUse("b1", "Bash", { command: `curl -H "x-api-key: ${fakeKey}" https://api.example/v1/thing` });
+  assert.doesNotMatch(JSON.stringify(s.eventsSince(job.id, 0)), /ABCD/);
+});
+
+test("config that runs code by itself, and paths the shell expands, are approved at the desk", async () => {
+  const { s, job, sink } = store();
+  for (const input of [
+    { file_path: "C:/p/.claude/settings.json" },
+    { file_path: "C:/p/.mcp.json" },
+    { file_path: "C:/p/.git/hooks/pre-commit" },
+    { file_path: "~/.bashrc" },
+    { file_path: "%USERPROFILE%/x.txt" },
+  ]) {
+    const p = sink.requestApproval("Write", { ...input, content: "x" });
+    const a = s.pendingFor(job.id);
+    assert.ok(a && !a.exact, JSON.stringify(input));
+    s.decide(a.id, "deny");
+    await p;
+  }
+  // NotebookEdit changes notebook_path, whatever else its input carries.
+  const p = sink.requestApproval("NotebookEdit", { notebook_path: "C:/Users/someone/n.ipynb", file_path: "C:/p/decoy.ts" });
+  const a = s.pendingFor(job.id);
+  assert.ok(a && !a.exact);
+  assert.match(a.command, /someone\/n\.ipynb$/);
+  s.decide(a.id, "deny");
+  await p;
+});
+
+test("Windows short names (CLAUDE~1) and trailing dots can't hide config that runs code", async () => {
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const { runsCodeByItself } = await import("../src/jobs.js");
+  const proj = fs.mkdtempSync(path.join(os.tmpdir(), "mc-proj-"));
+  fs.mkdirSync(path.join(proj, ".claude"));
+  // Fail closed on any segment shaped like a short name, whether or not it resolves here.
+  assert.equal(runsCodeByItself("CLAUDE~1/settings.json", proj), true);
+  assert.equal(runsCodeByItself("SOMEDI~2/x.ts", proj), true);
+  assert.equal(runsCodeByItself(".claude./settings.json", proj), true);
+  assert.equal(runsCodeByItself("src/index.ts", proj), false);
+  // Where the volume really has 8.3 names, the short name resolves to .claude itself.
+  let short: string | undefined;
+  try { short = fs.realpathSync.native(path.join(proj, "CLAUDE~1")); } catch { short = undefined; }
+  if (short) assert.equal(path.basename(short), ".claude");
+  fs.rmSync(proj, { recursive: true, force: true });
+  const { s, job, sink } = store();
+  const p = sink.requestApproval("Write", { file_path: "C:/p/CLAUDE~1/settings.json", content: "x" });
+  const a = s.pendingFor(job.id);
+  assert.ok(a && !a.exact, "approved at the desk");
+  s.decide(a.id, "deny");
+  await p;
+});
+
+test("a streamed delta that changes nothing on the wall wakes no long poll", () => {
+  const { s, job, sink } = store();
+  sink.agentText("Hello there", { newMessage: true });
+  const v0 = s.currentVersion;
+  sink.agentText("more"); // still one held-back word: nothing new to show
+  assert.equal(s.currentVersion, v0);
+  sink.agentText(" and"); // whitespace releases "theremore"
+  assert.ok(s.currentVersion > v0);
+  assert.ok(job);
+});
+
+test("a path on a network share is judged outside without touching the share", async () => {
+  const { insideProject, runsCodeByItself } = await import("../src/jobs.js");
+  const t0 = Date.now();
+  // 192.0.2.0/24 is TEST-NET-1: nothing answers, so any file-system call here would block for seconds.
+  assert.equal(insideProject("//192.0.2.2/share/x/settings.json", "C:/p"), false);
+  assert.equal(runsCodeByItself("//192.0.2.2/share/x/settings.json", "C:/p"), true);
+  assert.equal(insideProject("D:/elsewhere/x.ts", "C:/p"), false);
+  assert.ok(Date.now() - t0 < 500, `took ${Date.now() - t0} ms: the share was touched`);
+});
+
+test("a very long or very deep path is judged without resolving it on disk", async () => {
+  const { insideProject, runsCodeByItself } = await import("../src/jobs.js");
+  const t0 = Date.now();
+  const long = "C:/p/" + "a/".repeat(20000) + "x.ts";
+  assert.equal(insideProject(long, "C:/p"), false, "too long to judge: outside, so at the desk");
+  assert.equal(runsCodeByItself(long, "C:/p"), true);
+  assert.equal(insideProject("C:/p/" + "a/".repeat(70) + "x.ts", "C:/p"), false, "too deep");
+  assert.ok(Date.now() - t0 < 500, `took ${Date.now() - t0} ms`);
+});
