@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ClaudeAdapter } from "../src/adapters/claude.js";
+import { ClaudeAdapter, DEFAULT_ALWAYS_ASK } from "../src/adapters/claude.js";
 import { JobStore } from "../src/jobs.js";
 
 /** A stand-in for the SDK's query(): records the options, replays scripted messages. */
@@ -53,7 +53,8 @@ test("Claude runs with the CEO's settings, 'default' permissions, and every prom
   assert.equal(opts.permissionMode, "default");
   assert.deepEqual(opts.settingSources, ["user", "project", "local"]);
   // The headset policy: shell commands always ask, whatever the CEO's allow rules say.
-  assert.deepEqual(opts.managedSettings, { permissions: { ask: ["Bash", "PowerShell", "Edit(**/.claude/**)", "Edit(**/.mcp.json)", "Edit(**/.git/**)"] } });
+  assert.deepEqual(opts.managedSettings, { permissions: { ask: DEFAULT_ALWAYS_ASK } });
+  for (const r of ["Bash", "PowerShell", "Edit(**/.claude/**)", "Edit(**/.git/**)", "Edit(**/.mcp.json)", "Edit(**/.envrc)"]) assert.ok(DEFAULT_ALWAYS_ASK.includes(r), r);
   assert.equal(opts.cwd, "C:/p");
   assert.equal(job.sessionId, "sess-123");
   assert.equal(job.status, "idle", "a conversation waits for the CEO after its turn");

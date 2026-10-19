@@ -67,7 +67,7 @@ export const PRIVACY_TEXT = [
   "  which go to the bridge on the owner's computer.",
   "- Today these worlds show an invented sample day: nothing in them is real yet.",
   "",
-  "The headset sends no identity. Nothing about anyone but the owner is kept.",
+  "The headset sends no identity, and nothing is kept about the people who visit these worlds.",
   "The server keeps its jobs in memory and writes a request log (method, path, status, time) to",
   "its own console; it stores no request bodies, no tokens and no addresses.",
   "",

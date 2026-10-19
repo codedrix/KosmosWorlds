@@ -117,7 +117,7 @@ Host/Origin checks before a face runs, and passes `ctx.authed`; a face acts only
 | Passphrase guessing | scrypt hash; one attempt per 2 s; 5 wrong = 15 min lock; 10 wrong in 24 h = locked until `npm run unlock` (global, so a stranger can lock the CEO out, never in) |
 | A stolen token | 30 min idle / 8 h absolute; one sign-in at a time; never logged; only its SHA-256 is kept |
 | "Run this text as a shell command" | No such verb. Typed text is a prompt; Claude Code's permission rules decide what runs |
-| Commands the CEO's settings pre-allow (131 rules in the Kosmos Project, incl. `Bash(powershell:*)`, `Bash(curl:*)`) | The headset policy: `managedSettings.permissions.ask = ["Bash","PowerShell"]`, so every shell command asks on the wall (ask beats allow). Verified live: a pre-allowed `node --version` ran with no approval under the CEO's rules and raised one approval under the policy. `alwaysAsk: []` in config.json turns it off |
+| Commands the CEO's settings pre-allow (131 rules in the Kosmos Project, incl. `Bash(powershell:*)`, `Bash(curl:*)`) | The headset policy: `managedSettings.permissions.ask` = `Bash`, `PowerShell`, and `Edit(...)` rules for `.claude/`, `.git/`, `.githooks/`, `.husky/`, `.vscode/`, `.devcontainer/`, `.mcp.json`, `.claude.json` and `.envrc` (`DEFAULT_ALWAYS_ASK` in `src/adapters/claude.ts`), so every shell command, and every edit to config that runs code by itself, asks on the wall (ask beats allow). Verified live: a pre-allowed `node --version` ran with no approval under the CEO's rules and raised one approval under the policy; an allowed Write ran unasked while a Write into `.claude/` asked once. `alwaysAsk` in config.json REPLACES the whole list (`[]` turns the policy off and drops the Edit rules too); the bridge's own desk-only check for those files stays either way |
 | Approving something unseen | An approval is approvable from the headset only if its whole command is on the wall and nothing was redacted; a press names the snapshot version, so it can't land on a changed approval |
 | Prompt injection in agent output | Agent text only ever appears on conversation lines behind "Claude:"; headers, buttons, statuses, the ticker and the approval panel are the bridge's own words; control, bidi and zero-width characters stripped; the bridge's markers can't be forged |
 | Data leaving the PC | Summaries only; secrets redacted; the tunnel provider can read traffic (TLS ends at its edge) |
@@ -125,7 +125,7 @@ Host/Origin checks before a face runs, and passes `ctx.authed`; a face acts only
 
 ## Tests
 
-`npm test`: 59 tests (sanitizing, auth and lockout, jobs and approvals, the HTTP surface and kill
+`npm test`: 64 tests (sanitizing, auth and lockout, jobs and approvals, the HTTP surface and kill
 switch, the Mission Control face end to end with the fake adapter, the Claude adapter against a
 scripted SDK, face discovery, the node contract, the relay Worker in front of a live bridge). A live run against the real SDK turned one real
 Claude Code permission prompt into one approval and got the answer back (2026-10-14).

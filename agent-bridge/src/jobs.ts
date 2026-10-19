@@ -511,6 +511,8 @@ export function realish(p: string): string {
 /** True for a project file that runs code by itself (a hook, an MCP server, a git hook). */
 export function runsCodeByItself(p: string, cwd: string): boolean {
   try {
+    // Never resolve a path outside the project (see insideProject): it is at the desk anyway.
+    if (!lexicallyInside(p, cwd)) return true;
     const parts = path
       .relative(realish(cwd), realish(path.resolve(cwd, p)))
       .split(/[\\/]+/)
@@ -530,11 +532,26 @@ export function insideProject(p: string, cwd: string): boolean {
   // A path the shell or the tool might expand (~, %VAR%, $VAR) is never "inside": fail closed.
   if (/^~|%[^%]+%|\$[A-Za-z_{]/.test(p)) return false;
   try {
+    // Lexically first, touching nothing: a path outside the project (another drive, a
+    // \\host\share) is outside without any file-system call, so an untrusted path can never
+    // make the bridge open a network share or block on one.
+    if (!lexicallyInside(p, cwd)) return false;
+    // Only then the real path, so a junction inside the project can't point out of it.
     const r = path.relative(realish(cwd), realish(path.resolve(cwd, p)));
     return r === "" || (!r.startsWith("..") && !path.isAbsolute(r));
   } catch {
     return false;
   }
+}
+
+/** Longer or deeper paths are never resolved on disk (realish costs one call per missing part). */
+const MAX_PATH_CHARS = 1024;
+const MAX_PATH_PARTS = 64;
+
+function lexicallyInside(p: string, cwd: string): boolean {
+  if (p.length > MAX_PATH_CHARS || p.split(/[\\/]+/).length > MAX_PATH_PARTS) return false;
+  const r = path.relative(path.resolve(cwd), path.resolve(cwd, p));
+  return r === "" || (!r.startsWith("..") && !path.isAbsolute(r));
 }
 
 /**
@@ -545,7 +562,9 @@ function rel(p: string, cwd: string): string {
   if (!p) return "";
   try {
     const full = path.resolve(cwd, p);
-    const shown = insideProject(p, cwd) ? path.relative(path.resolve(cwd), full) : full;
+    // Inside the project, show the path as the file system resolves it (a short name or a
+    // junction shows its true name); outside, the whole path as given, never resolved.
+    const shown = insideProject(p, cwd) ? path.relative(realish(cwd), realish(full)) || "." : full;
     return toWallAscii(shown.replace(/\\/g, "/"));
   } catch {
     return toWallAscii(p.replace(/\\/g, "/"));

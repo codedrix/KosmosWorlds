@@ -45,7 +45,12 @@ const HEADSET_REFUSES: Record<string, string> = {
  */
 // Shell commands, and edits to config that runs code by itself, always ask from the headset,
 // even where the desk settings allow them (ask beats allow; Edit rules also govern Write).
-export const DEFAULT_ALWAYS_ASK = ["Bash", "PowerShell", "Edit(**/.claude/**)", "Edit(**/.mcp.json)", "Edit(**/.git/**)"];
+export const DEFAULT_ALWAYS_ASK = [
+  "Bash",
+  "PowerShell",
+  ...[".claude", ".git", ".githooks", ".husky", ".vscode", ".devcontainer"].map((d) => `Edit(**/${d}/**)`),
+  ...[".mcp.json", ".claude.json", ".envrc"].map((n) => `Edit(**/${n})`),
+];
 
 const WHY_MESSAGE =
   "The user asked why, from the headset. Before running it, explain in two short sentences why you need this, then request it again.";

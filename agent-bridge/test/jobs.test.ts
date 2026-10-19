@@ -195,6 +195,7 @@ test("Windows short names (CLAUDE~1) and trailing dots can't hide config that ru
   let short: string | undefined;
   try { short = fs.realpathSync.native(path.join(proj, "CLAUDE~1")); } catch { short = undefined; }
   if (short) assert.equal(path.basename(short), ".claude");
+  fs.rmSync(proj, { recursive: true, force: true });
   const { s, job, sink } = store();
   const p = sink.requestApproval("Write", { file_path: "C:/p/CLAUDE~1/settings.json", content: "x" });
   const a = s.pendingFor(job.id);
@@ -212,4 +213,24 @@ test("a streamed delta that changes nothing on the wall wakes no long poll", () 
   sink.agentText(" and"); // whitespace releases "theremore"
   assert.ok(s.currentVersion > v0);
   assert.ok(job);
+});
+
+test("a path on a network share is judged outside without touching the share", async () => {
+  const { insideProject, runsCodeByItself } = await import("../src/jobs.js");
+  const t0 = Date.now();
+  // 192.0.2.0/24 is TEST-NET-1: nothing answers, so any file-system call here would block for seconds.
+  assert.equal(insideProject("//192.0.2.2/share/x/settings.json", "C:/p"), false);
+  assert.equal(runsCodeByItself("//192.0.2.2/share/x/settings.json", "C:/p"), true);
+  assert.equal(insideProject("D:/elsewhere/x.ts", "C:/p"), false);
+  assert.ok(Date.now() - t0 < 500, `took ${Date.now() - t0} ms: the share was touched`);
+});
+
+test("a very long or very deep path is judged without resolving it on disk", async () => {
+  const { insideProject, runsCodeByItself } = await import("../src/jobs.js");
+  const t0 = Date.now();
+  const long = "C:/p/" + "a/".repeat(20000) + "x.ts";
+  assert.equal(insideProject(long, "C:/p"), false, "too long to judge: outside, so at the desk");
+  assert.equal(runsCodeByItself(long, "C:/p"), true);
+  assert.equal(insideProject("C:/p/" + "a/".repeat(70) + "x.ts", "C:/p"), false, "too deep");
+  assert.ok(Date.now() - t0 < 500, `took ${Date.now() - t0} ms`);
 });
