@@ -50,7 +50,7 @@ Distances are from where you stand when the world loads, facing forward (+X), wi
 | 0.42–1.12 m ahead | **The desk.** The message grid (12 slots); the **inbox tray** at the back left, where up to 3 messages that have no slot yet wait in a stack (unread VIPs first, then the newest; it is pressed from the top); the **Later** pile at the front left and the **Done** pile at the front right | top 0.74 m |
 | 1.04 m ahead, raised | **The action row** (triage): Done, Later, Reply, Task, Mute | 0.90 m |
 | 1.1 m ahead, above the action row | **The open card**: from, subject, preview | 1.04–1.38 m |
-| 1.3 m ahead, 1.3 m left | **The mode column**: About at the top, then Morning, Focus, Triage and Wrap-up, then Sign in (until signed in) | 0.82–1.7 m |
+| 1.3 m ahead, 1.3 m left | **The mode column**: Sign in at the top (until signed in), then About, then Morning, Focus, Triage and Wrap-up | 0.98–1.86 m |
 | 1.9 m ahead | **The About panel** (when open): one short page, with Next to its right | 1.25–1.6 m |
 | 2.6 m ahead | **The banner**: "SAMPLE DAY: nothing here is real yet", between the stage and the calendar | 1.8 m |
 | 1.2 m ahead, 1.25 m right | **The side table**: a draft waiting for Approve or Deny | 0.95–1.45 m |
@@ -234,7 +234,7 @@ Each was found reading the client at the cooked commit, or in the lit review of 
    - So the mode buttons moved off the desk, to a column at chest height on the left.
    - The action row rose 15 cm.
    - The low labels lifted.
-   - Sign in moved from the desk to eye height in front of the stage, and while signed out, every message (wrong passphrase, network off) shows on the stage beside it.
+   - Sign in sits at the top of the mode column. A second review (2026-10-19) moved it there from the column's bottom, where its label ran into the inbox count. The About plate in MR was widened to frame its Next button.
 4. **`k_node_find` sees only meshes, and names lose a trailing `_<digits>`.** Every text anchor is a 1 cm mesh with an extra, and no name ends in a digit. Clone names are letters only (`MrCaaaab`).
 5. **The publisher's optimizer can eat script nodes.** The scenario was run again on the optimized scene inside each bundle, and every script node survived.
 6. **In MR, white text on a light real wall is unreadable** (found in the lit review). So MR has dark translucent **plates** behind each text group.
@@ -303,7 +303,7 @@ Each was found reading the client at the cooked commit, or in the lit review of 
 **Device check list (one sitting, on Build 1009 or later at level ≥ 4):**
 1. Open each world: it is full at once on the sample day, with the banner. Press Sign in: the system sheet names the world (its address and author), and the room's own prompt text says the passphrase goes to your bridge. A wrong passphrase says so, and the right one switches to the bridge's day.
 2. About: all seven pages are readable from where you stand, and Next and Close about work.
-3. The text is readable at eye height in VR and in MR (plates against a real wall). Is the open card readable over a real monitor? Do translucent plates and mats draw correctly over passthrough on the headset (mobile alpha)? Do the 1 cm text-anchor studs show as specks on a real wall?
+3. The text is readable at eye height in VR and in MR (plates against a real wall). Is the open card readable over a real monitor? Do translucent plates and mats draw correctly over passthrough on the headset (mobile alpha)? Do the 1 cm text-anchor studs show as specks on a real wall? Is the inbox count on the desk readable in MR (it has no plate: one there would block the mode column)?
 4. Presses on clones (cards, events, the top card of the inbox tray) work. If they don't, the fallback is authored card slots instead of clones.
 5. Turn over, Done, Later, Mute, Task, Reply → Approve: each lands where it lives (in the sample, nothing is sent; signed in, Approve reaches Mission Control's approval log).
 6. Focus: a VIP arriving ticks once from the tray; a normal message is silent.
