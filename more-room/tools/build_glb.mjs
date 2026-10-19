@@ -90,11 +90,14 @@ export const LAYOUT = {
   shelfSlots: [-0.5, -0.3, -0.1, 0.1, 0.3, 0.5], // z
   // Triage: the fan of five cards, and the reading card.
   fanR: 1.75,
-  fanY: 1.38,
+  fanY: 1.42,
   fanDeg: [-42, -21, 0, 21, 42],
   readR: 1.4,
   readY: 1.1,
   riseFromY: 0.62,
+  // The banner: under the now bar, or (in triage) just above the fan.
+  bannerY: 1.53,
+  bannerTriageY: 1.71,
   // Focus: the cocoon's facets slide in from cocoonFromR to cocoonR.
   cocoonR: 1.95,
   cocoonFromR: 3.0,
@@ -352,14 +355,26 @@ function puck(g, name, t, mat, extras = PRESS) {
   g.node(name, t, [[cylGeom(PUCK_R, -PUCK_H / 2, PUCK_H / 2, 20), mat]], extras);
 }
 
+/** The height of a block of n lines of world text (8 cm glyphs, spaced). Mirrors style.rs. */
+export const textH = (n) => 0.08 + (n - 1) * 0.084;
+
 /**
  * A plaque: a thin dark card that faces the spawn, with a glowing hairline
  * along its bottom edge. Text shown on it is printed flat on its face.
+ *
+ * The client puts a text's BOTTOM at the anchor's rendered centre plus
+ * offset_y, and clamps a negative offset to 0 (KDomUI.cpp). So a hair-thin
+ * dark keel hangs under the card, lowering its rendered centre by half the
+ * height of `maxLines` lines: then a positive offset (style::offset) centres
+ * any 1..maxLines of text on the card.
  */
-function plaque(g, P, name, r, deg, y, w, h, extras, edgeMat = P.plaqueEdge) {
+function plaque(g, P, name, r, deg, y, w, h, maxLines, extras, edgeMat = P.plaqueEdge) {
+  const k = textH(maxLines) / 2;
   const body = boxGeom([PLAQUE_D, h, w]);
   const edge = boxGeom([PLAQUE_D * 1.2, 0.006, w], [0, -h / 2 + 0.003, 0]);
-  g.node(name, at(r, deg, y), [[body, P.plaque], [edge, edgeMat]], extras, facing(deg));
+  const keel = boxGeom([0.002, 2 * k, 0.002], [0, -h / 2 - k, 0]);
+  if (textH(maxLines) > h) throw new Error(`${name}: ${maxLines} lines do not fit ${h} m`);
+  g.node(name, at(r, deg, y), [[body, P.plaque], [edge, edgeMat], [keel, P.plaque]], extras, facing(deg));
 }
 
 /** A text anchor for floating (upright) text: a 1 cm stud the script can find. */
@@ -392,7 +407,7 @@ function scripted(g, P, variant) {
   g.node("NowBar", at(L.ringR - 0.03, 0, L.ringY), [[cylGeom(0.007, -0.21, 0.21, 12), P.now], [cylGeom(0.03, -0.24, 0.24, 20), P.nowHalo]], anchor("now"));
   // --- The banner, under the now bar, on every mode: inside the focus cocoon, so
   //     it stays readable when the room closes in.
-  plaque(g, P, "TxtBanner", 1.8, 0, 1.6, 0.95, 0.11, anchor("text"), P.focusEdge);
+  plaque(g, P, "TxtBanner", 1.8, 0, L.bannerY, 1.35, 0.11, 1, anchor("text"), P.focusEdge);
 
   // --- The mode column on the left: Owner sign in, About, then the four modes.
   //     Pucks are round, so they read the same from anywhere; labels sit above each.
@@ -403,7 +418,7 @@ function scripted(g, P, variant) {
   stud(g, P, "TxtStatus", at(modeR, modeDeg, 0.84));
 
   // --- The stage, front and centre: the brief, prep, wrap-up, About.
-  plaque(g, P, "TxtStage", 1.7, 0, 1.2, 1.5, 0.44, anchor("text"));
+  plaque(g, P, "TxtStage", 1.7, 0, 1.2, 1.5, 0.44, 4, anchor("text"));
   puck(g, "BtnPrepClose", at(1.6, 25, 1.05), P.action);
   puck(g, "BtnAboutNext", at(1.6, 25, 1.05 + 0.0001), P.about);
 
@@ -428,27 +443,28 @@ function scripted(g, P, variant) {
   //     five action pucks, and the draft with Approve, Deny and More.
   L.fanDeg.forEach((deg, i) => {
     const s = String.fromCharCode(65 + i);
-    plaque(g, P, `Fan${s}`, L.fanR, deg, L.fanY, 0.62, 0.26, PRESS);
+    plaque(g, P, `Fan${s}`, L.fanR, deg, L.fanY, 0.62, 0.26, 2, PRESS);
     // A VIP's amber frame, just behind its card.
     g.node(`FanVip${s}`, at(L.fanR + 0.012, deg, L.fanY), [[boxGeom([0.006, 0.29, 0.65]), P.vip]], anchor("fanvip"), facing(deg));
   });
-  plaque(g, P, "TxtOpen", L.readR, 0, L.readY, 1.12, 0.4, anchor("text"));
-  [["BtnDone", -20, P.done], ["BtnLater", -10, P.later], ["BtnReply", 0, P.action], ["BtnTask", 10, P.action], ["BtnMute", 20, P.mute]].forEach(([n, deg, m]) =>
+  plaque(g, P, "TxtOpen", L.readR, 0, L.readY, 1.12, 0.4, 4, anchor("text"));
+  [["BtnDone", -24, P.done], ["BtnLater", -12, P.later], ["BtnReply", 0, P.action], ["BtnTask", 12, P.action], ["BtnMute", 24, P.mute]].forEach(([n, deg, m]) =>
     puck(g, n, at(1.15, deg, 0.8), m),
   );
-  plaque(g, P, "TxtDraft", 1.3, 50, 1.06, 0.95, 0.4, anchor("text"));
+  plaque(g, P, "TxtDraft", 1.3, 50, 1.06, 1.2, 0.4, 4, anchor("text"));
   [["BtnApprove", 41, P.approve], ["BtnDeny", 50, P.deny], ["BtnMore", 59, P.action]].forEach(([n, deg, m]) => puck(g, n, at(1.2, deg, 0.78), m));
 
   // --- Pinned tasks on the right, with a header line of counts.
-  plaque(g, P, "TxtTasks", 1.6, 52, 1.84, 0.8, 0.12, anchor("text"));
-  [["TaskA", 1.62], ["TaskB", 1.4], ["TaskC", 1.18]].forEach(([n, y]) => plaque(g, P, n, 1.6, 52, y, 0.8, 0.19, PRESS));
+  // Below the Day Ring's labels (they start 0.1 m above the ring at 1.78 m).
+  plaque(g, P, "TxtTasks", 1.6, 52, 1.6, 1.0, 0.12, 1, anchor("text"));
+  [["TaskA", 1.4], ["TaskB", 1.18], ["TaskC", 0.96]].forEach(([n, y]) => plaque(g, P, n, 1.6, 52, y, 0.8, 0.19, 2, PRESS));
   // The VIP line, above the tasks column.
   stud(g, P, "TxtVip", at(1.6, 34, 1.98));
 
   // --- Focus: the task and its timer, close and centred; the next event above;
   //     start or pause; and the cocoon, 16 flat facets that close in from 3 m.
-  plaque(g, P, "TxtFocus", 1.45, 0, 1.32, 1.1, 0.3, anchor("text"), P.focusEdge);
-  plaque(g, P, "TxtTimer", 1.45, 0, 1.06, 0.8, 0.13, anchor("text"));
+  plaque(g, P, "TxtFocus", 1.45, 0, 1.32, 1.1, 0.3, 3, anchor("text"), P.focusEdge);
+  plaque(g, P, "TxtTimer", 1.45, 0, 1.06, 0.8, 0.13, 1, anchor("text"));
   puck(g, "BtnFocusGo", at(1.3, 26, 1.06), P.focus);
   stud(g, P, "TxtNext", at(1.4, 0, 1.72));
   for (let k = 0; k < L.cocoonFacets; k++) {
@@ -466,11 +482,11 @@ function scripted(g, P, variant) {
   g.box("PaneNight", at(winR - 0.008, winDeg, winY), [0.01, 0.68, 0.9], P.paneNight, anchor("pane"), facing(winDeg));
   g.box("WindowBarV", at(winR - 0.014, winDeg, winY), [0.012, 0.68, 0.025], P.frame, undefined, facing(winDeg));
   g.box("WindowBarH", at(winR - 0.014, winDeg, winY), [0.012, 0.025, 0.9], P.frame, undefined, facing(winDeg));
-  plaque(g, P, "TxtWindow", winR - 0.02, winDeg, 1.0, 1.0, 0.26, anchor("text"));
+  plaque(g, P, "TxtWindow", winR - 0.02, winDeg, 1.0, 1.0, 0.26, 3, anchor("text"));
 
   // --- The quiet shelf behind you, with its label above it.
   g.node("QuietShelf", [L.shelfX, 0.99, 0], [[boxGeom([0.3, 0.03, 1.4]), P.shelf], [boxGeom([0.006, 0.008, 1.4], [0.153, 0.012, 0]), P.edge]], anchor("shelf"));
-  plaque(g, P, "TxtQuiet", Math.abs(L.shelfX) + 0.1, 180, 1.26, 0.9, 0.2, anchor("text"));
+  plaque(g, P, "TxtQuiet", Math.abs(L.shelfX) + 0.1, 180, 1.26, 1.0, 0.2, 2, anchor("text"));
 
   // --- Templates the script clones (parked under the floor, hidden at init).
   const tpl = (name, i, parts, extras = PRESS) => g.node(name, [T[0] + i * 0.3, T[1], T[2]], parts, extras);
@@ -525,7 +541,7 @@ function mrRoom(g, P) {
 export const PLATES = [
   // name, text centre (glTF), text width x height (m)
   ["PlateModes", [...at(1.45, -60, 1.42)], [0.9, 1.25]],
-  ["PlateActions", [...at(1.15, 0, 0.87)], [0.9, 0.12]],
+  ["PlateActions", [...at(1.15, 0, 0.87)], [1.05, 0.12]],
   ["PlateDraftBtns", [...at(1.2, 50, 0.85)], [0.7, 0.12]],
   ["PlateVip", [...at(1.6, 34, 2.03)], [1.0, 0.18]],
   ["PlateInbox", [LAYOUT.well[0], 0.92, LAYOUT.well[2]], [0.5, 0.28]],

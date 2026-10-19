@@ -50,14 +50,14 @@ Distances are from where you stand when the world loads, facing forward (+X), wi
 | Where | What | Height |
 |---|---|---|
 | 2.4 m, all round | **The Day Ring**: a thin glowing track; **events as pills** on it (past: dim slate; now: amber; later: blue), each labelled with its time and title on one of two rows; hour ticks (every third one longer); the amber **now bar** straight ahead. Pills more than 100° round are hidden; 19:00 is behind you at 10:00 | 1.78 m |
-| 1.8 m ahead | **The banner**, under the now bar | 1.55–1.66 m |
+| 1.8 m ahead | **The banner**, under the now bar; in triage it moves up, just above the fan | 1.47–1.59 m (triage 1.65–1.77 m) |
 | 1.7 m ahead | **The stage**, a dark card: the brief, a prep sheet, the wrap-up, the About pages. Close (prep) and Next (About) are a puck to its right | 0.98–1.42 m |
 | 1.0 m, -55° to +55° | **The landing arc**: 12 slots where cards lie face-down. VR: a curved shelf of 17 flat facets with a glowing front edge; MR: a faint dark mat | 0.79 m |
 | 1.0 m, -67° and +67° | **Later** (amber ring) and **Done** (green ring), at the arc's ends | 0.79 m |
 | 1.3 m ahead, behind the arc | **The inbox well**: up to 3 messages that have no slot yet wait here (unread VIPs on top), and its label counts the rest | 0.79 m |
 | 1.45 m, 60° left | **The mode column**: round pucks for Owner sign in (until signed in), About, Morning, Focus, Triage and Wrap-up; the status line under them | 0.84–1.86 m |
-| 1.6 m, 52° right | **Pinned tasks**: a line of counts, then three task cards | 1.1–1.9 m |
-| 1.75 m, -42° to +42° | **The fan** (triage): five face-up cards; a VIP's card has an amber frame | 1.25–1.51 m |
+| 1.6 m, 52° right | **Pinned tasks**: a line of counts, then three task cards, below the ring's labels | 0.86–1.66 m |
+| 1.75 m, -42° to +42° | **The fan** (triage): five face-up cards; a VIP's card has an amber frame | 1.29–1.55 m |
 | 1.4 m ahead | **The reading card** (triage): from, subject, preview. The five action pucks are under it at 1.15 m | 0.9–1.3 m |
 | 1.3 m, 50° right | **The draft** (triage): "Draft to …" with Approve, Deny and More under it | 0.86–1.26 m |
 | 1.45 m ahead | **Focus**: the task and its timer, with Start/Pause to the right and "Next: …" above | 1.0–1.76 m |
@@ -151,8 +151,8 @@ Every number below was measured by running the built `world.wasm`:
 | Request body | 16 KiB | largest 83 B | — |
 | Answer | 256 KiB, text or JSON only | largest 4.8 KB (the whole sample day) | 7.7 KB for 40 messages |
 | Requests | 4 in flight, 1 a second with bursts of 10 | 15 polls plus presses; never rate-limited | — |
-| Wasm | 256 KB | WASM_BYTES (6.4 KB of it is the built-in sample) | — |
-| Triangles | 1,000,000 | TRIANGLES (doctor) | — |
+| Wasm | 256 KB | 106.4 KB (6.4 KB of it is the built-in sample, about 20 KB a scratch day a live answer is read into first) | — |
+| Triangles | 1,000,000 | 10,532 VR, 9,356 MR (doctor) | — |
 
 **Per frame**, the ring moves 10 pills and 13 ticks only when its clock has moved, and sets visibility only when it changes; the cocoon moves 16 facets only while it is closing in or opening out.
 
@@ -172,10 +172,10 @@ Every number below was measured by running the built `world.wasm`:
 | Wrap-up | about 21 |
 
 **Test totals:**
-- `tools/scenario.mjs`: SCENARIO_CHECKS checks across both worlds, all passing. Part 1 runs the built-in sample with **no request at all**: the ring turning with the clock, a past/now/later pill, prep, About, the cocoon closing in, the fan rising, the reading card rising, every triage action and the wrap-up. Part 2 signs in and runs the live day: a cut answer, a card falling onto the well, a VIP's single tick in focus, the VIPs leading the fan, Approve reaching the bridge, a sign-out and network off;
-- `cargo test`: HOST_TESTS host tests, including "the baked sample is a complete DAY/1 day", "every About page fits whole", the ring's angles, and the sine and cosine the room computes without a math library;
+- `tools/scenario.mjs`: 286 checks across both worlds, all passing. Part 1 runs the built-in sample with **no request at all**: the ring turning with the clock, a past/now/later pill, prep, About, the cocoon closing in, the fan rising, the reading card rising, every triage action and the wrap-up. Part 2 signs in and runs the live day: a cut answer, a card falling onto the well, a VIP's single tick in focus, the VIPs leading the fan, Approve reaching the bridge, a sign-out and network off;
+- `cargo test`: 21 host tests, including "the baked sample is a complete DAY/1 day", "every About page fits whole", the ring's angles, and the sine and cosine the room computes without a math library;
 - `kosmos-wp validate` and `bundle` at publisher main `fced9cf` (CLI 0.8.1, 83 rules) pass both worlds against level 4;
-- `kosmos-wp doctor`: DOCTOR;
+- `kosmos-wp doctor`: VR 17 ✅, 0 ⚠️, 0 ❌; MR 17 ✅, 0 ⚠️, 0 ❌;
 - the wasm imports only the host's `kosmos.*` functions (no math library, no `k_transform_set_rotation`) and passes `wasm-tools validate`.
 
 **Plates never block a press.** Every press in the scenario traces a ray from eye height to its target and fails if anything visible is hit first. The ring's track is tested as a ring, not a disc (`hollow` in `tools/build_glb.mjs`).
@@ -271,6 +271,7 @@ Each was found reading the client at the cooked commit, or in the lit review of 
    - Every clone's `OnInteract` subscription is released when it is destroyed. Subscriptions are a capped pool (256).
 9. **`k_transform_set_rotation` replaces a node's relative rotation with a raw engine rotator** (`KDomTransform.cpp`, client `944abfa`): it overrides whatever rotation the glTF importer gave the node. So v2 never rotates anything at runtime (a test asserts the wasm does not import it). What moves is round about the vertical: pills, discs and pucks look the same from anywhere. What is flat (the fan, the facets, the plates) is built already facing the spawn, with its yaw in the node, and moves only by position. A card "turns over" by swapping its face: the face-down disc is destroyed and a read-face disc is cloned in its place.
 10. **Text plaques** (`KWorldTextPool.cpp`, KOS-981, in both installed cooks `00d9a69` and `ecad7c5`): text on a thin upright plane (its thinnest extent at most a fifth of the next, its rotation in the node, not baked) is printed flat on the plane's face, a hair in front, and never turned. Any other anchor gets upright text faced toward your eye **once, when it is shown**, then carried with its node. v2 puts most text on dark cards for this reason, and shows a Day Ring label again once its pill has moved 6° round, so it faces you again. The renders (`tools/render_modes.py`) follow the same rule.
+11. **A text's bottom sits at its anchor's rendered centre plus `offset_y`, and a negative offset is clamped to 0** (`KDomUI.cpp`: metres, clamped to 0..5 m). So text can only rise from a card's middle, never centre on it. Each v2 card therefore hangs a hair-thin dark keel below it, which lowers its rendered centre by half the height of the most lines it holds; `style::offset(Place::Plaque(max), n)` then lifts n lines by the difference, so any text is centred and no offset is negative. The mock host and the renders use the same rendered centre.
 
 ## 7. Message sources
 
@@ -302,7 +303,7 @@ Each was found reading the client at the cooked commit, or in the lit review of 
 ## 9. What is verified, and what is not
 
 **Verified here:**
-- the SCENARIO_CHECKS-check scenario on both worlds (the built-in sample with no request, then the live day);
+- the 286-check scenario on both worlds (the built-in sample with no request, then the live day);
 - the face on the real bridge server (the bridge's whole suite, More Room's 11 tests among them);
 - the heavy day;
 - the packaged scenes;
@@ -330,7 +331,7 @@ Each was found reading the client at the cooked commit, or in the lit review of 
 8. Read, Done, Later, Mute, Task, Reply → Approve: each lands where it lives (in the sample, nothing is sent; signed in, Approve reaches Mission Control's approval log).
 9. Focus: a VIP arriving ticks once from the well; a normal message is silent.
 10. Put the headset to sleep and wake it, then turn off the PC: the status says "The bridge did not answer. Is the PC awake?", and nothing crashes.
-11. Frame time with the full room visible stays within 13.8 ms. The room is about TRIANGLES triangles, 161 authored nodes (VR) and up to about 40 clones; the ring moves 23 nodes a frame while its clock moves, so it is expected to be fine.
+11. Frame time with the full room visible stays within 13.8 ms. The room is about 10,500 triangles, 161 authored nodes (VR) and up to about 40 clones; the ring moves 23 nodes a frame while its clock moves, so it is expected to be fine.
 
 ## 10. Publishing
 

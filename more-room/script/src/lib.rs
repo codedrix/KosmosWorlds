@@ -1863,7 +1863,7 @@ fn show_timer() {
     b.int2(s % 60);
     b.push(if a.focus_running { "  focus" } else if s == 0 { "  time - take a break" } else { "  paused" });
     let node = a.n.txt_timer;
-    a.say(node, b.as_bytes(), Place::Plaque);
+    a.say(node, b.as_bytes(), Place::Plaque(1));
 }
 
 fn counts() -> (i32, i32, i32, i32, i32) {
@@ -1976,7 +1976,7 @@ fn fan_sync(on: bool) {
         l.words(msg.from.bytes());
         l.newline();
         l.words(msg.subject.bytes());
-        a.say(node, l.as_bytes(), Place::Plaque);
+        a.say(node, l.as_bytes(), Place::Plaque(2));
     }
 }
 
@@ -2008,6 +2008,9 @@ pub fn render() {
         }
     }
     visible(n.txt_open, open.is_some());
+
+    // The banner sits under the now bar; in triage it moves up, clear of the fan.
+    place(n.txt_banner, L::at(L::BANNER_R, 0.0, if triage { L::BANNER_TRIAGE_Y } else { L::BANNER_Y }));
 
     // --- Buttons and groups.
     visible(n.sign_in, !a.signed_in);
@@ -2068,7 +2071,7 @@ pub fn render() {
             a.untext(node);
         } else {
             let note = a.day.note;
-            a.say(node, note.bytes(), Place::Plaque);
+            a.say(node, note.bytes(), Place::Plaque(1));
         }
     }
     let names = ["Morning", "Focus", "Triage", "Wrap-up"];
@@ -2101,7 +2104,7 @@ pub fn render() {
         let mut l = Lines::new(30, 4);
         l.text(ABOUT_PAGES[p % ABOUT_PAGES.len()]);
         let st = n.txt_stage;
-        a.say(st, l.as_bytes(), Place::Plaque);
+        a.say(st, l.as_bytes(), Place::Plaque(4));
         let mut b: Buf<16> = Buf::new();
         b.push("Next ");
         b.int((p % ABOUT_PAGES.len()) as i32 + 1);
@@ -2182,7 +2185,7 @@ pub fn render() {
                     names_shown += 1;
                 }
             }
-            a.say(node, l.as_bytes(), Place::Plaque);
+            a.say(node, l.as_bytes(), Place::Plaque(2));
         }
     }
 
@@ -2200,7 +2203,7 @@ pub fn render() {
             l.text(b.as_str());
             l.newline();
             l.words(a.day.headline.bytes());
-            a.say(node, l.as_bytes(), Place::Plaque);
+            a.say(node, l.as_bytes(), Place::Plaque(3));
         }
     }
 
@@ -2236,7 +2239,7 @@ pub fn render() {
             }
             l.words(a.prep.lines[k].bytes());
         }
-        a.say(stage, l.as_bytes(), Place::Plaque);
+        a.say(stage, l.as_bytes(), Place::Plaque(4));
         let pc = a.n.prep_close;
         a.say_str(pc, "Close", Place::Puck);
     } else {
@@ -2254,7 +2257,7 @@ pub fn render() {
                     }
                     l.words(a.day.brief[k].bytes());
                 }
-                a.say(stage, l.as_bytes(), Place::Plaque);
+                a.say(stage, l.as_bytes(), Place::Plaque(4));
             }
             Mode::Wrap => {
                 let mut tasks_done = 0;
@@ -2283,7 +2286,7 @@ pub fn render() {
                 l.newline();
                 l.text("First tomorrow:");
                 l.words(a.day.first_tomorrow.bytes());
-                a.say(stage, l.as_bytes(), Place::Plaque);
+                a.say(stage, l.as_bytes(), Place::Plaque(4));
             }
             Mode::Focus | Mode::Triage => a.untext(stage),
         }
@@ -2302,7 +2305,7 @@ pub fn render() {
                 Some(i) => l.words(a.day.tasks[i].title.bytes()),
                 None => l.text("press a pinned task in Morning"),
             }
-            a.say(fnode, l.as_bytes(), Place::Plaque);
+            a.say(fnode, l.as_bytes(), Place::Plaque(3));
             show_timer();
             let label = if a.focus_running { "Pause" } else if a.focus_left_s <= 0.0 { "Again" } else { "Start" };
             a.say_str(gnode, label, Place::Puck);
@@ -2330,7 +2333,7 @@ pub fn render() {
                 b.int(tdone);
                 b.push(" done");
             }
-            a.say(hnode, b.as_bytes(), Place::Plaque);
+            a.say(hnode, b.as_bytes(), Place::Plaque(1));
         } else {
             a.untext(hnode);
         }
@@ -2341,7 +2344,7 @@ pub fn render() {
                 Some(i) => {
                     let mut l = Lines::new(18, 2);
                     l.words(a.day.tasks[i].title.bytes());
-                    a.say(node, l.as_bytes(), Place::Plaque);
+                    a.say(node, l.as_bytes(), Place::Plaque(2));
                 }
                 None => a.untext(node),
             }
@@ -2363,7 +2366,7 @@ pub fn render() {
                 l.words(msg.subject.bytes());
                 l.newline();
                 l.words(msg.preview.bytes());
-                a.say(node, l.as_bytes(), Place::Plaque);
+                a.say(node, l.as_bytes(), Place::Plaque(4));
             }
             None => a.untext(node),
         }
@@ -2387,7 +2390,7 @@ pub fn render() {
                 l.words(dr.to.bytes());
                 l.newline();
                 draft_page_into(dr.text.bytes(), page, &mut l);
-                a.say(tdraft, l.as_bytes(), Place::Plaque);
+                a.say(tdraft, l.as_bytes(), Place::Plaque(4));
                 let (ap, dn, mo) = (a.n.approve, a.n.deny, a.n.more);
                 a.say_str(ap, "Approve", Place::Puck);
                 a.say_str(dn, "Deny", Place::Puck);

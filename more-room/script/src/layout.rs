@@ -42,12 +42,16 @@ pub const SHELF_SLOTS: [f32; 6] = [-0.5, -0.3, -0.1, 0.1, 0.3, 0.5]; // z
 
 // --- Triage ----------------------------------------------------------------------------
 pub const FAN_R: f32 = 1.75;
-pub const FAN_Y: f32 = 1.38;
+pub const FAN_Y: f32 = 1.42;
 pub const FAN_DEG: [f32; 5] = [-42.0, -21.0, 0.0, 21.0, 42.0];
 pub const READ_R: f32 = 1.4;
 pub const READ_Y: f32 = 1.1;
 /// Fan cards and the reading card rise from this height.
 pub const RISE_FROM_Y: f32 = 0.62;
+/// The banner, 1.8 m ahead: under the now bar, or in triage just above the fan.
+pub const BANNER_R: f32 = 1.8;
+pub const BANNER_Y: f32 = 1.53;
+pub const BANNER_TRIAGE_Y: f32 = 1.71;
 
 // --- Focus -----------------------------------------------------------------------------
 pub const COCOON_R: f32 = 1.95;

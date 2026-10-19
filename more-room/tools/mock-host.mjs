@@ -123,14 +123,31 @@ export class Host {
     for (const n of gltf.nodes) {
       // Box half-extents (from the POSITION accessor) and yaw, for the laser check.
       let half = null;
-      if (n.mesh !== undefined) {
-        const acc = gltf.accessors[gltf.meshes[n.mesh].primitives[0].attributes.POSITION];
-        half = acc.max.map((v, i) => (v - acc.min[i]) / 2);
-      }
+      // The rendered centre the client anchors text to (KWorldTextPool: the
+      // component's bounds origin): the middle of ALL the mesh's primitives,
+      // turned by the node's yaw. A plaque's keel lowers it on purpose.
+      let center = [0, 0, 0];
       const q = n.rotation ?? [0, 0, 0, 1];
       const yaw = 2 * Math.atan2(q[1], q[3]);
+      if (n.mesh !== undefined) {
+        const prims = gltf.meshes[n.mesh].primitives;
+        const acc = gltf.accessors[prims[0].attributes.POSITION];
+        half = acc.max.map((v, i) => (v - acc.min[i]) / 2);
+        const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+        for (const pr of prims) {
+          const a = gltf.accessors[pr.attributes.POSITION];
+          for (let k = 0; k < 3; k++) {
+            lo[k] = Math.min(lo[k], a.min[k]);
+            hi[k] = Math.max(hi[k], a.max[k]);
+          }
+        }
+        const c = lo.map((v, k) => (v + hi[k]) / 2);
+        // glTF yaw about +Y: x' = x cos + z sin, z' = -x sin + z cos.
+        center = [c[0] * Math.cos(yaw) + c[2] * Math.sin(yaw), c[1], -c[0] * Math.sin(yaw) + c[2] * Math.cos(yaw)];
+      }
       const node = {
         half,
+        center,
         yaw,
         handle: h++,
         name: collapse(n.name ?? ""),
@@ -475,7 +492,10 @@ export class Host {
     return [...this.texts.entries()]
       .map(([h, t]) => ({ node: this.nodes.get(h), ...t }))
       .filter((t) => t.node && t.node.alive && t.node.visible !== false)
-      .map((t) => ({ name: t.node.name, text: t.text, pos: [t.node.pos[0], t.node.pos[1] + t.offset, t.node.pos[2]] }));
+      .map((t) => {
+        const c = t.node.center ?? [0, 0, 0];
+        return { name: t.node.name, text: t.text, pos: [t.node.pos[0] + c[0], t.node.pos[1] + c[1] + t.offset, t.node.pos[2] + c[2]] };
+      });
   }
 
   textOf(name) {

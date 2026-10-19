@@ -64,6 +64,8 @@ function checkLayoutMirror() {
     ["READ_R", LAYOUT.readR],
     ["READ_Y", LAYOUT.readY],
     ["RISE_FROM_Y", LAYOUT.riseFromY],
+    ["BANNER_Y", LAYOUT.bannerY],
+    ["BANNER_TRIAGE_Y", LAYOUT.bannerTriageY],
     ["COCOON_R", LAYOUT.cocoonR],
     ["COCOON_FROM_R", LAYOUT.cocoonFromR],
     ["COCOON_FACETS", LAYOUT.cocoonFacets],
@@ -217,6 +219,7 @@ function runVariant(variant) {
   ok(/^(Dana Whitfield|Sam Okoro)/.test(host.textOf("FanA") ?? "") && host.byName.get("FanVipA").visible, `triage: an unread VIP leads the fan, amber-framed (${host.textOf("FanA")})`);
   ok(cardsAt(inGrid).filter((n) => !n.visible).length >= 3, `triage: the fanned cards' discs left the arc (${cardsAt(inGrid).filter((n) => !n.visible).length})`);
   ok(/Press a card/.test(status()), `triage: the status says what to do (${status()})`);
+  ok(Math.abs(host.byName.get("TxtBanner").pos[1] - LAYOUT.bannerTriageY) < 1e-4 && host.textOf("TxtBanner") !== undefined, "triage: the banner moves up, clear of the fan, still shown");
   host.press("FanA");
   host.run(0.1);
   ok(host.byName.get("TxtOpen").visible && host.byName.get("TxtOpen").pos[1] < LAYOUT.readY - 0.05, "the reading card rises in front of you");

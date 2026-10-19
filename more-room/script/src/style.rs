@@ -14,8 +14,9 @@ use crate::model::{Event, Msg, Pile, Src};
 /// Where a text sits on its anchor.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Place {
-    /// On a plaque (a thin card printed flat by the client), centred on it.
-    Plaque,
+    /// On a plaque (a thin card printed flat by the client) that holds up to
+    /// this many lines; centred on it (see `offset`).
+    Plaque(u8),
     /// A short label above a puck.
     Puck,
     /// A label above an event pill on the Day Ring, on one of two rows.
@@ -29,18 +30,27 @@ pub enum Place {
 /// The height of one line of world text (8 cm glyphs, spaced).
 pub const LINE_H: f32 = 0.084;
 
+/// The height of a block of n lines.
+pub fn block_h(lines: usize) -> f32 {
+    0.08 + (lines.max(1) as f32 - 1.0) * LINE_H
+}
+
 /// The vertical offset for a text of `lines` lines at `place` (the host's
 /// `offset_y`: from the anchor's rendered centre to the text's bottom).
 pub fn offset(place: Place, lines: usize) -> f32 {
-    let n = lines.max(1) as f32;
+
     match place {
-        // Centre the block: its bottom half a block below the plaque's centre.
-        Place::Plaque => -(0.08 + (n - 1.0) * LINE_H) / 2.0,
+        // The client puts the text's bottom at the anchor's rendered centre plus
+        // this offset, and clamps a negative offset to 0. A plaque's keel lowers
+        // its rendered centre by half a block of `max` lines (tools/build_glb.mjs),
+        // so lifting a block of `n` lines by the difference centres it.
+        Place::Plaque(max) => (block_h(max as usize) - block_h(lines)) / 2.0,
         Place::Puck => 0.035,
         Place::Ring(0) => 0.1,
         Place::Ring(_) => 0.31,
         Place::Float => 0.0,
-        Place::Pile => 0.03,
+        // Clear of the cards stacked on it (the well holds 3).
+        Place::Pile => 0.08,
     }
 }
 
@@ -123,9 +133,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn plaque_text_is_centred() {
-        assert!((offset(Place::Plaque, 1) + 0.04).abs() < 1e-6);
-        assert!(offset(Place::Plaque, 4) < offset(Place::Plaque, 2));
+    fn plaque_text_is_centred_and_never_negative() {
+        assert_eq!(offset(Place::Plaque(1), 1), 0.0);
+        assert!((offset(Place::Plaque(4), 1) - 1.5 * LINE_H).abs() < 1e-6);
+        for max in 1..=4u8 {
+            for n in 1..=max as usize {
+                assert!(offset(Place::Plaque(max), n) >= 0.0, "the client clamps negatives to 0");
+            }
+        }
     }
 
     #[test]
