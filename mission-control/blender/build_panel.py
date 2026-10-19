@@ -582,17 +582,19 @@ def build_puck():
     body = [
         cylinder("_PuckStem", v, (px, py, (ARM_TOP + pz) / 2), 0.012, pz - ARM_TOP, MATS["metal"], vertices=16),
         cylinder("_PuckDisc", v, (px, py, pz), 0.075, 0.026, MATS["metal"], vertices=40),
-        # The label's plate (contract 8.5): small, dark, right above the puck, facing the eye.
-        box("_PuckPlate", fr, (0.0, 0, plate_z), (0.012, pw, ph), MATS["backing"], bevel=0.006),
-        box("_PuckPlatePost", fr, (0.0, 0, (pz + plate_z - ph / 2) / 2 + 0.006), (0.01, 0.012, plate_z - ph / 2 - pz), MATS["metal"]),
     ]
     node("Puck", join("Puck", body, (px, py, pz)), "show")
     top = pz + 0.013
     calm = torus("_PuckCalm", v, (px, py, top), 0.068, 0.007, MATS["glowCalm"])
     node("PuckCalm", calm, "show")
     set_origin(calm, (px, py, pz))
+    # The label's plate (contract 8.5) is part of the "need" look: small, dark, right above the
+    # puck, facing the eye, there only while the puck holds an approval and its line. A calm
+    # puck is just the puck.
     need = [torus("_PuckNeedRing", v, (px, py, top), 0.068, 0.009, MATS["glowNeed"]),
-            cylinder("_PuckNeedTop", v, (px, py, top + 0.001), 0.048, 0.002, MATS["glowNeed"], vertices=32)]
+            cylinder("_PuckNeedTop", v, (px, py, top + 0.001), 0.048, 0.002, MATS["glowNeed"], vertices=32),
+            box("_PuckPlate", fr, (0.0, 0, plate_z), (0.012, pw, ph), MATS["backing"], bevel=0.006),
+            box("_PuckPlatePost", fr, (0.0, 0, (pz + plate_z - ph / 2) / 2 + 0.006), (0.01, 0.012, plate_z - ph / 2 - pz), MATS["metal"])]
     node("PuckNeed", join("PuckNeed", need, (px, py, pz)), "show")
     # Approve and Deny: larger tabs beside the puck (Approve to its right as the owner sees it),
     # each tilted back to face the eye, the words merged in.
