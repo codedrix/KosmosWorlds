@@ -89,6 +89,17 @@ function label(lines: string[]): string {
   return clipBytes(lines.join("\n"), WORLD_TEXT_MAX_BYTES);
 }
 
+/** True when the label holds these lines whole (no byte clip). */
+function fitsLabel(lines: string[]): boolean {
+  const joined = lines.join("\n");
+  return label(lines) === joined;
+}
+
+/** The same characters, ignoring the whitespace wrapping may move or drop. */
+function sameNonSpace(a: string, b: string): boolean {
+  return a.replace(/\s+/g, "") === b.replace(/\s+/g, "");
+}
+
 export class MissionControlFace implements Face {
   readonly name = "mission-control";
   readonly worlds = [WORLD_ADDRESS] as const;
@@ -123,6 +134,11 @@ export class MissionControlFace implements Face {
 
   private async watchView(req: WorldRequest, ctx: FaceContext): Promise<FaceReply> {
     const verdict = ctx.bridge.watch.check(req.fields.watch);
+    if (verdict === "too_many") {
+      // Someone is guessing codes. That must not end a real watcher's view: answer "nothing new"
+      // (no watch_refused, so the headset keeps polling) and let the guesser wait out the minute.
+      return this.reply(new Snapshot().version(req.v ?? 0).event("watch_wait").same());
+    }
     if (verdict !== "ok") {
       const why: Record<string, string> = {
         wrong: "That watch code is wrong.",
@@ -293,6 +309,9 @@ export class MissionControlFace implements Face {
     if (!result.ok) this.note(`Not done: ${result.why ?? "refused"}.`);
     const snap = this.render(ctx);
     if (!result.ok) snap.event("refused");
+    // Navigation changes only this face's state, not the jobs: wake waiting long polls so a
+    // watcher's copy follows the owner at once instead of up to 6.5 s later.
+    ctx.bridge.store.poke();
     return this.reply(snap);
   }
 
@@ -641,15 +660,21 @@ export class MissionControlFace implements Face {
       return;
     }
     const cmd = wrapWidth(a.command, W.ask);
-    const fits = cmd.length <= 3;
-    const approvable = a.exact && fits;
+    const head = [clipWidth(`!! Claude wants to: ${a.title}`, W.ask), ...cmd.slice(0, 1)];
+    const tail = cmd.slice(1, 3);
+    // Approve shows only when every character of the command is on the wall: three lines at
+    // most, neither label cut by the host's 128-byte limit, and nothing lost to wrapping.
+    const shownAll = cmd.length <= 3 && fitsLabel(head) && fitsLabel(tail) && sameNonSpace(cmd.join(""), a.command);
+    const approvable = a.exact && shownAll;
     s.visible("AskPanel", true);
-    s.text("TxAskA", label([clipWidth(`!! Claude wants to: ${a.title}`, W.ask), ...(fits ? cmd.slice(0, 1) : [])]));
     if (approvable) {
-      if (cmd.length > 1) s.text("TxAskB", label(cmd.slice(1, 3)));
+      s.text("TxAskA", label(head));
+      if (tail.length > 0) s.text("TxAskB", label(tail));
       else s.hide("TxAskB");
+    } else {
+      s.text("TxAskA", label(head.slice(0, 1)));
+      s.text("TxAskB", label([clipWidth(cmd[0] ?? "", W.ask), "Can't show all of it here: approve it at the desk."]));
     }
-    else s.text("TxAskB", label([clipWidth(cmd[0] ?? "", W.ask), "Too long or has a secret: approve it at the desk."]));
     s.visible("BtnApprove", approvable);
     if (approvable) actions.set("BtnApprove", `approve:${a.id}`);
     s.visible("BtnDeny", true);

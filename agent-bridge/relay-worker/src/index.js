@@ -60,7 +60,7 @@ export default {
     if (request.headers.has("origin") || request.headers.has("cookie") || request.headers.has("referer")) {
       return text('{"error":"browser_context_refused"}', 403, "application/json");
     }
-    if (!env.BRIDGE_ORIGIN || !env.RELAY_SECRET) return text('{"error":"relay_not_configured"}', 503, "application/json");
+    if (!env.BRIDGE_ORIGIN || !env.RELAY_SECRET) return text('{"error":"relay_not_configured"}', 502, "application/json"); // 502, like an unreachable PC: 503 means the kill switch to the world
 
     const body = await request.arrayBuffer();
     if (body.byteLength > MAX_BODY) return text('{"error":"too_large"}', 413, "application/json");

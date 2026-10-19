@@ -115,3 +115,17 @@ test("a new sign-in always starts with watching off", async () => {
   const w = await op("watch", { watch: code });
   assert.ok(w.events.includes("watch_refused"));
 });
+
+test("a flood of wrong codes doesn't end a real watcher's view", async () => {
+  await sleep(2100);
+  await op("signin", {}, PASS);
+  await op("view", { tok });
+  await op("press", { tok, v, press: "BtnWatch" });
+  const code = b.bridge.watch.current ?? "";
+  assert.ok(code);
+  for (let i = 0; i < WRONG_PER_MINUTE; i++) await op("watch", { watch: code === "000000" ? "111111" : "000000" });
+  const w = await op("watch", { watch: code });
+  assert.ok(!w.events.includes("watch_refused"), "no refusal: the watcher keeps polling");
+  assert.ok(w.events.includes("watch_wait"));
+  assert.ok(w.same, "nothing new, nothing lost");
+});

@@ -78,7 +78,7 @@ the gallery; it shows what the owner sees plus "pressed: <button>" so the watche
 A watcher never signs in, never gets a token and never sends a press (the program refuses to, and
 the bridge refuses a press that carries only a watch code). No typing sheet opens and nothing
 buzzes on a watcher's headset. The code dies when the owner turns watching off, signs out or
-closes the panel, after 20 s without the owner's panel asking for updates (the owner left the Lobby),
+closes the panel, after 45 s without the owner's panel asking for updates (the owner left the Lobby),
 or after 2 hours; ten wrong codes a minute are refused. The owner's own watch line never reaches a
 watcher.
 

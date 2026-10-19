@@ -12,7 +12,7 @@
  * A watch code can never approve, type, start or stop anything: the face's watch
  * op renders a snapshot and maps no presses. It dies when:
  *   - the owner turns watching off, signs out, or the bridge is stopped;
- *   - the owner's own wall has not asked for an update for 20 s (the owner left
+ *   - the owner's own wall has not asked for an update for 45 s (the owner left
  *     the Lobby: the headset closes a world's network at travel, so leaving
  *     can't announce itself);
  *   - 2 hours pass.
@@ -22,7 +22,7 @@
 
 import crypto from "node:crypto";
 
-export const OWNER_GONE_MS = 20_000;
+export const OWNER_GONE_MS = 45_000;
 export const CODE_MAX_MS = 2 * 60 * 60 * 1000;
 export const WRONG_PER_MINUTE = 10;
 

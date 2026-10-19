@@ -120,7 +120,7 @@ what that node meant in that snapshot, and refuses a stale one.
   status line names the last button the owner pressed (its words, never anything typed). It is a long
   poll like `view`, on its own version numbers. A watch code can never approve, type, start or stop
   anything (the watch op maps no presses). It dies at toggle-off, sign-out, the kill switch, 2 hours,
-  or 20 s after the owner's own wall stopped asking for updates (the owner left). At most 10 wrong
+  or 45 s after the owner's own wall stopped asking for updates (the owner left). At most 10 wrong
   codes a minute across everyone.
 - **Anonymous callers** get the lock screen from their own version space and press map; nothing they
   send touches the owner's wall.
@@ -130,4 +130,4 @@ what that node meant in that snapshot, and refuses a stale one.
 ## 6. Limits a client must respect
 
 The headset allows a world 4 requests in flight, 1 a second with bursts of 10, 16 KiB up and 256 KiB
-down per call. The bridge refuses bodies over 16 KiB and rate-limits globally (10 a second, burst 30).
+down per call. The bridge refuses bodies over 16 KiB and rate-limits globally (20 a second, burst 60).

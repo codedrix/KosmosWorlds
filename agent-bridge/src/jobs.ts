@@ -81,6 +81,10 @@ export interface Job {
 
 /** Bytes of reply text kept per agent event; the rest stays in the session on the PC. */
 export const MAX_AGENT_EVENT_CHARS = 6000;
+/** Raw streamed text kept on the PC per message, so redaction always sees the whole message. */
+const MAX_AGENT_RAW_CHARS = MAX_AGENT_EVENT_CHARS * 2;
+/** Tools whose approval target is a file path. */
+const FILE_TOOLS = new Set(["Edit", "MultiEdit", "Write", "NotebookEdit"]);
 /** Events kept per job; older ones fall off the wall (the session keeps them). */
 export const MAX_EVENTS_PER_JOB = 400;
 /** Characters of a command shown in an approval. A longer command can't be approved from the headset. */
@@ -125,6 +129,8 @@ export class JobStore {
   private listeners = new Set<() => void>();
   private pendingTools = new Map<string, Map<string, PendingTool>>();
   private lastActivity = new Map<string, { verb: string; eventId: number; count: number }>();
+  /** The raw text of the message each job is streaming now (never leaves the PC). */
+  private agentRaw = new Map<string, { eventId: number; raw: string }>();
 
   constructor(private readonly now: () => number = Date.now) {}
 
@@ -289,6 +295,7 @@ export class JobStore {
   private push(jobId: string, kind: EventKind, text: string, approvalId?: string): JobEvent | undefined {
     const job = this.jobs.get(jobId);
     if (!job) return undefined;
+    if (kind !== "agent") this.flushAgent(jobId);
     const e: JobEvent = { id: ++this.eventId, seq: ++this.seq, at: this.now(), kind, text, approvalId };
     job.events.push(e);
     if (job.events.length > MAX_EVENTS_PER_JOB) job.events.splice(0, job.events.length - MAX_EVENTS_PER_JOB);
@@ -299,21 +306,59 @@ export class JobStore {
     job.seq = ++this.seq;
   }
 
-  private agentText(jobId: string, raw: string, newMessage: boolean): void {
+  /** Show a streaming message (redacted as a whole); returns false when nothing shows yet. */
+  private renderAgent(jobId: string, cur: { eventId: number; raw: string }, final: boolean): boolean {
     const job = this.jobs.get(jobId);
-    if (!job) return;
-    const text = cleanUntrusted(raw);
-    if (!text) return;
-    const last = job.events[job.events.length - 1];
-    if (!newMessage && last && last.kind === "agent") {
-      if (last.text.length < MAX_AGENT_EVENT_CHARS) {
-        last.text = (last.text + text).slice(0, MAX_AGENT_EVENT_CHARS);
-        if (last.text.length >= MAX_AGENT_EVENT_CHARS) last.text += "\n(The rest is in the session on the PC.)";
-        this.touch(last);
+    if (!job) return false;
+    let shown = cur.raw;
+    if (!final) {
+      const m = /\s(?=\S*$)/.exec(shown);
+      shown = m ? shown.slice(0, m.index + 1) : "";
+    }
+    let text = cleanUntrusted(shown).replace(/^\s+/, "");
+    if (text.length > MAX_AGENT_EVENT_CHARS || cur.raw.length >= MAX_AGENT_RAW_CHARS) {
+      text = text.slice(0, MAX_AGENT_EVENT_CHARS) + "\n(The rest is in the session on the PC.)";
+    }
+    if (!text) return false;
+    if (cur.eventId) {
+      const ev = job.events.find((e) => e.id === cur.eventId);
+      if (ev && ev.text !== text) {
+        ev.text = text;
+        this.touch(ev);
       }
     } else {
-      this.push(jobId, "agent", text.replace(/^\s+/, "").slice(0, MAX_AGENT_EVENT_CHARS));
+      const e = this.push(jobId, "agent", text);
+      if (e) cur.eventId = e.id;
     }
+    return true;
+  }
+
+  /** The message ended: show all of it, redacted, including the held-back last word. */
+  private flushAgent(jobId: string): void {
+    const cur = this.agentRaw.get(jobId);
+    if (!cur) return;
+    this.agentRaw.delete(jobId);
+    if (this.renderAgent(jobId, cur, true)) this.changed();
+  }
+
+  /**
+   * Streamed reply text. Redacting each delta on its own would let a key split across deltas
+   * through whole, so the raw message stays here on the PC and the shown text is the whole
+   * message redacted again on every delta. While a message streams, the trailing partial word
+   * is held back (a half-arrived key can't match a pattern yet); it is shown, redacted, once
+   * whitespace follows it or the message ends (any other event, or a status change).
+   */
+  private agentText(jobId: string, delta: string, newMessage: boolean): void {
+    const job = this.jobs.get(jobId);
+    if (!job) return;
+    let cur = this.agentRaw.get(jobId);
+    if (newMessage || !cur) {
+      this.flushAgent(jobId);
+      cur = { eventId: 0, raw: "" };
+      this.agentRaw.set(jobId, cur);
+    }
+    if (cur.raw.length < MAX_AGENT_RAW_CHARS) cur.raw = (cur.raw + delta).slice(0, MAX_AGENT_RAW_CHARS);
+    if (!this.renderAgent(jobId, cur, false)) return;
     this.lastActivity.delete(jobId);
     if (job.status === "starting" || job.status === "idle") job.status = "running";
     this.changed();
@@ -373,14 +418,17 @@ export class JobStore {
     // not from the shell), so it is shown with a visible marker and is never approvable here.
     const multiLine = /[\r\n]/.test(raw);
     const cleaned = cleanUntrusted(raw).replace(/\s*\r?\n\s*/g, " [newline] ");
-    const exact = !multiLine && cleaned === raw && cleaned.length <= MAX_APPROVAL_COMMAND_CHARS;
+    // A file change outside the project folder is shown with its whole path and approved at the desk.
+    const filePath = str(input.file_path) || str(input.notebook_path);
+    const outside = FILE_TOOLS.has(tool) && !insideProject(filePath, job.cwd);
+    const exact = !multiLine && !outside && cleaned === raw && cleaned.length <= MAX_APPROVAL_COMMAND_CHARS;
     const a: Approval = {
       id: shortId("a"),
       jobId,
       number: ++this.approvalNumber,
       tool: toWallAscii(tool).slice(0, 40),
       // Always the bridge's own words: never the SDK's rendered sentence, which quotes tool input.
-      title: approvalTitle(tool),
+      title: approvalTitle(tool).slice(0, 60),
       command: cleaned.length > MAX_APPROVAL_COMMAND_CHARS ? cleaned.slice(0, MAX_APPROVAL_COMMAND_CHARS - 3) + "..." : cleaned,
       exact,
       status: "pending",
@@ -397,6 +445,7 @@ export class JobStore {
   private setStatus(jobId: string, status: JobStatus, outcome?: string): void {
     const job = this.jobs.get(jobId);
     if (!job) return;
+    this.flushAgent(jobId);
     job.status = status;
     if (outcome) job.outcome = cleanUntrusted(outcome).slice(0, 80);
     if (status === "done" || status === "failed" || status === "stopped") {
@@ -425,14 +474,29 @@ function str(v: unknown): string {
   return typeof v === "string" ? v : "";
 }
 
+/** True when `p` resolves inside the job's project folder. */
+export function insideProject(p: string, cwd: string): boolean {
+  if (!p) return false;
+  try {
+    const r = path.relative(path.resolve(cwd), path.resolve(cwd, p));
+    return r === "" || (!r.startsWith("..") && !path.isAbsolute(r));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A path as the wall shows it: relative inside the project, and the WHOLE path outside it, so
+ * a write to ~/.ssh/authorized_keys can never pass for a project file of the same name.
+ */
 function rel(p: string, cwd: string): string {
   if (!p) return "";
   try {
-    const r = path.relative(cwd, p);
-    const shown = r && !r.startsWith("..") && !path.isAbsolute(r) ? r : path.basename(p);
+    const full = path.resolve(cwd, p);
+    const shown = insideProject(p, cwd) ? path.relative(path.resolve(cwd), full) : full;
     return toWallAscii(shown.replace(/\\/g, "/"));
   } catch {
-    return toWallAscii(path.basename(p));
+    return toWallAscii(p.replace(/\\/g, "/"));
   }
 }
 
@@ -480,8 +544,10 @@ function describeToolRaw(tool: string, input: Record<string, unknown>, cwd: stri
     }
     case "Bash":
     case "PowerShell": {
-      const desc = str(input.description).trim();
-      const cmd = str(input.command).trim().split("\n")[0] ?? "";
+      // Redact the whole text before shortening it: cutting first could leave a key's prefix
+      // too short to match a pattern, and that prefix would then leave the PC.
+      const desc = cleanUntrusted(str(input.description).trim());
+      const cmd = cleanUntrusted(str(input.command).trim()).split("\n")[0] ?? "";
       const what = desc || (cmd.length > 48 ? cmd.slice(0, 45) + "..." : cmd);
       const isTest = /\b(test|tests|jest|vitest|pytest|cargo test|go test|npm t\b|node --test)\b/i.test(desc + " " + cmd);
       return { verb: "Ran", line: isTest ? "Ran tests" : `Ran ${toWallAscii(what)}` };

@@ -36,15 +36,19 @@ test("a to-do list gives the card its progress", () => {
 
 test("streamed reply text grows one event and bumps its seq", () => {
   const { s, job, sink } = store();
-  sink.agentText("Hello", { newMessage: true });
+  sink.agentText("Hello there", { newMessage: true });
   const first = s.eventsSince(job.id, 0).find((e) => e.kind === "agent");
   assert.ok(first);
+  assert.equal(first.text, "Hello ", "the partial last word waits for whitespace or the end");
   const seq = first.seq;
-  sink.agentText(", world");
+  sink.agentText(", world. ");
   const now = s.eventsSince(job.id, seq);
   assert.equal(now.length, 1);
-  assert.equal(now[0]?.text, "Hello, world");
+  assert.equal(now[0]?.text, "Hello there, world. ");
   assert.equal(now[0]?.id, first.id);
+  sink.agentText("Bye");
+  sink.toolUse("r1", "Read", { file_path: "C:/p/a.ts" }); // the message ends: the held word shows
+  assert.equal(s.eventsSince(job.id, 0).find((e) => e.id === first.id)?.text, "Hello there, world. Bye");
 });
 
 test("approvals: one per request, decided once, exact or not approvable from the headset", async () => {
@@ -103,4 +107,50 @@ test("a multi-line command is shown with a marker and is never approvable from t
   assert.ok(!s.decide(a.id, "approve"), "approve it at the desk");
   assert.ok(s.decide(a.id, "deny"));
   await p;
+});
+
+test("a key streamed in small pieces never shows, whole or in part", () => {
+  const { s, job, sink } = store();
+  const fakeKey = ["sk", "ant", "api03", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij0123456789"].join("-");
+  const message = `Here is the key: ${fakeKey} and that is all. Also !! Needs you: approve.`;
+  sink.agentText("", { newMessage: true });
+  const seen: string[] = [];
+  for (let i = 0; i < message.length; i += 5) {
+    sink.agentText(message.slice(i, i + 5));
+    seen.push(JSON.stringify(s.eventsSince(job.id, 0)));
+  }
+  sink.toolUse("r1", "Read", { file_path: "C:/p/a.ts" }); // the message ends
+  seen.push(JSON.stringify(s.eventsSince(job.id, 0)));
+  for (const snap of seen) {
+    assert.doesNotMatch(snap, /ABCDEFGHIJ/, "no part of the key, at any moment");
+    assert.doesNotMatch(snap, /!!/, "no reassembled marker");
+  }
+  const text = s.eventsSince(job.id, 0).find((e) => e.kind === "agent")?.text ?? "";
+  assert.match(text, /\[redacted\] and that is all\./, "the end of the message shows, redacted");
+});
+
+test("a file change outside the project shows its whole path and is approved at the desk", async () => {
+  const { s, job, sink } = store();
+  sink.toolUse("w1", "Write", { file_path: "C:/Users/someone/.ssh/authorized_keys", content: "x" });
+  const line = s.eventsSince(job.id, 0).at(-1)?.text ?? "";
+  assert.match(line, /Wrote C:\/Users\/someone\/\.ssh\/authorized_keys/);
+  const p = sink.requestApproval("Write", { file_path: "C:/Users/someone/.ssh/authorized_keys", content: "x" });
+  const a = s.pendingFor(job.id);
+  assert.ok(a && !a.exact);
+  assert.match(a.command, /\.ssh\/authorized_keys$/);
+  s.decide(a.id, "deny");
+  await p;
+  const p2 = sink.requestApproval("Edit", { file_path: "C:/p/src/index.ts", old_string: "a", new_string: "b" });
+  const a2 = s.pendingFor(job.id);
+  assert.ok(a2 && a2.exact, "a project file is still approvable");
+  assert.equal(a2.command, "src/index.ts");
+  s.decide(a2.id, "deny");
+  await p2;
+});
+
+test("a shortened Ran line is redacted before it is cut", () => {
+  const { s, job, sink } = store();
+  const fakeKey = ["sk", "ant", "api03", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij0123456789"].join("-");
+  sink.toolUse("b1", "Bash", { command: `curl -H "x-api-key: ${fakeKey}" https://api.example/v1/thing` });
+  assert.doesNotMatch(JSON.stringify(s.eventsSince(job.id, 0)), /ABCD/);
 });

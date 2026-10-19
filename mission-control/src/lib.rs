@@ -117,8 +117,8 @@ mod music {
     use super::host;
 
     const TRACKS: [&str; 2] = ["lobby_ypsilon_01.ogg", "lobby_ypsilon_02.ogg"];
-    /// Track lengths in seconds (the 1.1.1 program's data section: 239.35 and 123.11).
-    const LENGTH_S: [f64; 2] = [239.35, 123.11];
+    /// Track lengths in seconds (the 1.1.1 program's data section: 239.35 and 123.113492).
+    const LENGTH_S: [f64; 2] = [239.35, 123.113492];
     const VOLUME: f32 = 0.4;
     const RETRY_EVERY_S: f64 = 1.0;
     const MAX_TRIES: u8 = 3;
@@ -482,7 +482,9 @@ pub extern "C" fn on_press(_event_type: i32, node: i32, _p1: i32, _p2: i32) {
     };
     match node_name(i) {
         "McSeal" => {
-            if mode() == Mode::Closed {
+            // Closed: the ritual. Open but not signed in (a sign-in that never got an answer):
+            // the seal asks again, so the owner is never stuck on a dead lock screen.
+            if mode() == Mode::Closed || (mode() == Mode::Owner && unsafe { TOKEN_LEN } == 0) {
                 open_sheet(SEAL_QUESTION, REQ_PROMPT_SEAL);
             }
         }
@@ -554,7 +556,12 @@ pub extern "C" fn on_prompt_result(_event_type: i32, _node: i32, request_id: i32
     match request_id {
         REQ_PROMPT_SEAL => {
             // The ritual's answer: open the panel and make the FIRST network call, the sign-in.
-            open_panel(Mode::Owner, "Signing in...");
+            // A retry from the seat (the panel already open, no token) keeps the panel where it is.
+            if mode() != Mode::Owner {
+                open_panel(Mode::Owner, "Signing in...");
+            } else {
+                local_status("Signing in...");
+            }
             send_signin(text);
         }
         REQ_PROMPT_WATCH => {
@@ -1358,6 +1365,32 @@ mod tests {
         assert_eq!(mode(), Mode::Closed);
         assert_eq!(unsafe { DELTA }, [0.0; 3], "parked again");
         assert_eq!(unsafe { TOKEN_LEN }, 0, "the token is gone");
+    }
+
+    #[test]
+    fn a_sign_in_that_got_no_answer_can_be_retried_from_the_seat() {
+        reset();
+        k_init();
+        on_press(0, handle("McSeal"), 0, 0);
+        let pass = b"correct horse battery staple";
+        unsafe { PROMPT_ANSWER[..pass.len()].copy_from_slice(pass); }
+        on_prompt_result(0, 0, REQ_PROMPT_SEAL, pass.len() as i32);
+        assert_eq!(mode(), Mode::Owner);
+        on_press(0, handle("McMoveCloser"), 0, 0);
+        let moved = unsafe { ADJUST };
+        // No answer ever came (no token): the seal asks again, and the panel stays where it is.
+        unsafe { PROMPT_OPEN = 0; }
+        on_press(0, handle("McSeal"), 0, 0);
+        assert_eq!(unsafe { PROMPT_OPEN }, REQ_PROMPT_SEAL, "the seal asks again");
+        on_prompt_result(0, 0, REQ_PROMPT_SEAL, pass.len() as i32);
+        assert_eq!(unsafe { host::FETCHES }, 2, "a second sign-in call");
+        assert_eq!(unsafe { ADJUST }, moved, "the panel was not reset");
+        // Signed in: the seal does nothing.
+        apply_snapshot(b"AB1\nV 3\nM wall\nK tok123\n");
+        unsafe { PROMPT_OPEN = 0; }
+        on_press(0, handle("McSeal"), 0, 0);
+        assert_eq!(unsafe { PROMPT_OPEN }, 0);
+        close_panel();
     }
 
     #[test]
