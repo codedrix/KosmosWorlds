@@ -257,7 +257,10 @@ for DB-045. This revision fixes what today's API can fix.
     - A watcher is drawn no action buttons (Approve, Deny, Ask why, Stop, Fold, the quick replies,
       Reply).
     - Cube slots stay with their job while it lives (keyed by job id).
-    - The fold goes back to the cube of the job on show, or the ledge centre if that cube is gone.
+    - The fold goes back to the cube of the job on show, or the ledge centre if that cube is gone. After a
+      rail press (switching jobs from the left panel), the fold goes to the ledge centre: the face doesn't say
+      which cube holds the new job. The unfold origin is the pressed cube, kept from the press until the arc
+      opens by whichever reply arrives first; a refused press clears it.
     - The page number doesn't jump when the ask plate appears.
     - A refused mint says what to do ("wait a few seconds and press the seal again").
     - The README and API.md are corrected (stale v1 lines; the validate line needs publisher ≥ 0.8.1).
