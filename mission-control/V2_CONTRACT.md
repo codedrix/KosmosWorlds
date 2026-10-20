@@ -217,7 +217,7 @@ for DB-045. This revision fixes what today's API can fix.
    - **The right panel is the browser spot only:** frame, McPageDock and TxPageSpot.
 3. **One slim chrome bar (the "ornament") under the centre panel:**
    - McMoveLeft/Up/Down/Right, McMoveCloser, McMoveFarther;
-   - BtnWatch with TxWatch beside it, BtnSignOut, McClose.
+   - BtnWatch with TxWatch beside it, and BtnSignOut. **No Close: McClose is on the ledge (§8.7).** While folded, the bar is hidden and Close on the ledge signs out.
    About 0.10 m tall, its top just under the centre panel's bottom edge, facing the eye. Nothing else
    lives there.
 4. **The ledge moves closer and lower** so it never covers the bar from the throne: about 0.90 m out,
