@@ -72,7 +72,9 @@ import json
 import math
 import os
 import sys
+import tempfile
 
+import bmesh
 import bpy
 from mathutils import Matrix, Vector
 
@@ -83,6 +85,8 @@ REVIEW = os.path.join(PKG, "review")
 SNAPS = os.environ.get("MC_SNAPSHOTS", REVIEW)
 NODES = json.load(open(os.path.join(PKG, "nodes.json"), encoding="utf-8"))
 FONT_DIR = "E:/Epic Games/UE_5.7/Engine/Content/Slate/Fonts"
+# The generated bundle textures are written here, then packed into the GLB (never committed).
+TEX_DIR = os.path.join(tempfile.gettempdir(), "mission-control-textures")
 ARGS = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 ONLY = None
 if "--only" in ARGS:
@@ -145,6 +149,11 @@ PUCK_PLATE = (0.86, 0.12)     # width, height (holds one 8 cm line of W.puck 0.8
 PUCK_TAB = (0.22, 0.10)
 PUCK_TAB_OFFSET = 0.21
 PLATE_BACK = 0.09           # the label plate's offset behind the puck's centre (disc radius 0.075)
+# The floor decal on the hall floor in front of the dais steps (Lobby floor 0.03 m, so viewer
+# z = 0.035 - 1.46): centre 4.6 m out, 3.6 m across, 1.8 m deep, ring radius 0.78 m. From the
+# eye, the floor between the cubes' tops and the bar's bottom is 3.7-5.5 m out.
+FLOOR_X, FLOOR_Z = 4.6, 0.035 - 1.46
+FLOOR_W, FLOOR_D, FLOOR_R = 3.6, 1.8, 0.78
 
 built = {}
 
@@ -341,42 +350,370 @@ def anchor(name, fr, local):
 
 
 def button(name, fr, center, w, h, words, face_mat, label_mat=None, text_size=0.04, depth=0.03):
-    body = box("_" + name + "Body", fr, center, (depth, w, h), face_mat, bevel=min(0.008, h / 4))
-    parts = [body]
+    """An outlined glass button (contract 9.2): a thin dark fill (opaque, so no pixel behind a
+    button stacks a third translucent layer), a hairline outline in its colour, the words merged
+    in. One mesh, as every button. Its front face sits where today's button's front sat."""
+    fill, line = FILL_LINE.get(face_mat.name, ("btnFill", "cyanLine"))
+    cx, cy, cz = center
+    front = cx - depth / 2
+    t = 0.0035 if min(w, h) > 0.06 else 0.0028
+    parts = [
+        box("_" + name + "Body", fr, (front + 0.004, cy, cz), (0.008, w, h), MATS[fill]),
+        quads("_" + name + "Line", fr, outline_rects(cy, cz, w, h, t), MATS[line], x=front - 0.0012),
+    ]
     if words:
-        parts.append(mesh_text("_" + name + "Label", fr, (center[0] - depth / 2 - 0.003, center[1], center[2]), words, text_size, label_mat or MATS["label"]))
+        parts.append(mesh_text("_" + name + "Label", fr, (front - 0.0025, cy, cz), words, text_size, label_mat or MATS["label"]))
     return node(name, join(name, parts, to_world(fr, center)), "button")
 
 
 # ---------------------------------------------------------------------------
-# Materials
+# Flat geometry helpers (bmesh: many quads in one object, fast and light)
 # ---------------------------------------------------------------------------
+
+def _mesh_obj(name, bm, material, matrix):
+    me = bpy.data.meshes.new(name + "Mesh")
+    bm.to_mesh(me)
+    bm.free()
+    if not me.uv_layers:
+        # Every part carries a "UVMap", so join() keeps the textured parts UVs (it merges by name).
+        me.uv_layers.new(name="UVMap")
+    o = bpy.data.objects.new(name, me)
+    bpy.context.collection.objects.link(o)
+    o.matrix_world = matrix
+    me.materials.append(material)
+    bake(o)
+    return o
+
+
+def _face_toward_viewer(f):
+    """Single-sided faces face the viewer (local -X) or, for horizontal ones, up (+Z)."""
+    f.normal_update()
+    n = f.normal
+    if abs(n.z) > 0.9:
+        if n.z < 0:
+            f.normal_flip()
+    elif n.x > 0:
+        f.normal_flip()
+
+
+def quads(name, fr, rects, material, x=0.0):
+    """Flat rectangles (y0, z0, y1, z1) in a frame's local YZ plane at depth x, facing the viewer."""
+    bm = bmesh.new()
+    for (y0, z0, y1, z1) in rects:
+        ya, yb, za, zb = min(y0, y1), max(y0, y1), min(z0, z1), max(z0, z1)
+        f = bm.faces.new([bm.verts.new((x, ya, za)), bm.verts.new((x, ya, zb)), bm.verts.new((x, yb, zb)), bm.verts.new((x, yb, za))])
+        _face_toward_viewer(f)
+    return _mesh_obj(name, bm, material, frame_matrix(fr))
+
+
+def outline_rects(cy, cz, w, h, t):
+    return [
+        (cy - w / 2, cz + h / 2 - t, cy + w / 2, cz + h / 2),
+        (cy - w / 2, cz - h / 2, cy + w / 2, cz - h / 2 + t),
+        (cy + w / 2 - t, cz - h / 2, cy + w / 2, cz + h / 2),
+        (cy - w / 2, cz - h / 2, cy - w / 2 + t, cz + h / 2),
+    ]
+
+
+def bracket_rects(cy, cz, w, h, leg=0.05, t=0.004):
+    """Four small L-shaped corner brackets just outside a w x h rectangle."""
+    out = []
+    for sy in (-1, 1):
+        for sz in (-1, 1):
+            y, z = cy + sy * w / 2, cz + sz * h / 2
+            out.append((y, z, y - sy * leg, z - sz * t))
+            out.append((y, z, y - sy * t, z - sz * leg))
+    return out
+
+
+def arcs(name, fr, center, r0, r1, spans, material):
+    """Flat annulus sectors (degrees) in a frame's local YZ plane at center=(x, y, z), facing the viewer."""
+    x, cy, cz = center
+    bm = bmesh.new()
+    for (a0, a1) in spans:
+        n = max(2, int(abs(a1 - a0) / 360.0 * 120))
+        prev = None
+        for k in range(n + 1):
+            a = math.radians(a0 + (a1 - a0) * k / n)
+            vi = bm.verts.new((x, cy + r0 * math.cos(a), cz + r0 * math.sin(a)))
+            vo = bm.verts.new((x, cy + r1 * math.cos(a), cz + r1 * math.sin(a)))
+            if prev:
+                _face_toward_viewer(bm.faces.new([prev[0], prev[1], vo, vi]))
+            prev = (vi, vo)
+    return _mesh_obj(name, bm, material, frame_matrix(fr))
+
+
+def radial_ticks(name, fr, center, r0, r1, count, width, material, long_every=0, r_long=(0, 0)):
+    x, cy, cz = center
+    bm = bmesh.new()
+    for k in range(count):
+        a = 2 * math.pi * k / count
+        ra, rb = (r_long if long_every and k % long_every == 0 else (r0, r1))
+        c, s = math.cos(a), math.sin(a)
+        ty, tz = -s * width / 2, c * width / 2
+        pts = [(x, cy + ra * c - ty, cz + ra * s - tz), (x, cy + rb * c - ty, cz + rb * s - tz),
+               (x, cy + rb * c + ty, cz + rb * s + tz), (x, cy + ra * c + ty, cz + ra * s + tz)]
+        _face_toward_viewer(bm.faces.new([bm.verts.new(p) for p in pts]))
+    return _mesh_obj(name, bm, material, frame_matrix(fr))
+
+
+def hring(name, fr, center, r0, r1, material, segs=64):
+    """A flat horizontal ring (facing up) at center=(x, y, z) in a frame."""
+    x, y, z = center
+    bm = bmesh.new()
+    prev = None
+    for k in range(segs + 1):
+        a = 2 * math.pi * k / segs
+        vi = bm.verts.new((x + r0 * math.cos(a), y + r0 * math.sin(a), z))
+        vo = bm.verts.new((x + r1 * math.cos(a), y + r1 * math.sin(a), z))
+        if prev:
+            _face_toward_viewer(bm.faces.new([prev[0], prev[1], vo, vi]))
+        prev = (vi, vo)
+    return _mesh_obj(name, bm, material, frame_matrix(fr))
+
+
+def cuboids(name, fr, boxes, material):
+    """Many thin boxes ((cx, cy, cz), (dx, dy, dz)) in one object (a cube's edge lines)."""
+    bm = bmesh.new()
+    for c, d in boxes:
+        bmesh.ops.create_cube(bm, size=1.0, matrix=Matrix.Translation(c) @ Matrix.Diagonal((*d, 1.0)))
+    return _mesh_obj(name, bm, material, frame_matrix(fr))
+
+
+def cube_edges(size, t):
+    h = size / 2
+    out = []
+    for a in (-h, h):
+        for b in (-h, h):
+            out.append(((0, a, b), (size + t, t, t)))
+            out.append(((a, 0, b), (t, size + t, t)))
+            out.append(((a, b, 0), (t, t, size + t)))
+    return out
+
+
+def textured_quad(name, fr, center, w, h, material, horizontal=False):
+    """A textured quad with UVs: vertical (local YZ, facing the viewer) or horizontal (facing up)."""
+    x, y, z = center
+    bm = bmesh.new()
+    uv = bm.loops.layers.uv.new("UVMap")
+    if horizontal:
+        # u along local y, v along local x (w = extent in y, h = extent in x)
+        pts = [(x - h / 2, y - w / 2, z), (x - h / 2, y + w / 2, z), (x + h / 2, y + w / 2, z), (x + h / 2, y - w / 2, z)]
+        uvs = [(0, 0), (1, 0), (1, 1), (0, 1)]
+    else:
+        pts = [(x, y + w / 2, z - h / 2), (x, y - w / 2, z - h / 2), (x, y - w / 2, z + h / 2), (x, y + w / 2, z + h / 2)]
+        uvs = [(0, 0), (1, 0), (1, 1), (0, 1)]
+    f = bm.faces.new([bm.verts.new(p) for p in pts])
+    for loop, t in zip(f.loops, uvs):
+        loop[uv].uv = t
+    f.normal_update()
+    want_up = horizontal
+    if (want_up and f.normal.z < 0) or (not want_up and f.normal.x > 0):
+        f.normal_flip()
+    return _mesh_obj(name, bm, material, frame_matrix(fr))
+
+
+def glass_panel(prefix, fr, cy, cz, w, h, glass="glassSmoke", bar="cyanLine", side="tealLine", x=0.008, brackets=True):
+    """A smoked-glass pane (one flat quad: exactly one translucent layer) with a 3 mm light bar
+    on its top and bottom edges, hairline sides and small corner brackets (contract 9.1)."""
+    parts = [quads(prefix + "Glass", fr, [(cy - w / 2, cz - h / 2, cy + w / 2, cz + h / 2)], MATS[glass], x=x)]
+    lines = [(cy - w / 2, cz + h / 2 - 0.003, cy + w / 2, cz + h / 2), (cy - w / 2, cz - h / 2, cy + w / 2, cz - h / 2 + 0.003)]
+    parts.append(quads(prefix + "Bars", fr, lines, MATS[bar], x=x - 0.002))
+    parts.append(quads(prefix + "Sides", fr, [(cy - w / 2, cz - h / 2, cy - w / 2 + 0.0015, cz + h / 2),
+                                              (cy + w / 2 - 0.0015, cz - h / 2, cy + w / 2, cz + h / 2)], MATS[side], x=x - 0.002))
+    if brackets:
+        parts.append(quads(prefix + "Brackets", fr, bracket_rects(cy, cz, w + 0.03, h + 0.03), MATS[bar], x=x - 0.002))
+    return parts
+
+
+def hairline(name, fr, y0, y1, z, material="hairline", x=-0.004, t=0.0015):
+    return quads(name, fr, [(y0, z - t / 2, y1, z + t / 2)], MATS[material], x=x)
+
+
+def tick_scale(name, fr, y, z0, z1, step=0.05, short=0.010, long=0.022, long_every=5, side=1, x=-0.004):
+    """A vertical tick scale in a panel margin (abstract instrument detail, no numbers)."""
+    rects, k, z = [], 0, z0
+    while z <= z1 + 1e-6:
+        ln = long if k % long_every == 0 else short
+        rects.append((y, z - 0.0008, y - side * ln, z + 0.0008))
+        z += step
+        k += 1
+    return quads(name, fr, rects, MATS["hairline"], x=x)
+
+
+# ---------------------------------------------------------------------------
+# Materials and bundle textures
+# ---------------------------------------------------------------------------
+
+def _lin(hex_rgb):
+    """sRGB hex -> linear RGB (Blender colours are linear)."""
+    out = []
+    for i in (0, 2, 4):
+        c = int(hex_rgb[i:i + 2], 16) / 255.0
+        out.append(c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4)
+    return tuple(out)
+
+
+CYAN = _lin("5fe6ff")
+TEAL = _lin("1f8fa3")
+AMBER = _lin("f3a83a")
+FILL_LINE = {"button": ("btnFill", "cyanLine"), "redFace": ("redFill", "redLine"),
+             "greenFace": ("greenFill", "greenLine"), "amberFace": ("amberFillB", "amberLine")}
+TEXTURES = {}
+
+
+def _write_png(path, w, h, rgba):
+    """A bare 8-bit RGBA PNG: IHDR, IDAT and IEND only. Blender's own writer adds an eXIf chunk
+    (and oFFs/pHYs), which the publisher strips with a SEC_004 warning; writing the file here
+    keeps the bundle's images free of hidden data. `rgba` rows run bottom to top (Blender's
+    pixel order) and hold display (sRGB) values 0..1, as a byte image stores them."""
+    import struct
+    import zlib
+    import numpy as np
+    px = np.clip(np.round(np.asarray(rgba).reshape(h, w, 4)[::-1] * 255.0), 0, 255).astype(np.uint8)
+    raw = b"".join(b"\x00" + px[y].tobytes() for y in range(h))
+
+    def chunk(tag, data):
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+
+    with open(path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n")
+        f.write(chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0)))
+        f.write(chunk(b"IDAT", zlib.compress(raw, 9)))
+        f.write(chunk(b"IEND", b""))
+
+
+def _image(name, w, h, rgba):
+    path = os.path.join(TEX_DIR, name + ".png")
+    _write_png(path, w, h, rgba)
+    img = bpy.data.images.load(path, check_existing=False)
+    img.name = name
+    img.pack()  # the exporter embeds the packed bytes as they are (no re-encode, no metadata)
+    TEXTURES[name] = (w, h)
+    return img
+
+
+def make_textures():
+    """The bundle textures (contract 9.6-9.7): two halo gradients and the floor decal. Small:
+    128 x 128 and 2048 x 512 PNG, colour baked in, alpha carrying the falloff."""
+    import numpy as np
+    os.makedirs(TEX_DIR, exist_ok=True)
+
+    def halo(name, rgb, peak, width, amax):
+        n = 128
+        u = (np.arange(n) + 0.5) / n * 2 - 1
+        r = np.sqrt(u[None, :] ** 2 + u[:, None] ** 2)
+        a = amax * np.exp(-((r - peak) / width) ** 2) * np.clip((1 - r) / 0.15, 0, 1)
+        img = np.zeros((n, n, 4))
+        img[..., 0], img[..., 1], img[..., 2], img[..., 3] = rgb[0], rgb[1], rgb[2], a
+        return _image(name, n, n, img)
+
+    halo("haloSeal", CYAN, 0.52, 0.12, 0.16)   # peaks under the seal's ring, fades both ways
+    halo("haloNeed", AMBER, 0.0, 0.50, 0.50)   # a soft blob behind a cube that needs you
+
+    # The floor decal (FLOOR_*): u = viewer y (FLOOR_W m across, 2048 px), v = viewer x
+    # (FLOOR_D m deep, 1024 px), centred on the ring.
+    W, H = 2048, 1024
+    y = (np.arange(W) + 0.5) / W * FLOOR_W - FLOOR_W / 2
+    xv = (np.arange(H) + 0.5) / H * FLOOR_D - FLOOR_D / 2
+    Y, X = np.meshgrid(y, xv)
+    dx, dy = X, Y
+    r = np.sqrt(dx ** 2 + dy ** 2)
+    ang = np.degrees(np.arctan2(dy, dx)) % 360
+    px = FLOOR_W / W
+
+    def line(dist, half):
+        return np.clip(1 - np.abs(dist) / half, 0, 1)
+
+    a = np.zeros_like(r)
+    # the grid: 20 cm cells, hairlines, fading out from the centre
+    gx = np.abs(((X + 0.1) % 0.2) - 0.1)
+    gy = np.abs(((Y + 0.1) % 0.2) - 0.1)
+    grid = np.maximum(line(gx, 1.5 * px), line(gy, 1.5 * px)) * 0.35 * np.exp(-(r / 1.1) ** 2)
+    a = np.maximum(a, grid)
+    # rings: a thin inner, a segmented middle, a tick ring, a thin outer
+    R = FLOOR_R
+    a = np.maximum(a, line(r - 0.55 * R, 2.0 * px) * 0.55)
+    seg = ((ang % 60) < 46).astype(float)
+    a = np.maximum(a, line(r - 0.80 * R, 4.5 * px) * 0.95 * seg)
+    ticks = (((ang + 1.0) % 5) < 2.0).astype(float) * ((r > 0.88 * R) & (r < 0.94 * R))
+    a = np.maximum(a, ticks * 0.75)
+    a = np.maximum(a, line(r - R, 2.0 * px) * 0.65)
+    # soft edges, so the decal never shows a hard border
+    edge = np.clip((FLOOR_D / 2 - np.abs(dx)) / 0.12, 0, 1) * np.clip((FLOOR_W / 2 - np.abs(dy)) / 0.3, 0, 1)
+    a *= edge
+    img = np.zeros((H, W, 4))
+    img[..., 0], img[..., 1], img[..., 2], img[..., 3] = CYAN[0], CYAN[1], CYAN[2], np.clip(a, 0, 1)
+    _image("floorRing", W, H, img)
+
+
+def tex_mat(name, image_name):
+    """Emissive (strength 1, LDR) from a texture whose alpha carries the falloff."""
+    m = bpy.data.materials.new(name)
+    m.use_nodes = True
+    nt = m.node_tree
+    b = nt.nodes["Principled BSDF"]
+    t = nt.nodes.new("ShaderNodeTexImage")
+    t.image = bpy.data.images[image_name]
+    nt.links.new(t.outputs["Color"], b.inputs["Base Color"])
+    nt.links.new(t.outputs["Color"], b.inputs["Emission Color"])
+    nt.links.new(t.outputs["Alpha"], b.inputs["Alpha"])
+    b.inputs["Emission Strength"].default_value = 1.0
+    b.inputs["Roughness"].default_value = 1.0
+    _blend(m)
+    MATS[name] = m
+    return m
+
+
+def _blend(m):
+    for attr, val in (("surface_render_method", "BLENDED"), ("blend_method", "BLEND")):
+        try:
+            setattr(m, attr, val)
+        except (AttributeError, TypeError):
+            pass
+    m.use_backface_culling = True
+
 
 def materials():
     mat("stud", (0.02, 0.03, 0.05))
-    # Matte on purpose: a glossy panel mirrors the white world text in front of it.
+    # The fixtures (the seal on the seat and the Watch post) keep their look.
     mat("frame", (0.025, 0.032, 0.050), rough=0.8, metal=0.1)
-    mat("inset", (0.014, 0.020, 0.036), rough=0.9)
     mat("button", (0.040, 0.058, 0.095), rough=0.8)
-    mat("label", (0.85, 0.88, 0.92), emit=(0.85, 0.88, 0.92))
-    mat("title", (0.55, 0.62, 0.72), emit=(0.55, 0.62, 0.72))
-    mat("cyan", (0.05, 0.40, 0.65), emit=(0.10, 0.55, 0.85))
-    mat("cyanDim", (0.03, 0.16, 0.26), emit=(0.04, 0.20, 0.32))
-    mat("amber", (0.90, 0.48, 0.06), emit=(1.00, 0.55, 0.08))
-    mat("amberFill", (0.07, 0.035, 0.008), rough=0.85)
-    mat("redFace", (0.20, 0.04, 0.035), rough=0.8)
-    mat("greenFace", (0.03, 0.14, 0.07), rough=0.8)
-    mat("amberFace", (0.22, 0.11, 0.02), rough=0.8)
+    # Button styles are named by these (button() maps each to a fill and an outline colour).
+    mat("redFace", (0.20, 0.04, 0.035))
+    mat("greenFace", (0.03, 0.14, 0.07))
+    mat("amberFace", (0.22, 0.11, 0.02))
     mat("seal", (0.16, 0.16, 0.16), rough=0.9)  # a stone inlay, close to the seat's own grey
     mat("metal", (0.10, 0.11, 0.14), rough=0.4, metal=0.7)
-    # Glass and the glows inside it (alpha-blended; emission 1, LDR).
-    mat("glass", (0.70, 0.84, 1.00), rough=0.08, alpha=0.22)
-    mat("glowCalm", (0.04, 0.22, 0.95), emit=(0.04, 0.28, 1.00), alpha=0.9)
-    mat("glowNeed", (1.00, 0.52, 0.05), emit=(1.00, 0.55, 0.08), alpha=0.9)
-    mat("glowIdle", (0.18, 0.21, 0.27), emit=(0.10, 0.12, 0.16), alpha=0.7)
-    mat("ringArmed", (0.04, 0.22, 0.95), emit=(0.04, 0.28, 1.00))
-    mat("ringLocked", (1.00, 0.52, 0.05), emit=(1.00, 0.55, 0.08))
-    mat("backing", (0.008, 0.012, 0.024), rough=0.9)
+    mat("label", (0.90, 0.92, 0.95), emit=(0.90, 0.92, 0.95))
+    mat("title", CYAN, emit=tuple(c * 0.75 for c in CYAN))
+    # Light: cyan structure, deeper teal for secondary lines, amber for "needs you" only.
+    mat("cyanLine", CYAN, emit=CYAN)
+    mat("tealLine", TEAL, emit=TEAL)
+    mat("hairline", tuple(c * 0.22 for c in TEAL), emit=tuple(c * 0.22 for c in TEAL))
+    mat("edgeLine", tuple(c * 0.7 for c in CYAN), emit=tuple(c * 0.7 for c in CYAN))
+    mat("amberLine", AMBER, emit=AMBER)
+    mat("greenLine", (0.10, 0.80, 0.32), emit=(0.10, 0.80, 0.32))
+    mat("redLine", (0.90, 0.16, 0.10), emit=(0.90, 0.16, 0.10))
+    # Button fills: dark and opaque (an outlined glass look without a third translucent layer).
+    mat("btnFill", (0.006, 0.016, 0.030), rough=0.5)
+    mat("redFill", (0.050, 0.008, 0.006), rough=0.5)
+    mat("greenFill", (0.006, 0.040, 0.016), rough=0.5)
+    mat("amberFillB", (0.050, 0.022, 0.004), rough=0.5)
+    # Glass: near-black navy smoke, one flat layer, alpha-blended, single-sided.
+    for n, rgb, a in (("glassSmoke", (0.004, 0.008, 0.018), 0.82), ("glassAmber", (0.030, 0.014, 0.003), 0.74),
+                      ("glassSeal", (0.003, 0.006, 0.014), 0.80), ("cubeGlass", (0.55, 0.78, 1.0), 0.14),
+                      ("puckGlass", (0.40, 0.65, 0.90), 0.22)):
+        _blend(mat(n, rgb, rough=0.25, alpha=a))
+    # Cores and rings (opaque emissive).
+    mat("coreCalm", (0.04, 0.35, 1.0), emit=(0.04, 0.35, 1.0))
+    mat("coreNeed", AMBER, emit=AMBER)
+    mat("coreIdle", (0.06, 0.08, 0.10), emit=(0.06, 0.08, 0.10))
+    mat("shelf", (0.010, 0.014, 0.024), rough=0.6)
+    make_textures()
+    tex_mat("haloSealMat", "haloSeal")
+    tex_mat("haloNeedMat", "haloNeed")
+    tex_mat("floorRingMat", "floorRing")
 
 
 # ---------------------------------------------------------------------------
@@ -410,16 +747,22 @@ def build_fixtures():
 def build_center():
     c = CENTER
     bar_z = BAR_TOP - BAR_H / 2
-    parts = [
-        box("_CBack", c, (0.03, 0, 1.49), (0.04, 1.32, 1.40), MATS["frame"], bevel=0.015),
-        box("_CStatus", c, (-0.002, 0, 2.14), (0.01, 1.28, 0.09), MATS["inset"]),
-        box("_CRowRule", c, (-0.008, 0, 1.998), (0.004, 1.26, 0.004), MATS["cyanDim"]),
-        box("_CHeadRule", c, (-0.008, 0, 1.818), (0.004, 1.26, 0.005), MATS["cyan"]),
-        box("_CConv", c, (-0.002, 0, 1.3625), (0.01, 1.28, 0.875), MATS["inset"]),
-        # The chrome bar (contract 8.3): slim, its top just under the panel's bottom edge.
-        box("_CBar", c, (0.02, 0, bar_z), (0.03, BAR_W, BAR_H), MATS["frame"], bevel=0.012),
-        box("_CBarLine", c, (0.0, 0, BAR_TOP - 0.004), (0.004, BAR_W - 0.04, 0.004), MATS["cyanDim"]),
-    ]
+    parts = glass_panel("_C", c, 0, 1.49, 1.32, 1.40)
+    parts += [
+        hairline("_CStatusRule", c, -0.64, 0.64, 2.092, "tealLine"),
+        hairline("_CRowRule", c, -0.64, 0.64, 1.998),
+        hairline("_CHeadRule", c, -0.64, 0.64, 1.818, "cyanLine", t=0.002),
+        # abstract instrument detail in the margins: tick scales beside the conversation
+        tick_scale("_CTicksL", c, 0.655, 0.86, 1.78, side=1),
+        tick_scale("_CTicksR", c, -0.655, 0.86, 1.78, side=-1),
+        # the chrome bar: one slim smoked-glass strip under the panel
+    ] + glass_panel("_CBar", c, 0, bar_z, BAR_W, BAR_H, x=0.012, brackets=False)
+    # The projected floor ring and grid (contract 9.6): a decal on the hall floor just past the
+    # dais steps, part of this arc node, so it shows only while the arc is open. From the throne
+    # it shows UNDER the arc, between the chrome bar and the ledge: the line of sight to it passes
+    # below the bar and the ask plate, so no glass panel overlaps it (never a third layer). (On
+    # the dais itself the ledge would hide it.)
+    parts.append(textured_quad("_CFloor", VIEWER, (FLOOR_X, 0.0, FLOOR_Z), FLOOR_W, FLOOR_D, MATS["floorRingMat"], horizontal=True))
     node("McCenterFrame", join("McCenterFrame", parts, to_world(c, (0, 0, 1.49))), "show")
     anchor("TxStatus", c, (-0.03, 0, 2.105))
 
@@ -450,13 +793,9 @@ def build_center():
                               ("BtnSummary", "Stop + summarize", -0.185, 0.34), ("BtnReply", "Reply...", -0.475, 0.22)):
         button(name, c, (-0.02, y, bottom), w, 0.072, words, MATS["amberFace"] if name == "BtnReply" else MATS["button"], text_size=0.036)
 
-    # The ask plate (decision rung): 8 cm in front of the panel, over the lower lines.
-    ask = [
-        # Its bottom stays above the chrome bar as the eye sees it (the plate is 8 cm nearer).
-        box("_AskFill", c, (-0.08, 0, 1.0875), (0.02, 1.24, 0.545), MATS["amberFill"], bevel=0.008),
-        box("_AskTop", c, (-0.0915, 0, 1.352), (0.004, 1.22, 0.012), MATS["amber"]),
-        box("_AskBot", c, (-0.0915, 0, 0.823), (0.004, 1.22, 0.012), MATS["amber"]),
-    ]
+    # The ask plate (decision rung): 8 cm in front of the panel, over the lower lines. Amber
+    # glass, because it is the "needs you" surface; its bottom stays above the chrome bar.
+    ask = glass_panel("_Ask", c, 0, 1.0875, 1.24, 0.545, glass="glassAmber", bar="amberLine", side="amberLine", x=-0.08)
     node("AskPanel", join("AskPanel", ask, to_world(c, (-0.08, 0, 1.0875))), "show")
     anchor("TxAskA", c, (-0.10, 0, 1.16))
     anchor("TxAskB", c, (-0.10, 0, 0.965))
@@ -480,11 +819,10 @@ def build_left():
     f = LEFT
     z0, z1 = SIDE_Z
     zc = (z0 + z1) / 2
-    parts = [
-        box("_LBack", f, (0.03, 0, zc), (0.04, SIDE_W, z1 - z0), MATS["frame"], bevel=0.015),
-        box("_LTicker", f, (-0.002, 0, 2.068), (0.01, SIDE_W - 0.04, 0.175), MATS["inset"]),
-        box("_LRule", f, (-0.008, 0, 1.976), (0.004, SIDE_W - 0.06, 0.004), MATS["cyan"]),
-        box("_LDoneRule", f, (-0.008, 0, 1.098), (0.004, SIDE_W - 0.06, 0.004), MATS["cyanDim"]),
+    parts = glass_panel("_L", f, 0, zc, SIDE_W, z1 - z0)
+    parts += [
+        hairline("_LRule", f, -SIDE_W / 2 + 0.03, SIDE_W / 2 - 0.03, 1.976, "cyanLine", t=0.002),
+        hairline("_LDoneRule", f, -SIDE_W / 2 + 0.03, SIDE_W / 2 - 0.03, 1.098),
     ]
     node("McLeftFrame", join("McLeftFrame", parts, to_world(f, (0, 0, zc))), "show")
     # Two lines (the bridge's ticker wraps at W.ticker).
@@ -492,7 +830,7 @@ def build_left():
     rail_w = SIDE_W - 0.08
     for slot, z in zip("ABCD", (1.86, 1.645, 1.43, 1.215)):
         button("Rail" + slot, f, (-0.02, -0.015, z), rail_w, 0.20, "", MATS["button"])
-        sel = box("_RailSel" + slot, f, (-0.04, SIDE_W / 2 - 0.035, z), (0.01, 0.02, 0.18), MATS["cyan"])
+        sel = box("_RailSel" + slot, f, (-0.04, SIDE_W / 2 - 0.035, z), (0.004, 0.012, 0.18), MATS["cyanLine"])
         node("RailSel" + slot, sel, "show")
         set_origin(sel, to_world(f, (-0.04, SIDE_W / 2 - 0.035, z)))
         anchor("TxRail" + slot, f, (-0.05, -0.015, z - 0.085))
@@ -506,14 +844,22 @@ def build_right():
     zc = (z0 + z1) / 2
     sw, sz0, sz1 = SIDE_W - 0.10, 1.02, 2.06
     sc, sh = (sz0 + sz1) / 2, sz1 - sz0
-    parts = [
-        box("_RBack", f, (0.03, 0, zc), (0.04, SIDE_W, z1 - z0), MATS["frame"], bevel=0.015),
-        mesh_text("_RHead", f, (-0.012, 0, 2.11), "BROWSER SPOT", 0.04, MATS["title"], weight="Bold"),
-        box("_RSpot", f, (-0.002, 0, sc), (0.01, sw, sh), MATS["inset"]),
-        box("_RSpotT", f, (-0.009, 0, sz1), (0.004, sw, 0.008), MATS["cyanDim"]),
-        box("_RSpotB", f, (-0.009, 0, sz0), (0.004, sw, 0.008), MATS["cyanDim"]),
-        box("_RSpotL", f, (-0.009, sw / 2, sc), (0.004, 0.008, sh + 0.008), MATS["cyanDim"]),
-        box("_RSpotR", f, (-0.009, -sw / 2, sc), (0.004, 0.008, sh + 0.008), MATS["cyanDim"]),
+    parts = glass_panel("_R", f, 0, zc, SIDE_W, z1 - z0)
+    # The spot: a hairline frame with brackets and a fine grid inside (reference 2's windows).
+    grid = []
+    gy = -sw / 2 + 0.075
+    while gy < sw / 2 - 0.01:
+        grid.append((gy - 0.0007, sz0, gy + 0.0007, sz1))
+        gy += 0.075
+    gz = sz0 + 0.08
+    while gz < sz1 - 0.01:
+        grid.append((-sw / 2, gz - 0.0007, sw / 2, gz + 0.0007))
+        gz += 0.08
+    parts += [
+        mesh_text("_RHead", f, (-0.012, 0, 2.11), "BROWSER SPOT", 0.036, MATS["title"], weight="Bold"),
+        quads("_RSpotLines", f, outline_rects(0, sc, sw, sh, 0.0018), MATS["tealLine"], x=-0.004),
+        quads("_RSpotBrackets", f, bracket_rects(0, sc, sw, sh, leg=0.04, t=0.0035), MATS["cyanLine"], x=-0.005),
+        quads("_RSpotGrid", f, grid, MATS["hairline"], x=-0.003),
     ]
     node("McRightFrame", join("McRightFrame", parts, to_world(f, (0, 0, zc))), "show")
     # The reserved spot for the pinned web page (DB-043), in the spot. A plain plaque until the
@@ -528,16 +874,27 @@ def build_right():
 # ---------------------------------------------------------------------------
 
 def build_seal():
+    """Segmented HUD rings (contract 9.5): thin emissive arcs and ticks, never a solid torus,
+    over a smoked-glass disc that keeps the code readable, with one soft halo behind."""
     s = SEAL
+    e = EYE
     ring = [
-        torus("_SealTorus", s, (0, 0, EYE), 0.25, 0.016, MATS["metal"], axis="X"),
-        cylinder("_SealBacking", s, (0.012, 0, EYE), 0.236, 0.006, MATS["backing"], axis="X", vertices=48),
+        arcs("_SealDisc", s, (0.012, 0, e), 0.001, 0.236, [(0, 360)], MATS["glassSeal"]),
+        arcs("_SealOuter", s, (-0.004, 0, e), 0.243, 0.250, [(9, 81), (99, 171), (189, 261), (279, 351)], MATS["tealLine"]),
+        radial_ticks("_SealTicks", s, (-0.004, 0, e), 0.260, 0.270, 72, 0.0022, MATS["hairline"], long_every=6, r_long=(0.257, 0.278)),
+        arcs("_SealRim", s, (-0.004, 0, e), 0.2855, 0.2875, [(0, 360)], MATS["hairline"]),
+        arcs("_SealInner", s, (-0.004, 0, e), 0.180, 0.1825, [(20, 160), (200, 340)], MATS["hairline"]),
+        textured_quad("_SealHalo", s, (0.035, 0, e), 1.0, 1.0, MATS["haloSealMat"]),
     ]
-    node("SealRing", join("SealRing", ring, to_world(s, (0, 0, EYE))), "show")
-    for name, m in (("SealRingArmed", "ringArmed"), ("SealRingLocked", "ringLocked")):
-        o = torus("_" + name, s, (-0.006, 0, EYE), 0.218, 0.007, MATS[m], axis="X")
-        node(name, o, "show")
-        set_origin(o, to_world(s, (0, 0, EYE)))
+    node("SealRing", join("SealRing", ring, to_world(s, (0, 0, e))), "show")
+    armed = arcs("_SealRingArmed", s, (-0.006, 0, e), 0.212, 0.221, [(0, 100), (120, 220), (240, 340)], MATS["cyanLine"])
+    node("SealRingArmed", armed, "show")
+    set_origin(armed, to_world(s, (0, 0, e)))
+    locked = join("SealRingLocked", [
+        arcs("_SealRingLockedA", s, (-0.006, 0, e), 0.212, 0.221, [(0, 360)], MATS["amberLine"]),
+        arcs("_SealRingLockedB", s, (-0.006, 0, e), 0.198, 0.2005, [(0, 360)], MATS["amberLine"]),
+    ], to_world(s, (0, 0, e)))
+    node("SealRingLocked", locked, "show")
     anchor("TxSeal", s, (-0.03, 0, EYE - 0.03))
     # The hint may run to two lines (the bridge's is): they grow upward and stop below the ring.
     anchor("TxSealHint", s, (-0.02, 0, 1.155))
@@ -549,26 +906,32 @@ def build_ledge():
     v = VIEWER
     zc = LEDGE_TOP - 0.015
     parts = [
-        box("_Shelf", v, (LEDGE_X, 0, zc), (0.20, LEDGE_W, 0.03), MATS["frame"], bevel=0.008),
-        box("_ShelfEdge", v, (LEDGE_X - 0.101, 0, zc), (0.004, LEDGE_W - 0.04, 0.006), MATS["cyan"]),
+        box("_Shelf", v, (LEDGE_X, 0, zc), (0.20, LEDGE_W, 0.03), MATS["shelf"]),
+        box("_ShelfEdge", v, (LEDGE_X - 0.1015, 0, LEDGE_TOP - 0.004), (0.003, LEDGE_W, 0.003), MATS["cyanLine"]),
+        box("_ShelfEdgeLow", v, (LEDGE_X - 0.1015, 0, LEDGE_TOP - 0.028), (0.003, LEDGE_W, 0.0015), MATS["hairline"]),
     ]
     node("McLedge", join("McLedge", parts, (LEDGE_X, 0, zc)), "show")
     cz = LEDGE_TOP + CUBE / 2 + 0.002
     for slot, y in SLOT_Y.items():
         fr = Matrix.Translation((LEDGE_X, y, cz)) @ Matrix.Rotation(math.atan2(y, LEDGE_X), 4, "Z")
-        body = [box("_Cube" + slot + "Glass", fr, (0, 0, 0), (CUBE, CUBE, CUBE), MATS["glass"], bevel=0.01)]
+        # Clear glass (single-sided: the headset draws one face per pixel) with thin edge lines.
+        body = [box("_Cube" + slot + "Glass", fr, (0, 0, 0), (CUBE, CUBE, CUBE), MATS["cubeGlass"]),
+                cuboids("_Cube" + slot + "Edges", fr, cube_edges(CUBE, 0.0025), MATS["edgeLine"])]
         if slot == "Plus":
-            body.append(mesh_text("_CubePlusMark", fr, (-CUBE / 2 - 0.003, 0, 0), "+", 0.11, MATS["label"], weight="Bold"))
+            body.append(quads("_CubePlusMark", fr, [(-0.03, -0.003, 0.03, 0.003), (-0.003, -0.03, 0.003, 0.03)], MATS["cyanLine"], x=-CUBE / 2 - 0.003))
         node("Cube" + slot, join("Cube" + slot, body, (LEDGE_X, y, cz)), "button")
         if slot == "Plus":
             continue
-        for state, m in (("Calm", "glowCalm"), ("Need", "glowNeed"), ("Idle", "glowIdle")):
-            g = box("_Cube" + slot + state, fr, (0, 0, 0), (0.07, 0.07, 0.07), MATS[m], bevel=0.008)
+        # The glowing cores (opaque emissive, so glass + halo stay two layers).
+        for state, m in (("Calm", "coreCalm"), ("Need", "coreNeed"), ("Idle", "coreIdle")):
+            core = [box("_Cube" + slot + state + "Core", fr, (0, 0, 0), (0.05, 0.05, 0.05), MATS[m])]
+            if state == "Need":
+                # The second halo (contract 9.7): behind the cube of a job that needs you.
+                core.append(textured_quad("_Cube" + slot + "Halo", fr, (CUBE / 2 + 0.03, 0, 0.02), 0.30, 0.30, MATS["haloNeedMat"]))
+            g = join("Cube" + slot + state, core, (LEDGE_X, y, cz))
             node("Cube" + slot + state, g, "show")
-            set_origin(g, (LEDGE_X, y, cz))
         anchor("TxCube" + slot, facing(LEDGE_X, y), (0, 0, CUBE_LABEL_Z))
-    # Close, on the ledge's left end (contract 8.7): shown whenever the owner is signed in,
-    # folded or unfolded. A low red block standing on the shelf, its word facing the eye.
+    # Close, on the ledge's left end (contract 8.7): an outlined red tab standing on the shelf.
     y = CLOSE_Y
     fr = Matrix.Translation((LEDGE_X, y, LEDGE_TOP + 0.045)) @ Matrix.Rotation(math.atan2(y, LEDGE_X), 4, "Z")
     button("McClose", fr, (0, 0, 0), 0.20, 0.09, "CLOSE", MATS["redFace"], text_size=0.045, depth=0.06)
@@ -580,27 +943,25 @@ def build_puck():
     fr = facing(px, py)
     pw, ph = PUCK_PLATE
     plate_z = pz + 0.075 + ph / 2
+    top = pz + 0.0105
     body = [
-        cylinder("_PuckStem", v, (px, py, (ARM_TOP + pz) / 2), 0.012, pz - ARM_TOP, MATS["metal"], vertices=16),
-        cylinder("_PuckDisc", v, (px, py, pz), 0.075, 0.026, MATS["metal"], vertices=40),
+        cylinder("_PuckStem", v, (px, py, (ARM_TOP + pz) / 2), 0.010, pz - ARM_TOP, MATS["metal"], vertices=16),
+        cylinder("_PuckDisc", v, (px, py, pz), 0.075, 0.02, MATS["puckGlass"], vertices=48),
+        hring("_PuckRim", v, (px, py, top), 0.071, 0.0755, MATS["tealLine"]),
     ]
     node("Puck", join("Puck", body, (px, py, pz)), "show")
-    top = pz + 0.013
-    calm = torus("_PuckCalm", v, (px, py, top), 0.068, 0.007, MATS["glowCalm"])
+    calm = hring("_PuckCalm", v, (px, py, top + 0.0005), 0.046, 0.056, MATS["cyanLine"])
     node("PuckCalm", calm, "show")
     set_origin(calm, (px, py, pz))
-    # The label's plate (contract 8.5) is part of the "need" look: small, dark, right above the
-    # puck, facing the eye, there only while the puck holds an approval and its line. A calm
-    # puck is just the puck.
-    need = [torus("_PuckNeedRing", v, (px, py, top), 0.068, 0.009, MATS["glowNeed"]),
-            cylinder("_PuckNeedTop", v, (px, py, top + 0.001), 0.048, 0.002, MATS["glowNeed"], vertices=32),
-            # The plate sits a little behind the puck, and its post rises from the armrest behind
-            # the disc (PLATE_BACK > the disc's radius), so nothing pokes through the amber top.
-            box("_PuckPlate", fr, (PLATE_BACK, 0, plate_z), (0.012, pw, ph), MATS["backing"], bevel=0.006),
-            box("_PuckPlatePost", fr, (PLATE_BACK + 0.012, 0, (ARM_TOP + plate_z - ph / 2) / 2), (0.01, 0.012, plate_z - ph / 2 - ARM_TOP), MATS["metal"])]
+    # The "need" look: an amber ring, and the label's smoked-glass plate with amber light bars,
+    # a little behind the puck on a post from the armrest behind the disc (nothing pokes through).
+    plate = glass_panel("_PuckPlate", fr, 0, plate_z, pw, ph, glass="glassSmoke", bar="amberLine", side="hairline", x=PLATE_BACK, brackets=False)
+    need = [hring("_PuckNeedRing", v, (px, py, top + 0.0005), 0.044, 0.060, MATS["amberLine"]),
+            hring("_PuckNeedDot", v, (px, py, top + 0.0005), 0.0005, 0.012, MATS["amberLine"], segs=24)] + plate + [
+            box("_PuckPlatePost", fr, (PLATE_BACK + 0.012, 0, (ARM_TOP + plate_z - ph / 2) / 2), (0.008, 0.008, plate_z - ph / 2 - ARM_TOP), MATS["metal"])]
     node("PuckNeed", join("PuckNeed", need, (px, py, pz)), "show")
-    # Approve and Deny: larger tabs beside the puck (Approve to its right as the owner sees it),
-    # each tilted back to face the eye, the words merged in.
+    # Approve and Deny: outlined glass tabs beside the puck (Approve to its right as the owner
+    # sees it), each tilted back to face the eye, the words merged in.
     d = Vector((px, py)).normalized()
     right = Vector((d.y, -d.x))
     tw, th = PUCK_TAB
@@ -860,6 +1221,9 @@ def setup_render():
         b = m.node_tree.nodes["Principled BSDF"]
         if b.inputs["Emission Strength"].default_value == 0.0 or tuple(b.inputs["Emission Color"].default_value)[:3] == (0.0, 0.0, 0.0):
             b.inputs["Specular IOR Level"].default_value = 0.08
+        if "Glass" in m.name or m.name.startswith("glass"):
+            # The headset draws this glass as a flat tint; Cycles would mirror the words in it.
+            b.inputs["Specular IOR Level"].default_value = 0.0
     # The Lobby is a day world (`sky: "day"`): a soft sky plus a sun.
     w = bpy.data.worlds.new("LobbyDay")
     w.use_nodes = True
@@ -909,14 +1273,16 @@ def review():
     setup_render()
     eye = vpt(0, 0, EYE)
     cam_seal = camera("CamSeal", eye, vpt(1.1, 0, 1.36), 80)
-    # Over the owner's right shoulder: the ledge and the puck together, without the wide-angle stretch.
-    cam_cubes = camera("CamCubes", vpt(-0.55, -0.35, 2.05), vpt(0.70, 0.45, 0.85), 85)
+    # At eye height, a step back over the owner's right shoulder: the ledge and the puck together.
+    cam_cubes = camera("CamCubes", vpt(-0.40, -0.35, EYE), vpt(0.70, 0.45, 0.85), 85)
     cam_puck = camera("CamPuck", eye, vpt(PUCK_AT[0], PUCK_AT[1], PUCK_AT[2] + 0.06), 48)
     # Eye renders at a headset-like 90 degrees (contract 8.6), and the head turned to each side.
     cam_arc = camera("CamArc", eye, vpt(1.7, 0, 1.36), 90)
     a = math.radians(LEFT[0])
     cam_arc_left = camera("CamArcLeft", eye, vpt(1.8 * math.cos(a), 1.8 * math.sin(a), 1.45), 90)
     cam_arc_right = camera("CamArcRight", eye, vpt(1.8 * math.cos(a), -1.8 * math.sin(a), 1.45), 90)
+    # The head tilted down: the ledge, the arc's foot and the projected floor ring.
+    cam_floor = camera("CamArcFloor", eye, vpt(1.25, 0, 0.35), 90)
     pivot_x = STAND[0] - CENTER[1]
     cam_watch = camera("CamWatcher", (pivot_x - 3.2, 0.0, 1.66), (pivot_x, 0.0, 1.5), 80)
 
@@ -933,6 +1299,7 @@ def review():
     render(cam_arc, "arc.jpg", eye=True)
     render(cam_arc_left, "arc_left.jpg", eye=True)
     render(cam_arc_right, "arc_right.jpg", eye=True)
+    render(cam_floor, "arc_floor.jpg", eye=True)
     apply_view(["arc"], arc_e=0.5, picked="CubeA")
     render(cam_arc, "arc_unfolding.jpg", eye=True)
     clear_review()
@@ -941,6 +1308,56 @@ def review():
     render(cam_watch, "watcher.jpg")
     clear_review()
     turn_for_watcher(False)
+    art_sheet()
+
+
+REFS = os.environ.get("MC_REFS", "E:/wt/work-in-vr-design/references")
+
+
+def art_sheet():
+    """art_sheet.jpg (contract 9.9): each reference beside the renders that answer it.
+    Row 1: reference 1 (the glass wall) | arc | seal_ring. Row 2: reference 2 (the floating
+    panels) | arc_floor | watcher."""
+    import numpy as np
+    if ONLY is not None and "art_sheet" not in ONLY:
+        return
+    rows = [["ceo-ref-1-glass-wall.webp", "arc.jpg", "seal_ring.jpg"],
+            ["ceo-ref-2-floating-panels.webp", "arc_floor.jpg", "watcher.jpg"]]
+    H, gap = 640, 16
+    out_rows = []
+    for row in rows:
+        tiles = []
+        for name in row:
+            path = os.path.join(REFS if name.startswith("ceo-ref") else REVIEW, name)
+            img = bpy.data.images.load(path, check_existing=False)
+            w = int(round(img.size[0] * H / img.size[1]))
+            img.scale(w, H)
+            a = np.array(img.pixels[:], dtype=np.float32).reshape(H, w, 4)
+            tiles.append(a)
+            bpy.data.images.remove(img)
+        spacer = np.zeros((H, gap, 4), dtype=np.float32)
+        spacer[..., 3] = 1
+        parts = []
+        for k, t in enumerate(tiles):
+            if k:
+                parts.append(spacer)
+            parts.append(t)
+        out_rows.append(np.concatenate(parts, axis=1))
+    width = max(r_.shape[1] for r_ in out_rows)
+    padded = []
+    for r_ in out_rows:
+        pad = np.zeros((H, width - r_.shape[1], 4), dtype=np.float32)
+        pad[..., 3] = 1
+        padded.append(np.concatenate([r_, pad], axis=1))
+    band = np.zeros((gap, width, 4), dtype=np.float32)
+    band[..., 3] = 1
+    sheet = np.concatenate([padded[1], band, padded[0]], axis=0)  # Blender images are bottom-up
+    img = bpy.data.images.new("art_sheet", width, sheet.shape[0], alpha=False)
+    img.pixels.foreach_set(sheet.ravel())
+    img.filepath_raw = os.path.join(REVIEW, "art_sheet.jpg")
+    img.file_format = "JPEG"
+    img.save()
+    print(f"[mission-control] wrote review/art_sheet.jpg ({width} x {sheet.shape[0]})")
 
 
 def main():

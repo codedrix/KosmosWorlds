@@ -10,10 +10,12 @@ This folder is not a world of its own. It builds **the Lobby's program and Missi
 nodes**, and `../mission-control-tools/lobby/package_lobby.mjs` merges them into the live Lobby
 package.
 
-- **Status:** v2.1 built; the package validates offline with publisher **0.8.1 or later** (83
+- **Status:** v2.1 built, with the holographic-glass art pass (contract section 9; see "The art
+  pass" below); the package validates offline with publisher **0.8.1 or later** (83
   rules: PASSED). Its warnings are the live Lobby's own (GLTF_007/008/009), plus two that belong to
   this candidate: NET_007 (the relay's opt-in file is not fetched offline; the registry checks it at
-  register) and WASM_007 (level 4 against the vendored deployed hint of 2). It runs end to end
+  register) and WASM_007 (level 4 against the vendored deployed hint of 2). The art pass's three
+  PNGs carry no hidden data (IHDR, IDAT, IEND only), so they raise no SEC_004. It runs end to end
   against the v2.1 bridge in `mockhost.mjs` and was reviewed in lit renders. **Not published**: the
   CEO sees the renders first, and publishing the Lobby is Class C. The package version stays 1.2.0
   until the lead picks it.
@@ -47,10 +49,18 @@ package.
      handles.
    **Fold** reverses it: the words go at once, the arc folds back into the cube of the job on show
    (or the ledge's centre if that cube is gone), then hides. The picked cube is hidden while the arc
-   is open; pressing another cube moves the arc to that job and makes it the picked cube. Choosing a
-   job from the left panel's rails folds to the ledge's centre (the face doesn't name that job's
-   cube) and shows the cube the arc came from again. A cube or rail press changes the origin only
-   once the bridge's own reply takes it: a stale, refused or lost press changes nothing.
+   is open; pressing another cube moves the arc to that job and makes it the picked cube. A folded
+   cube press (or +) unfolds the arc **from that cube**, whichever reply lands first: the bridge
+   wakes the view poll with the same `M arc` as the press's own reply, so the press records a
+   pending origin and either reply that opens the arc uses it. The press's own reply clears it if
+   it says stale, refused, busy or signed out (and if the poll had already unfolded the arc from
+   that cube, the cube shows again and the fold goes to the ledge's centre); a few seconds with no
+   reply, or Close, clears it too. **Choosing a job from the left panel's rails folds to the
+   ledge's centre**, not to that job's cube: the snapshot names the job, not which cube carries it,
+   so the world can't tell where that cube sits (the correctness review's LOW, kept on purpose).
+   The cube the arc came from shows again. Moving an open arc to another cube or rail changes the
+   origin only once the bridge's own reply takes the press: a stale, refused or lost press changes
+   nothing.
 4. **The decision puck**, on a stem from the throne's LEFT armrest at hand height. When a job needs
    the owner it glows amber, a small dark plate above it shows one line
    (`registry: run npm test`, or `<project>: open its cube` when the whole command doesn't fit),
@@ -94,6 +104,18 @@ and when its groups show.
   arc part (the panels, the ask plate, the bar) into the ledge or the puck is refused
   (`arc_clear`, a separating-axis test against keep-out boxes); a host test walks every setting
   the handles can reach and checks the clearance point by point.
+- **The pending pick** (correctness review 3, HIGH-2): `send_press` records a folded cube press as
+  `PENDING_PICK` with its request id and time; `update_arc` unfolds from it when any reply opens
+  the arc within `PICK_TIMEOUT_S` (4 s); `refuse_pick` drops it on the press's own refusal or
+  failed fetch and, if it was already used, un-picks the cube and folds to the ledge's centre.
+  Host tests: `the_unfold_comes_from_the_pressed_cube_when_the_poll_lands_first`,
+  `the_unfold_comes_from_the_pressed_cube_when_the_press_reply_lands_first`,
+  `a_refused_or_stale_cube_press_never_moves_the_unfold`; `a_rail_press_folds_to_the_ledge_centre`
+  keeps the rail behaviour.
+- **The seal's slow turn** (contract 9.5): while the ring shows and isn't animating, `spin_seal`
+  turns `SealRing` about its own facing axis at 6 degrees a second (one turn a minute, never an
+  oscillation): one host call a frame (`the_seal_rings_turn_slowly_one_call_a_frame`). The code,
+  hint and buttons stay still.
 - **Closing** is a short stage: parked and hidden at once, holding the token only for the sign-out
   press, retried until the host takes it or `CLOSING_MAX_S` (5 s) passes. Closed makes no call.
 - `k_node_find` sees meshes only on device, so every node the program finds is a mesh.
@@ -121,15 +143,15 @@ above the bar.
 | Path | What it is |
 |---|---|
 | `V2_CONTRACT.md`, `nodes.json` | the contract and the node list (both owned by the bridge lane; a host test pins the node list) |
-| `src/lib.rs`, `src/tests.rs`, `Cargo.toml`, `build.rs` | the Lobby's program (the music plus Mission Control) and its 26 host tests |
+| `src/lib.rs`, `src/tests.rs`, `Cargo.toml`, `build.rs` | the Lobby's program (the music plus Mission Control) and its 30 host tests |
 | `world.wasm` | the built program; it becomes the Lobby's `module.wasm`; it rebuilds byte-identical from a fresh checkout |
-| `mc_assembly.glb` | every node (parked), merged into the Lobby's `scene.glb` |
+| `mc_assembly.glb` | every node (parked), merged into the Lobby's `scene.glb`; carries three embedded PNGs (the floor ring, 2048 x 1024; two halos, 128 x 128), which `lobby/merge_glb.mjs` appends with their images, sampler and textures (every original Lobby index still checked identical) |
 | `lobby-manifest.patch.json` | what the package changes in the Lobby's manifest |
 | `bridge-origin.txt` | the origin compiled into the program |
 | `audio/chime.wav` | the approval chime |
 | `blender/build_panel.py` | builds every node, exports `mc_assembly.glb`, renders the review inside the live Lobby |
 | `review/*.snapshot` | the bridge's real snapshots (`agent-bridge/scripts/capture-review-snapshots.mjs`) |
-| `review/*.jpg` | the v2.1 lit renders (the v1 ones were removed) |
+| `review/*.jpg` | the v2.1 lit renders with the art pass, and `art_sheet.jpg` beside the CEO's references (the v1 ones were removed) |
 | `review/synthetic/*.snapshot` | contract-shaped stand-ins, from `make_synthetic_snapshots.mjs` |
 
 Tools live in `../mission-control-tools/` (ASSET_006 refuses a `.ps1` in a bundle):
@@ -180,12 +202,57 @@ not pixels**: the device checkpoint is the real check.
 | `arc_left.jpg` | the head turned to the left panel: ticker, four rails, done |
 | `arc_right.jpg` | the head turned to the right panel: the browser spot |
 | `arc_unfolding.jpg` | the arc half way out of its cube (no words yet) |
+| `arc_floor.jpg` | from the eye, looking down past the ask plate: the projected floor ring and grid under the arc, between the chrome bar and the ledge |
 | `watcher.jpg` | a watcher's copy from the hall: the arc only, turned and lowered, no action buttons |
+| `art_sheet.jpg` | the look check: CEO reference 1 (the glass wall) beside `arc.jpg` and `seal_ring.jpg`; reference 2 (the floating panels) beside `arc_floor.jpg` and `watcher.jpg` |
 
 What the v2.1 review fixed: a 16:9 eye frame cropped the arc (eye renders are now 90 x 80
 degrees); the ask plate's bottom edge sat on the chrome bar as the eye sees it (the plate's bottom
 raised to 0.815, the bar's top lowered to 0.765); an empty dark label plate floated over a calm
 puck (the plate is now part of the puck's `need` look).
+
+## The art pass (holographic glass, contract section 9, 2026-10-19)
+
+Only `build_panel.py` changed for the look: the node list, every behaviour, the layout and every
+text placement are as before, and no node was renamed. The look follows the two CEO references and
+`ART_DIRECTION_HOLO_GLASS.md`:
+
+- **Panels:** one flat smoked-glass quad each (dark navy, alpha 0.82), with thin cyan light bars on
+  the top and bottom edges, corner brackets and hairline dividers; the ask plate is amber-tinted
+  glass with amber bars and brackets; the browser spot keeps its heading over a faint grid.
+- **Buttons:** outlined glass: an opaque dark fill with a thin coloured outline (cyan, red, green,
+  amber), the label unchanged.
+- **Job Cubes:** clear glass (alpha 0.14) with glowing edge lines and an opaque emissive core
+  (cyan calm, amber need, grey idle); a need cube has a soft amber halo behind it; + is two lines
+  inside a glass cube. The ledge is an opaque shelf with a cyan light bar along its front.
+- **The puck:** a glass disc with a teal rim and a cyan ring; in need, an amber ring and dot, and
+  the one-line plate in smoked glass with amber bars, on its post.
+- **The Pairing Seal:** a smoked disc behind segmented HUD rings, tick marks and inner arcs with a
+  soft cyan halo; locked, the rings turn amber and whole. The ring turns slowly (`spin_seal`).
+- **The floor:** a projected ring and grid (one 2048 x 1024 PNG decal, part of the arc's centre
+  node, so it shows only while the arc is open) on the hall floor past the dais steps, where the
+  eye sees it under the arc, between the chrome bar and the ledge.
+
+**Guardrails, checked:** every emission factor is at most 1.0 (LDR, no bloom; the halos are
+painted gradients, not glow); textures are 2048 x 1024 and 128 x 128; nothing imitates Kosmos
+chrome (no amber Kosmos logo, no system-sheet shapes; the buttons and panels are Mission Control's
+own); white text sits on darker glass than before. **Two stacked translucent layers at most:**
+each panel is a single quad; button fills, cube cores and the shelf are opaque; the floor decal
+lies where no glass panel overlaps it from the eye.
+
+**What the look review iterated on:** the floor decal and halos first rendered blank (the joined
+parts lost their UV layer; fixed); a decal on the dais hid behind the ledge (moved to the hall
+floor past the steps); the seal's halo washed over its code (softened twice); text on 0.70 glass
+read worse than before (raised to 0.82); the browser spot's grid competed with its heading
+(dimmed); the review renders showed mirrored text in the glass (the render-only glass specular is
+zero now; the exported materials don't carry it).
+
+**Trade-offs, on the record:** (1) the glass is alpha 0.82, darker than the contract's "about
+0.6", because white text must read at least as well as before; (2) button fills are opaque, not
+glass, to keep every pixel at two translucent layers or fewer; (3) every need cube has its own
+halo, so when several jobs need you more than two halos show at once (the seal's halo never shows
+with them); (4) the watcher never sees the floor ring (the arc's decal lies under the dais from
+the hall); (5) the browser spot keeps its "BROWSER SPOT" heading mesh.
 
 ## Device checks owed (the checkpoint, on Build 1009 or later)
 
@@ -194,7 +261,9 @@ puck (the plate is now part of the puck's `need` look).
 3. Cubes press; the arc unfolds from the pressed cube and folds back into the cube of the job on
    show; texts appear only when it lands; the picked cube is hidden while the arc is open.
 4. CLOSE on the ledge and the seal press both close, folded or open.
-5. Alpha-blended glass and glows read on the mobile renderer (LDR, no bloom).
+5. Alpha-blended glass and glows read on the mobile renderer (LDR, no bloom): the smoked panels,
+   the clear cubes, the halos and the floor ring; white text reads through the glass; the seal's
+   slow turn is smooth and comfortable.
 6. The puck's Approve / Deny tabs are reachable from the throne with the left hand.
 7. Both controllers buzz and the chime plays on a new approval; never for a watcher.
 8. Group watch on two headsets: the watcher's arc faces the hall; the watcher can't press.

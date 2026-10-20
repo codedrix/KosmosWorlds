@@ -124,6 +124,7 @@ mod host {
     pub static mut POS: [[f32; 3]; MAX_H] = [[0.0; 3]; MAX_H];
     pub static mut SCALE: [f32; MAX_H] = [1.0; MAX_H];
     pub static mut YAW: [f32; MAX_H] = [0.0; MAX_H];
+    pub static mut ROLL: [f32; MAX_H] = [0.0; MAX_H];
     pub static mut VIS: [i8; MAX_H] = [-1; MAX_H];
     pub static mut TEXT_ON: [bool; MAX_H] = [false; MAX_H];
 
@@ -141,6 +142,7 @@ mod host {
             POS = [[0.0; 3]; MAX_H];
             SCALE = [1.0; MAX_H];
             YAW = [0.0; MAX_H];
+            ROLL = [0.0; MAX_H];
             VIS = [-1; MAX_H];
             TEXT_ON = [false; MAX_H];
         }
@@ -164,7 +166,7 @@ mod host {
     pub unsafe fn k_node_set_visible(n: i32, v: i32) -> i32 { c(); VIS[hi(n)] = v as i8; 0 }
     pub unsafe fn k_transform_set_position(n: i32, x: f32, y: f32, z: f32) -> i32 { c(); POS[hi(n)] = [x, y, z]; 0 }
     pub unsafe fn k_transform_set_scale(n: i32, x: f32, _y: f32, _z: f32) -> i32 { c(); SCALE[hi(n)] = x; 0 }
-    pub unsafe fn k_transform_set_rotation(n: i32, _p: f32, y: f32, _r: f32) -> i32 { c(); YAW[hi(n)] = y; 0 }
+    pub unsafe fn k_transform_set_rotation(n: i32, _p: f32, y: f32, r: f32) -> i32 { c(); YAW[hi(n)] = y; ROLL[hi(n)] = r; 0 }
     pub unsafe fn k_ui_show_world_text(n: i32, _p: i32, _l: i32, _o: f32) -> i32 { c(); TEXT_ON[hi(n)] = true; 0 }
     pub unsafe fn k_ui_hide_world_text(n: i32) -> i32 { c(); TEXT_ON[hi(n)] = false; 0 }
     pub unsafe fn k_ui_prompt(_p: i32, _l: i32, _o: i32, _c: i32, _r: i32) -> i32 { c(); PROMPTS += 1; 0 }
@@ -315,6 +317,11 @@ const MOVE_SIDE: f32 = 1.2;
 const CHIME: &str = "chime.wav";
 /// The Closing stage retries the sign-out for at most this long, then drops the token.
 const CLOSING_MAX_S: f32 = 5.0;
+/// A cube press's pending unfold origin lasts this long without its own reply.
+const PICK_TIMEOUT_S: f32 = 4.0;
+/// The Pairing Seal's HUD rings turn slowly and steadily (contract 9.5): one turn a minute,
+/// never an oscillation. One host call a frame, only while the ring shows and is not moving.
+const SEAL_SPIN_DEG_S: f32 = 6.0;
 
 /// Animation lengths (contract section 6), seconds.
 const SEAL_RISE_S: f32 = 0.6;
@@ -515,6 +522,8 @@ static mut TURNED: bool = false;
 
 static mut TWEENS: [Tween; N_GROUPS] = [NO_TWEEN; N_GROUPS];
 static mut HOLD_UNTIL: f32 = 0.0;
+/// The seal ring's turn so far (degrees, about its own facing axis: UE roll).
+static mut SEAL_SPIN: f32 = 0.0;
 static mut CLOSING_UNTIL: f32 = 0.0;
 /// The arc as the snapshot wants it (`M arc`), and as the world shows it.
 static mut M_ARC: bool = false;
@@ -533,6 +542,15 @@ static mut REPLY_ID: i32 = 0;
 static mut COMMIT_CUBE: usize = NONE;
 /// A taken rail press: the arc moved to a job whose cube the face doesn't name.
 static mut RAIL_SWITCH: bool = false;
+/// A folded cube press's PENDING unfold origin (correctness review 3, HIGH-2): the bridge's
+/// press handler wakes the view poll with the same `M arc`, so either reply may land first.
+/// Whichever opens the arc unfolds from this cube; the press's own refusal (or no answer, a
+/// timeout, Close) clears it, and a refusal that lands after the unfold un-picks the cube.
+static mut PENDING_PICK: usize = NONE;
+static mut PENDING_PICK_ID: i32 = 0;
+static mut PENDING_PICK_AT: f32 = -100.0;
+/// True once the pending pick has been used as an unfold origin.
+static mut PICK_USED: bool = false;
 
 static mut TOKEN: [u8; 96] = [0; 96];
 static mut TOKEN_LEN: usize = 0;
@@ -724,6 +742,7 @@ pub extern "C" fn k_tick(delta: f32) {
         sync_all(); // the code and the hint hide at once
     }
     tick_tweens(d);
+    spin_seal(d);
     let ready = unsafe { !POLL_IN_FLIGHT && NOW_S >= NEXT_POLL_AT && LAST_NET == 1 };
     if ready {
         match mode() {
@@ -902,6 +921,9 @@ fn open_panel(m: Mode) {
         ARC_SHOWN = false;
         PICKED = NONE;
         PENDING_PRESS_ID = 0;
+        PENDING_PICK = NONE;
+        PENDING_PICK_ID = 0;
+        PICK_USED = false;
         COMMIT_CUBE = NONE;
         RAIL_SWITCH = false;
         TWEENS = [NO_TWEEN; N_GROUPS];
@@ -934,6 +956,9 @@ fn close_panel() {
         M_ARC = false;
         ARC_SHOWN = false;
         PICKED = NONE;
+        PENDING_PICK = NONE;
+        PENDING_PICK_ID = 0;
+        PICK_USED = false;
         HUE_STATE = [OFF; N_HUE];
         for i in 0..N_ALL {
             WANT[i] = i >= N_FACE;
@@ -1061,9 +1086,14 @@ fn update_arc() {
         return;
     }
     if want {
-        // Unfold from the cube whose press the bridge took (or CubePlus), else from the ledge's
-        // centre (the M change came from elsewhere, or before the press's own reply).
-        let pick = unsafe { COMMIT_CUBE };
+        // Unfold from the pressed cube (or CubePlus) whose press is pending or was taken, whichever
+        // reply opened the arc, else from the ledge's centre (the M change came from elsewhere).
+        let (pp, at) = unsafe { (PENDING_PICK, PENDING_PICK_AT) };
+        let pending = pp != NONE && unsafe { NOW_S } - at <= PICK_TIMEOUT_S;
+        let pick = if pending { pp } else { unsafe { COMMIT_CUBE } };
+        if pending {
+            unsafe { PICK_USED = true; }
+        }
         let from = if pick != NONE { placed(pick) } else { placed(idx("McLedge")) };
         unsafe {
             ARC_SHOWN = true;
@@ -1083,6 +1113,25 @@ fn update_arc() {
         start_tween(G_ARC, -1.0, FOLD_S, from);
     }
     sync_all();
+}
+
+/// A cube press the bridge refused (or never answered) changes nothing: the pending origin goes,
+/// and if the arc already unfolded from that cube (a poll's `M arc` landed first), the cube shows
+/// again and the fold goes to the ledge's centre.
+fn refuse_pick() {
+    let (pp, used, picked) = unsafe { (PENDING_PICK, PICK_USED, PICKED) };
+    unsafe {
+        PENDING_PICK = NONE;
+        PENDING_PICK_ID = 0;
+        PICK_USED = false;
+    }
+    if used && pp != NONE && picked == pp {
+        unsafe {
+            PICKED = NONE;
+            FOLD_TO = placed(idx("McLedge"));
+        }
+        sync_all();
+    }
 }
 
 /// The arc folds back into the cube of the job on show (contract 8.10): a cube pressed while
@@ -1384,6 +1433,24 @@ fn tick_tweens(dt: f32) {
     }
 }
 
+/// Turns the seal ring (the SealRing body: its segmented arcs and ticks) about the axis it faces
+/// along, while it shows and its group is not tweening. The variants and the words stay still.
+fn spin_seal(dt: f32) {
+    if mode() != Mode::Owner || dt <= 0.0 {
+        return;
+    }
+    let i = idx("SealRing");
+    if unsafe { VISIBLE[i] } != 1 || unsafe { TWEENS[G_SEAL as usize].active } {
+        return;
+    }
+    let Some(r) = base_rot_of(i) else { return };
+    let spin = unsafe {
+        SEAL_SPIN = (SEAL_SPIN + SEAL_SPIN_DEG_S * dt) % 360.0;
+        SEAL_SPIN
+    };
+    unsafe { host::k_transform_set_rotation(HANDLES[i], r[0], r[1], r[2] + spin); }
+}
+
 /// Every node back to scale 1 (an animation was cut short).
 fn reset_scales() {
     for i in 0..N_ALL {
@@ -1618,6 +1685,14 @@ fn send_press(i: usize, text: &[u8]) {
                 PENDING_PRESS_NODE = i;
             }
         }
+        if n.starts_with("Cube") && unsafe { !ARC_SHOWN } {
+            unsafe {
+                PENDING_PICK = i;
+                PENDING_PICK_ID = id;
+                PENDING_PICK_AT = NOW_S;
+                PICK_USED = false;
+            }
+        }
         local_status("Sending...");
     } else if rc == -6 {
         local_status("Too fast: wait a second and press again.");
@@ -1637,6 +1712,9 @@ pub extern "C" fn on_net_result(_event_type: i32, _node: i32, request_id: i32, s
     }
     if status != 200 && request_id == unsafe { PENDING_PRESS_ID } {
         unsafe { PENDING_PRESS_ID = 0; } // a press that got no answer changes nothing
+    }
+    if status != 200 && request_id == unsafe { PENDING_PICK_ID } {
+        refuse_pick(); // nor does a cube press that got none
     }
     if mode() == Mode::Closed || mode() == Mode::Closing {
         return; // a late answer after Close changes nothing
@@ -1821,6 +1899,17 @@ pub fn apply_snapshot(body: &[u8]) {
             return;
         } else if got_token && stage() == Stage::Seal {
             begin_lock();
+        }
+        let (reply, pick_id) = unsafe { (REPLY_ID, PENDING_PICK_ID) };
+        if reply != 0 && reply == pick_id {
+            if press_refused {
+                refuse_pick();
+            } else {
+                unsafe {
+                    PENDING_PICK = NONE;
+                    PENDING_PICK_ID = 0;
+                }
+            }
         }
         let (reply, pending, node) = unsafe { (REPLY_ID, PENDING_PRESS_ID, PENDING_PRESS_NODE) };
         if reply != 0 && reply == pending && !press_refused && node != NONE {
