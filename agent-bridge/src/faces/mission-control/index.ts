@@ -357,6 +357,16 @@ export class MissionControlFace implements Face {
     const live = ctx.authed && !ctx.killed;
     // Anonymous callers and the owner have separate snapshots, versions and press maps,
     // so nothing an anonymous caller sends can touch the owner's view.
+    // Signing out only ever takes access away, so a live caller's BtnSignOut is honoured whatever
+    // version it carries and whatever that version's map offered: the world's closing stage sends it
+    // when the owner closes while folded (Close on the ledge, or the seal), where the face shows no
+    // Sign out button. Without this, a folded close was answered "stale" and left the session live.
+    if (live && node === "BtnSignOut") {
+      this.lastPress = { node, at: Date.now() };
+      ctx.signOut();
+      this.reset();
+      return this.reply(this.render({ ...ctx, authed: false }).event("signed_out"));
+    }
     const maps = live ? this.renders : this.anonRenders;
     const map = req.v !== undefined ? maps.get(req.v) : undefined;
     const action = node && map ? map.get(node) : undefined;

@@ -332,14 +332,24 @@ test("8.10: the page doesn't jump when the ask plate appears", async () => {
   sink.setStatus("stopped");
 });
 
-test("8.7: Sign out lives on the chrome bar: offered unfolded, never folded", async () => {
+test("8.7: Sign out lives on the chrome bar: offered unfolded, never folded; a folded close still signs out", async () => {
   await view();
   const folded = await press("BtnFold");
   assert.equal(folded.mode, "cubes");
   assert.ok(!folded.visible.has("BtnSignOut"), "folded, the face doesn't offer it (Close on the ledge leaves)");
-  const stale = await press("BtnSignOut");
-  assert.ok(stale.events.includes("stale"), "a folded press on it means nothing");
-  assert.ok(b.bridge.auth.signedIn);
+  // The world's closing stage sends BtnSignOut when the owner closes while folded (Close on the
+  // ledge, or the seal). The face must honour it although the folded map doesn't offer the button.
+  b.bridge.watch.open();
+  assert.ok(b.bridge.watch.current, "group watch is on before the close");
+  const closed = await press("BtnSignOut");
+  assert.ok(closed.events.includes("signed_out"), "a folded close signs out");
+  assert.equal(b.bridge.auth.signedIn, false);
+  assert.equal(b.bridge.watch.current, null, "and ends group watch");
+  // Sign back in for the unfolded case.
+  await sleep(2100);
+  await view();
+  const again = await press("BtnSealType", PASS);
+  assert.ok(again.token.length > 20, "signed in again with the passphrase fallback");
   const arc = await press("CubePlus");
   assert.equal(arc.visible.get("BtnSignOut"), true, "unfolded, it is on the chrome bar");
   const out = await press("BtnSignOut");

@@ -259,8 +259,16 @@ assert.equal(watcher.log.fetches.length, before, "a watcher's press sends nothin
 assert.equal(watcher.log.haptic.length, 0, "a watcher never buzzes");
 console.log("8. watcher: the arc only, turned; status", JSON.stringify(watcher.text.get("TxStatus")));
 
+// Close from the FOLDED state (the default after pairing): the closing stage's sign-out must reach
+// the bridge although the folded face offers no Sign out button (security review round 3, HIGH-1).
+owner.press("BtnFold");
+await until([owner], () => ARC.every((n) => !owner.shown(n)) && owner.shown("McClose"), "the fold before closing");
+assert.ok(bridge.auth.signedIn, "signed in before the close");
+assert.ok(bridge.watch.current, "group watch on before the close");
 owner.press("McClose");
 for (let i = 0; i < 5; i++) owner.tick();
+await until([owner], () => !bridge.auth.signedIn, "the folded close to sign out on the bridge", 8000);
+assert.equal(bridge.watch.current, null, "the folded close ends group watch");
 for (const n of ["McCenterFrame", "McLedge", "Puck", "SealRing"]) {
   assert.equal(owner.position.get(n)?.[1], PARKED_Y, `Close parks ${n}`);
   assert.ok(!owner.shown(n));
