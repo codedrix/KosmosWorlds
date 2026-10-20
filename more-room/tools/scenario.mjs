@@ -22,7 +22,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Host, LIMITS } from "./mock-host.mjs";
 import { createMockBridge, LIMITS as BRIDGE } from "../bridge-day-face/mock-bridge.mjs";
-import { LAYOUT, at } from "./build_glb.mjs";
+import { LAYOUT, at, PLATES } from "./build_glb.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..");
@@ -72,6 +72,10 @@ function checkLayoutMirror() {
     ["COCOON_Y", LAYOUT.cocoonY],
   ];
   for (const [rsName, js] of pairs) ok(near(num(rsName), js), `layout: ${rsName}`);
+  // The MR plates the script shows are the ones the scene builds (a misspelt name would leave a plate up for ever).
+  const lib = fs.readFileSync(path.join(ROOT, "script/src/lib.rs"), "utf8");
+  const rsPlates = lib.match(/const PLATES: \[&str; \d+\] = \[([^\]]+)\]/)[1].split(",").map((s) => s.trim().replace(/"/g, ""));
+  ok(rsPlates.join() === PLATES.map((p) => p[0]).join(), `layout: PLATES match (${rsPlates.join(" ")})`);
   for (const [rsName, js] of [["ARC_SLOTS_DEG", LAYOUT.arcSlotsDeg], ["SHELF_SLOTS", LAYOUT.shelfSlots], ["FAN_DEG", LAYOUT.fanDeg], ["WELL", LAYOUT.well]]) {
     const v = arr(rsName);
     ok(v.length === js.length && v.every((x, i) => near(x, js[i])), `layout: ${rsName}`);
@@ -146,7 +150,7 @@ function runVariant(variant) {
   const counselDeg0 = deg(counsel.pos);
   ok(Math.abs(counselDeg0 - ((630 - 605) / 60) * LAYOUT.ringDegPerHour) < 0.2, `10:30 sits 25 minutes to the right of now (${counselDeg0.toFixed(2)} deg)`);
   ok(deg(events()[0].pos) < 0 && events()[0].source === "TplEventPast", "the 9:00 standup is past: to the left, dimmed");
-  ok(counsel.source === "TplEvent", "the counsel call is still ahead: blue");
+  ok(counsel.source === "TplEvent", "the counsel call is still ahead: cyan");
   const tick7 = host.byName.get("HourTickA"), tick19 = host.byName.get("HourTickM");
   ok(tick7.visible && deg(tick7.pos) < -40 && !tick19.visible, "hour ticks turn with the day; 19:00 is round the back, hidden");
   const nowBar = host.byName.get("NowBar");
@@ -155,7 +159,8 @@ function runVariant(variant) {
   host.run(61);
   const counselDeg1 = deg(events()[2].pos);
   ok(counselDeg1 < counselDeg0 - 0.2 && counselDeg1 > counselDeg0 - 0.3, `the ring turned with the clock (${counselDeg0.toFixed(3)} -> ${counselDeg1.toFixed(3)})`);
-  if (variant === "mr") ok(host.byName.get("RingBandK").visible, "MR: the ring's dark band shows behind its labels");
+  ok(host.byName.get("RingBandK").visible, "the ring's dark glass band shows behind its labels (both worlds)");
+  ok(host.byName.get("NowHalo").visible, "the now halo shows outside triage and focus");
   snap("morning");
 
   // Prep, from the sample itself.
@@ -206,6 +211,7 @@ function runVariant(variant) {
   host.press("BtnFocusGo");
   host.run(3.1);
   ok(/24:5[67] +focus/.test(host.textOf("TxtTimer") ?? ""), `focus: the timer runs (${host.textOf("TxtTimer")})`);
+  ok(!host.byName.get("NowHalo").visible, "focus: the now halo is hidden");
   snap("focus");
 
   // Triage, all local: the fan rises; read, reply, approve, task, done, later, mute.
@@ -219,7 +225,7 @@ function runVariant(variant) {
   ok(/^(Dana Whitfield|Sam Okoro)/.test(host.textOf("FanA") ?? "") && host.byName.get("FanVipA").visible, `triage: an unread VIP leads the fan, amber-framed (${host.textOf("FanA")})`);
   ok(cardsAt(inGrid).filter((n) => !n.visible).length >= 3, `triage: the fanned cards' discs left the arc (${cardsAt(inGrid).filter((n) => !n.visible).length})`);
   ok(/Press a card/.test(status()), `triage: the status says what to do (${status()})`);
-  ok(cardsAt(inWell).every((n) => !n.visible), "triage: the well's waiting cards are put away (nothing stands behind the Reply puck)");
+  ok(cardsAt(inWell).every((n) => !n.visible), "triage: the well's waiting cards are put away (nothing stands behind the Reply capsule)");
   ok(Math.abs(host.byName.get("TxtBanner").pos[1] - LAYOUT.bannerTriageY) < 1e-4 && host.textOf("TxtBanner") !== undefined, "triage: the banner moves up, clear of the fan, still shown");
   host.press("FanA");
   host.run(0.1);
@@ -237,6 +243,7 @@ function runVariant(variant) {
   ok(["BtnApprove", "BtnDeny"].every((b) => host.byName.get(b).visible) && ["BtnDone", "BtnLater", "BtnReply", "BtnTask", "BtnMute"].every((b) => !host.byName.get(b).visible), "Approve and Deny take the action row's place");
   ok(/Draft ready/.test(status()), `the status says so (${status()})`);
   textsOk("sample triage with a draft");
+  ok(!host.byName.get("NowHalo").visible, "triage: the now halo is hidden");
   snap("triage");
   // Deny, then draft again: the new draft has its own id and Approve clears it (review lens A, MED-2).
   host.press("BtnDeny");

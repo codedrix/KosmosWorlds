@@ -16,7 +16,7 @@
 //! - **Messages land, they don't pop.** A new message drops onto the low arc
 //!   in front of you, face-down. A VIP's card has an amber rim and makes one
 //!   tick. What doesn't fit waits in the inbox well behind the arc.
-//! - **Four modes**, on the column of pucks to your left:
+//! - **Four modes**, on the column of capsules to your left:
 //!   - Morning: the brief on the stage, pinned tasks on the right;
 //!   - Focus: the room closes in (16 dark facets slide in to 1.95 m) around one
 //!     task and its timer; the next event is the only other thing you see;
@@ -2091,7 +2091,7 @@ pub fn render() {
             place(front, L::at(L::READ_R, 0.0, L::RISE_FROM_Y));
         }
     }
-    // The empty well's ring would sit right behind the centre puck's label (review v2, round 2).
+    // The empty well's ring would sit right behind the centre capsule's label (review v2, round 2).
     visible(n.inbox, !(triage && front > 0));
     visible(n.txt_open, front == n.txt_open && front > 0);
     visible(n.txt_draft, front == n.txt_draft && front > 0);
@@ -2130,7 +2130,7 @@ pub fn render() {
     }
     // The arc's cards: hidden in focus (the room has closed in) and while up in the fan.
     // In triage the well's waiting cards are put away too: the fan shows what matters,
-    // and the stack sat right behind the Reply puck (review v2).
+    // and the stack sat right behind the Reply capsule (review v2).
     for c in a.cards.iter() {
         if c.alive {
             let in_well = c.slot == NO_SLOT && c.to[0] == L::WELL[0] && c.to[2] == L::WELL[2];
