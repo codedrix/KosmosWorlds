@@ -87,6 +87,13 @@ and when its groups show.
 - **Groups by name:** seal (`SealRing*`, `TxSeal*`, `BtnSealType`, `McSealCancel`), ledge
   (`McLedge`, `McClose`, `Cube*`, `TxCube*`), puck (`Puck*`, `BtnPuck*`, `TxPuck`), arc (everything
   else, the chrome bar included); `McSeal` and `McWatchJoin` are fixtures.
+- **One world-private node, `McFloorRing`** (`NODES_PRIVATE` in `lib.rs`): the projected floor
+  ring. The program finds and places it, but the bridge never names it, so it is not in
+  `nodes.json` (`build_panel.py`'s contract check allows exactly this one extra). It is in the arc
+  group, so it shows, unfolds and folds with the arc, but `place` never applies the handle
+  adjustment to it: it stays on the hall floor at every handle setting (correctness review 4,
+  MEDIUM-1). It is hidden for a watcher, and while the handles hold the arc where the ask plate
+  would lie over it from the eye (`floor_clear`, below).
 - **Two-layer visibility:** a node shows when the snapshot wants it (`U`, `T` and `H`, stored per
   node) AND its group is on for the stage (seal / lock animation / signed in) and the mode
   (`M cubes` or `M arc`; a watcher: the arc). A tween keeps its group on while it runs.
@@ -95,7 +102,7 @@ and when its groups show.
   the bodies of those two functions and nothing else. The puck's label plate is part of its
   `need` variant, so a calm puck is just the puck.
 - **Animations** run every frame in `k_tick`, moving only the shown nodes of the moving group (a
-  position and a scale each). The worst frame in the host test is 124 host calls (budget 200).
+  position and a scale each). The worst frame in the host test is 126 host calls (budget 200).
   A face button whose group is still moving is not pressed: its words are not shown yet.
 - **Requests:** `AB1`, then `tok <token>` or (no token yet) `pair <id>`, then `v`, `press`, `---`.
   A mint carries neither. A watcher's carries only `watch <code>` and `v`.
@@ -112,6 +119,12 @@ and when its groups show.
   `the_unfold_comes_from_the_pressed_cube_when_the_press_reply_lands_first`,
   `a_refused_or_stale_cube_press_never_moves_the_unfold`; `a_rail_press_folds_to_the_ledge_centre`
   keeps the rail behaviour.
+- **The floor ring's clearance** (`floor_clear`, correctness review 4, MEDIUM-2): the ask plate
+  always sits on the centre panel, so plate glass, panel glass and the decal would be three
+  layers. `floor_clear` casts the plate's two faces down from the eye onto the decal's footprint
+  (x 4.65 to 6.05 m, +-1.8 m) and the ring shows only where none lands on it. With the handles at
+  rest, Farther, Up and sideways it shows; one step Nearer or Down hides it (the plate's
+  sightlines then land on the decal), and it comes back when the arc returns.
 - **The seal's slow turn** (contract 9.5): while the ring shows and isn't animating, `spin_seal`
   turns `SealRing` about its own facing axis at 6 degrees a second (one turn a minute, never an
   oscillation): one host call a frame (`the_seal_rings_turn_slowly_one_call_a_frame`). The code,
@@ -143,7 +156,7 @@ above the bar.
 | Path | What it is |
 |---|---|
 | `V2_CONTRACT.md`, `nodes.json` | the contract and the node list (both owned by the bridge lane; a host test pins the node list) |
-| `src/lib.rs`, `src/tests.rs`, `Cargo.toml`, `build.rs` | the Lobby's program (the music plus Mission Control) and its 30 host tests |
+| `src/lib.rs`, `src/tests.rs`, `Cargo.toml`, `build.rs` | the Lobby's program (the music plus Mission Control) and its 32 host tests |
 | `world.wasm` | the built program; it becomes the Lobby's `module.wasm`; it rebuilds byte-identical from a fresh checkout |
 | `mc_assembly.glb` | every node (parked), merged into the Lobby's `scene.glb`; carries three embedded PNGs (the floor ring, 2048 x 1024; two halos, 128 x 128), which `lobby/merge_glb.mjs` appends with their images, sampler and textures (every original Lobby index still checked identical) |
 | `lobby-manifest.patch.json` | what the package changes in the Lobby's manifest |
@@ -223,36 +236,69 @@ text placement are as before, and no node was renamed. The look follows the two 
 - **Buttons:** outlined glass: an opaque dark fill with a thin coloured outline (cyan, red, green,
   amber), the label unchanged.
 - **Job Cubes:** clear glass (alpha 0.14) with glowing edge lines and an opaque emissive core
-  (cyan calm, amber need, grey idle); a need cube has a soft amber halo behind it; + is two lines
+  (cyan calm, amber need, grey idle); a need cube has a small soft amber halo behind it (24 x 22 cm,
+  its top at 0.93 m so its sightlines land short of the floor ring); + is two lines
   inside a glass cube. The ledge is an opaque shelf with a cyan light bar along its front.
 - **The puck:** a glass disc with a teal rim and a cyan ring; in need, an amber ring and dot, and
   the one-line plate in smoked glass with amber bars, on its post.
 - **The Pairing Seal:** a smoked disc behind segmented HUD rings, tick marks and inner arcs with a
   soft cyan halo; locked, the rings turn amber and whole. The ring turns slowly (`spin_seal`).
-- **The floor:** a projected ring and grid (one 2048 x 1024 PNG decal, part of the arc's centre
-  node, so it shows only while the arc is open) on the hall floor past the dais steps, where the
-  eye sees it under the arc, between the chrome bar and the ledge.
+- **The floor:** a projected ring and grid (one 2048 x 1024 PNG decal, its own node
+  `McFloorRing` in the arc group, so it shows only while the arc is open) pinned to the hall floor
+  4.65 to 6.05 m out: past where any cube or need halo lies from the eye, and short of where the
+  ask plate does. The eye sees it under the arc, past the ledge and partly through the chrome bar.
+- **Colours:** the PNGs store the palette in sRGB, #5fe6ff cyan and #f3a83a amber (read back from
+  the exported GLB); `_write_png` encodes the linear material colours (correctness review 4,
+  LOW-1).
 
 **Guardrails, checked:** every emission factor is at most 1.0 (LDR, no bloom; the halos are
 painted gradients, not glow); textures are 2048 x 1024 and 128 x 128; nothing imitates Kosmos
 chrome (no amber Kosmos logo, no system-sheet shapes; the buttons and panels are Mission Control's
 own); white text sits on darker glass than before. **Two stacked translucent layers at most:**
-each panel is a single quad; button fills, cube cores and the shelf are opaque; the floor decal
-lies where no glass panel overlaps it from the eye.
+each panel is a single quad; button fills, cube cores and the shelf are opaque. How it is checked,
+three ways:
+1. **On the real meshes** (`build_panel.py` `audit_layers`, every full build): 265,041
+   sightlines from the eye, every 0.25 degrees across azimuth -75 to 75 and elevation -70 to 40,
+   counting Mission Control's translucent faces before anything opaque, faces seen from behind
+   culled, the decal and halos counted over their whole quads. Three states, each with every
+   cube and the puck in need: the seal raised, folded, and the arc open. All three: worst 2, none
+   over two; with the arc open, 2,707 sightlines reach the floor ring through one layer and 658
+   through two. **Negative control:** with the decal and halo put back where the review found
+   them, the same audit stops the build: 672 sightlines through three layers, CubeC + its need
+   halo + the floor ring, the review's MEDIUM-2 exactly.
+2. **Every handle setting** (host test
+   `no_sightline_to_the_floor_ring_crosses_two_other_translucent_layers`): for each setting the
+   handles can reach where the ring shows, 4,961 sightlines to the decal are cast against both
+   faces of the moved ask plate, independently of `floor_clear`'s algebra; and against every
+   cube's glass and need halo (fixed to the throne). None crosses. (It caught a fault in the first
+   `floor_clear` before it shipped: only the plate's near face was tested.)
+3. **The ring never moves** (host test `the_floor_ring_stays_on_the_hall_floor_whatever_the_handles_do`):
+   at every one of the handles' 500-plus settings the ring's position is unchanged, and it shows
+   exactly when `floor_clear` says nothing stacks over it; it still folds with the arc, and a
+   watcher never sees it.
 
 **What the look review iterated on:** the floor decal and halos first rendered blank (the joined
 parts lost their UV layer; fixed); a decal on the dais hid behind the ledge (moved to the hall
 floor past the steps); the seal's halo washed over its code (softened twice); text on 0.70 glass
 read worse than before (raised to 0.82); the browser spot's grid competed with its heading
 (dimmed); the review renders showed mirrored text in the glass (the render-only glass specular is
-zero now; the exported materials don't carry it).
+zero now; the exported materials don't carry it). After review 4: the decal and halos read
+darker and redder than the palette (now sRGB-correct: the need halo is amber, the seal's halo the
+palette cyan); the floor ring in `arc_floor.jpg` slipped behind the right panel once it moved
+out (the review camera was lowered so the ring sits clear beneath the arc).
 
 **Trade-offs, on the record:** (1) the glass is alpha 0.82, darker than the contract's "about
 0.6", because white text must read at least as well as before; (2) button fills are opaque, not
 glass, to keep every pixel at two translucent layers or fewer; (3) every need cube has its own
 halo, so when several jobs need you more than two halos show at once (the seal's halo never shows
-with them); (4) the watcher never sees the floor ring (the arc's decal lies under the dais from
-the hall); (5) the browser spot keeps its "BROWSER SPOT" heading mesh.
+with them); (4) the watcher never sees the floor ring (in the mirrored copy it would lie under the
+floor); (5) the browser spot keeps its "BROWSER SPOT" heading mesh; (6) the floor ring hides while
+the arc is one or more steps Nearer or Down, where the ask plate would stack over it; (7) the need
+halo is smaller (24 x 22 cm, was 30 x 30) so it stays off the ring; it reads as a tight amber glow
+around the cube; (8) `McFloorRing` is a node the bridge never names, kept out of `nodes.json`;
+if the lead wants every node listed there, the bridge lane adds one line. (9) The audit covers resting states: during
+the 0.5 s unfold (0.4 s fold) the shrinking ring travels with the arc and can pass behind the ask
+plate for a moment.
 
 ## Device checks owed (the checkpoint, on Build 1009 or later)
 

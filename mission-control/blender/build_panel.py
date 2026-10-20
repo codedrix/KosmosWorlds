@@ -149,11 +149,20 @@ PUCK_PLATE = (0.86, 0.12)     # width, height (holds one 8 cm line of W.puck 0.8
 PUCK_TAB = (0.22, 0.10)
 PUCK_TAB_OFFSET = 0.21
 PLATE_BACK = 0.09           # the label plate's offset behind the puck's centre (disc radius 0.075)
-# The floor decal on the hall floor in front of the dais steps (Lobby floor 0.03 m, so viewer
-# z = 0.035 - 1.46): centre 4.6 m out, 3.6 m across, 1.8 m deep, ring radius 0.78 m. From the
-# eye, the floor between the cubes' tops and the bar's bottom is 3.7-5.5 m out.
-FLOOR_X, FLOOR_Z = 4.6, 0.035 - 1.46
-FLOOR_W, FLOOR_D, FLOOR_R = 3.6, 1.8, 0.78
+# The floor decal (node McFloorRing) on the hall floor past the dais steps (Lobby floor 0.03 m,
+# so viewer z = 0.035 - 1.46): x 4.65 to 6.05 m out, 3.6 m across, ring radius 0.56 m. Pinned
+# to the floor: src/lib.rs never applies the arc handles to it. From the eye it starts past
+# every cube and need halo (their sightlines land short of 4.6 m) and ends before the ask
+# plate's (about 6.09 m with the handles at rest), so nothing stacks two layers over it.
+# src/lib.rs FLOOR_X0 / FLOOR_X1 / FLOOR_HALF_W mirror these numbers.
+FLOOR_X, FLOOR_Z = 5.35, 0.035 - 1.46
+FLOOR_W, FLOOR_D, FLOOR_R = 3.6, 1.4, 0.56
+# The need halo behind a cube: HALO_W wide, z HALO_Z0 to HALO_Z1, 9 cm behind the cube's centre.
+# Its top stays at 0.93 so its sightlines land short of the floor decal (the host test
+# no_sightline_to_the_floor_ring_crosses_two_other_translucent_layers mirrors these).
+HALO_W, HALO_Z0, HALO_Z1 = 0.24, 0.71, 0.93
+# Nodes the program finds and places that the bridge never names (src/lib.rs NODES_PRIVATE).
+PRIVATE_NODES = {"McFloorRing"}
 
 built = {}
 
@@ -566,11 +575,16 @@ def _write_png(path, w, h, rgba):
     """A bare 8-bit RGBA PNG: IHDR, IDAT and IEND only. Blender's own writer adds an eXIf chunk
     (and oFFs/pHYs), which the publisher strips with a SEC_004 warning; writing the file here
     keeps the bundle's images free of hidden data. `rgba` rows run bottom to top (Blender's
-    pixel order) and hold display (sRGB) values 0..1, as a byte image stores them."""
+    pixel order); their RGB is LINEAR (the palette through `_lin`, like every material colour)
+    and is encoded to sRGB here, as PNG and glTF expect, so CYAN is stored as #5fe6ff and AMBER
+    as #f3a83a (correctness review 4, LOW-1). Alpha is stored as it is."""
     import struct
     import zlib
     import numpy as np
-    px = np.clip(np.round(np.asarray(rgba).reshape(h, w, 4)[::-1] * 255.0), 0, 255).astype(np.uint8)
+    a = np.array(rgba, dtype=np.float64).reshape(h, w, 4)[::-1].copy()
+    lin = np.clip(a[..., :3], 0.0, 1.0)
+    a[..., :3] = np.where(lin <= 0.0031308, lin * 12.92, 1.055 * np.power(lin, 1 / 2.4) - 0.055)
+    px = np.clip(np.round(a * 255.0), 0, 255).astype(np.uint8)
     raw = b"".join(b"\x00" + px[y].tobytes() for y in range(h))
 
     def chunk(tag, data):
@@ -757,13 +771,13 @@ def build_center():
         tick_scale("_CTicksR", c, -0.655, 0.86, 1.78, side=-1),
         # the chrome bar: one slim smoked-glass strip under the panel
     ] + glass_panel("_CBar", c, 0, bar_z, BAR_W, BAR_H, x=0.012, brackets=False)
-    # The projected floor ring and grid (contract 9.6): a decal on the hall floor just past the
-    # dais steps, part of this arc node, so it shows only while the arc is open. From the throne
-    # it shows UNDER the arc, between the chrome bar and the ledge: the line of sight to it passes
-    # below the bar and the ask plate, so no glass panel overlaps it (never a third layer). (On
-    # the dais itself the ledge would hide it.)
-    parts.append(textured_quad("_CFloor", VIEWER, (FLOOR_X, 0.0, FLOOR_Z), FLOOR_W, FLOOR_D, MATS["floorRingMat"], horizontal=True))
     node("McCenterFrame", join("McCenterFrame", parts, to_world(c, (0, 0, 1.49))), "show")
+    # The projected floor ring and grid (contract 9.6 and 9.10): its own node, McFloorRing, in
+    # the arc group (it shows, unfolds and folds with the arc) but pinned to the hall floor past
+    # the dais steps: src/lib.rs never moves it with the handles. Its origin is the ring's centre,
+    # so the unfold grows it in place of a point.
+    floor = textured_quad("_FloorRing", VIEWER, (FLOOR_X, 0.0, FLOOR_Z), FLOOR_W, FLOOR_D, MATS["floorRingMat"], horizontal=True)
+    node("McFloorRing", join("McFloorRing", [floor], (FLOOR_X, 0.0, FLOOR_Z)), "show")
     anchor("TxStatus", c, (-0.03, 0, 2.105))
 
     # The top row: Fold, Stop, paging.
@@ -927,7 +941,8 @@ def build_ledge():
             core = [box("_Cube" + slot + state + "Core", fr, (0, 0, 0), (0.05, 0.05, 0.05), MATS[m])]
             if state == "Need":
                 # The second halo (contract 9.7): behind the cube of a job that needs you.
-                core.append(textured_quad("_Cube" + slot + "Halo", fr, (CUBE / 2 + 0.03, 0, 0.02), 0.30, 0.30, MATS["haloNeedMat"]))
+                core.append(textured_quad("_Cube" + slot + "Halo", fr, (CUBE / 2 + 0.03, 0, (HALO_Z0 + HALO_Z1) / 2 - cz),
+                                          HALO_W, HALO_Z1 - HALO_Z0, MATS["haloNeedMat"]))
             g = join("Cube" + slot + state, core, (LEDGE_X, y, cz))
             node("Cube" + slot + state, g, "show")
         anchor("TxCube" + slot, facing(LEDGE_X, y), (0, 0, CUBE_LABEL_Z))
@@ -983,6 +998,8 @@ def check_contract():
     for base, states in NODES["hue"].items():
         for st in states:
             assert base + st[0].upper() + st[1:] in want, (base, st)
+    assert not (want & PRIVATE_NODES), "a private node is in nodes.json"
+    want |= PRIVATE_NODES
     have = set(built)
     missing, extra = sorted(want - have), sorted(have - want)
     assert not missing and not extra, f"nodes.json mismatch: missing {missing}, extra {extra}"
@@ -1142,6 +1159,8 @@ def apply_view(snaps, mode="owner", stage="signed", arc_e=None, picked=None):
     tweening = arc_up and arc_e < 1.0
 
     def held(n):
+        if n in PRIVATE_NODES and mode == "watcher":
+            return True  # src/lib.rs held_back: never in a watcher's mirrored copy
         if n in NODES["text"] and group(n) == "arc" and tweening:
             return True
         if arc_up and (n.startswith("TxCube") or n == picked):
@@ -1181,6 +1200,83 @@ def apply_view(snaps, mode="owner", stage="signed", arc_e=None, picked=None):
             s = 0.02 + 0.98 * e
             o.matrix_world = Matrix.Translation(origin.lerp(target, e)) @ Matrix.Diagonal((s, s, s, 1.0))
     print(f"[mission-control] view {snaps} {mode}/{stage} arc={arc_e}: {len([1 for n in texts if shown(n)])} labels")
+
+
+def audit_layers(tag, step_deg=0.25):
+    """The two-layer guardrail (contract 9.8), checked on the real meshes: casts a sightline
+    from the owner's eye every `step_deg` across azimuth -75..75 and elevation -70..40 degrees
+    and counts the Mission Control translucent faces it crosses before anything opaque (a face
+    seen from behind is culled, as on the headset). Textured quads (the floor decal, the halos)
+    count over their whole area, the strict reading. The Lobby's own glass is passed through,
+    not counted. Prints the worst count and refuses to go on if any sightline crosses three."""
+    from mathutils.bvhtree import BVHTree
+    dg = bpy.context.evaluated_depsgraph_get()
+    verts, polys, kind, owner = [], [], [], []
+    for o in bpy.context.scene.objects:
+        # what the render draws: not hidden, and in a visible collection (the Lobby import
+        # parks its MSFT_lod levels in an excluded "Orphan Nodes" collection)
+        if o.type != "MESH" or o.hide_render or not o.visible_get():
+            continue
+        ev = o.evaluated_get(dg)
+        me = ev.to_mesh()
+        mw = o.matrix_world
+        base = len(verts)
+        verts.extend(mw @ v.co for v in me.vertices)
+        mine = o.name in built
+        for poly in me.polygons:
+            m = o.material_slots[poly.material_index].material if o.material_slots else None
+            blended = m is not None and getattr(m, "surface_render_method", "") == "BLENDED"
+            polys.append([base + k for k in poly.vertices])
+            kind.append((1 if mine else 2) if blended else 0)
+            owner.append(o.name)
+        ev.to_mesh_clear()
+    tree = BVHTree.FromPolygons(verts, polys)
+    eye = Vector(vpt(0, 0, EYE))
+    worst, over, rays, deep = 0, 0, 0, None
+    on_floor = {1: 0, 2: 0}  # sightlines reaching the floor ring, by their layer count
+    az = -75.0
+    while az <= 75.0:
+        el = -70.0
+        while el <= 40.0:
+            a, e = math.radians(az), math.radians(el)
+            # the viewer frame turned 180 degrees into the Lobby (vpt): x and y flip
+            d = Vector((-math.cos(e) * math.cos(a), -math.cos(e) * math.sin(a), math.sin(e)))
+            o_, n, hit_names = eye.copy(), 0, []
+            for _ in range(12):
+                loc, nor, i, dist = tree.ray_cast(o_, d)
+                if loc is None:
+                    break
+                facing = nor.dot(d) < 0
+                if kind[i] == 0 and facing:
+                    break
+                if kind[i] == 1 and facing:
+                    n += 1
+                    hit_names.append(owner[i])
+                o_ = loc + d * 1e-4
+            rays += 1
+            if "McFloorRing" in hit_names:
+                on_floor[n] = on_floor.get(n, 0) + 1
+            if n > worst:
+                worst, deep = n, (az, el, hit_names)
+            if n > 2:
+                over += 1
+            el += step_deg
+        az += step_deg
+    print(f"[mission-control] layer audit ({tag}): {rays} sightlines, worst {worst} translucent layers, "
+          f"{over} over two; through the floor ring: {on_floor}; deepest at az {deep[0] if deep else 0:.2f} el {deep[1] if deep else 0:.2f}: {deep[2] if deep else []}")
+    assert over == 0, f"layer audit ({tag}): {over} sightlines cross three or more translucent layers"
+    return worst
+
+
+def show_every_need():
+    """For the audit: every job cube shown in its need look (each with its halo), the puck in
+    need, nothing picked: the most halos the face can ask for at once."""
+    for slot in "ABCD":
+        built["Cube" + slot].hide_render = False
+        for st in ("Calm", "Need", "Idle"):
+            built["Cube" + slot + st].hide_render = st != "Need"
+    built["PuckCalm"].hide_render = True
+    built["PuckNeed"].hide_render = False
 
 
 def turn_for_watcher(turn):
@@ -1291,18 +1387,26 @@ def review():
 
     apply_view(["pair"], stage="seal")
     render(cam_seal, "seal_ring.jpg")
+    if ONLY is None or "audit" in ONLY:
+        audit_layers("the seal raised")
     apply_view(["pair", "paired"], stage="seal")
     render(cam_seal, "seal_locked.jpg")
     apply_view(["cubes"])
     render(cam_cubes, "cubes_calm.jpg")
     apply_view(["cubes_need"])
     render(cam_cubes, "cubes_need.jpg")
+    if ONLY is None or "audit" in ONLY:
+        show_every_need()
+        audit_layers("folded, every cube in need, the puck in need")
     render(cam_puck, "puck_close.jpg")
     apply_view(["arc"], arc_e=1.0, picked="CubeA")
     render(cam_arc, "arc.jpg", eye=True)
     render(cam_arc_left, "arc_left.jpg", eye=True)
     render(cam_arc_right, "arc_right.jpg", eye=True)
     render(cam_floor, "arc_floor.jpg")
+    if ONLY is None or "audit" in ONLY:
+        show_every_need()
+        audit_layers("arc open, every cube in need, the puck in need")
     apply_view(["arc"], arc_e=0.5, picked="CubeA")
     render(cam_arc, "arc_unfolding.jpg", eye=True)
     clear_review()
@@ -1315,9 +1419,9 @@ def review():
 
 
 # The arc_floor review camera (viewer frame): behind and above the throne, a step to the side.
-FLOOR_CAM = (-1.5, -2.2, 2.8)
-FLOOR_LOOK = (3.0, -0.15, 0.35)
-FLOOR_CAM_FOV = 72
+FLOOR_CAM = (-1.4, -1.6, 2.35)
+FLOOR_LOOK = (3.4, 0.15, 0.35)
+FLOOR_CAM_FOV = 74
 REFS = os.environ.get("MC_REFS", "E:/wt/work-in-vr-design/references")
 
 
