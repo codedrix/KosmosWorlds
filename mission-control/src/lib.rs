@@ -1358,12 +1358,8 @@ fn clamp(v: f32, lo: f32, hi: f32) -> f32 {
 /// parked when closed; raised in front of the throne for the owner (the arc also takes the
 /// handle adjustments); for a watcher, the arc turned to face the hall and lowered to its
 /// floor, and every other group left parked.
-fn place(g: u8, p: [f32; 3], s: f32) -> [f32; 3] {
-    place_with(g, p, s, true)
-}
-
-/// `place`, with the arc's handle adjustment applied or not (the floor ring never takes it).
-fn place_with(g: u8, p: [f32; 3], s: f32, adjust: bool) -> [f32; 3] {
+/// `adjust`: apply the arc's handle adjustment (false for the floor ring, which never takes it).
+fn place(g: u8, p: [f32; 3], s: f32, adjust: bool) -> [f32; 3] {
     match mode() {
         Mode::Closed | Mode::Closing => p,
         Mode::Watcher if g != G_ARC => p,
@@ -1393,7 +1389,7 @@ fn placed(i: usize) -> [f32; 3] {
     if is_fixture(i) {
         return p;
     }
-    place_with(group(i), p, unsafe { SHIFT[i] }, i != FLOOR_I)
+    place(group(i), p, unsafe { SHIFT[i] }, i != FLOOR_I)
 }
 
 fn ease(k: f32) -> f32 {

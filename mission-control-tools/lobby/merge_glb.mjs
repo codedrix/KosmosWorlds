@@ -15,7 +15,13 @@
 //     (baseColor, metallicRoughness, normal, occlusion, emissive) offset by the texture count
 //     (Mission Control v2's art pass carries three small textures); an image by URI is refused;
 //   * extensionsUsed is the union of both files; the orb may not require an extension;
-//   * the orb file carries no animations or skins (asserted).
+//   * the orb file carries no animations or skins (asserted);
+//   * nothing passes through un-renumbered: an `extensions` object is allowed only on a material (where
+//     a texture `index` is refused) and on a texture or image (where a `source` is refused); one
+//     anywhere else (a node: EXT_mesh_gpu_instancing; a primitive: KHR_draco_mesh_compression,
+//     KHR_materials_variants; a mesh, accessor, bufferView, buffer, sampler, scene or the root) is
+//     refused, because its indices would point into the Lobby (security review 5, LOW-1).
+//   Tests: node merge_glb.test.mjs (crafted orbs against a synthetic Lobby).
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 
@@ -40,6 +46,19 @@ for (const im of S.images || []) if (im.bufferView === undefined || im.uri !== u
 // copied un-offset and point at a Lobby image: refused (security review 4, LOW-1).
 for (const t of [...(S.textures || []), ...(S.images || [])]) for (const [k, v] of Object.entries(t.extensions || {}))
   if (v && typeof v === 'object' && 'source' in v) throw new Error('orb texture or image has a source index inside the extension ' + k + '; merge_glb does not remap extension indices');
+// Every other extension, wherever it sits, is refused: the merger re-numbers none of their indices.
+function refuseUnmappedExtensions(v, path) {
+  if (Array.isArray(v)) { v.forEach((x, i) => refuseUnmappedExtensions(x, `${path}[${i}]`)); return; }
+  if (!v || typeof v !== 'object') return;
+  for (const [k, x] of Object.entries(v)) {
+    const here = path ? `${path}.${k}` : k;
+    if (k === 'extensions' && !/^(materials\[\d+\]|textures\[\d+\]$|images\[\d+\]$)/.test(path)) {
+      throw new Error(`orb carries extensions at ${here} (${Object.keys(x || {}).join(', ')}); merge_glb re-numbers no extension indices, so it refuses them`);
+    }
+    refuseUnmappedExtensions(x, here);
+  }
+}
+refuseUnmappedExtensions(S, '');
 if (G.buffers.length !== 1 || S.buffers.length !== 1) throw new Error('expected one buffer each');
 
 const base = pad4(L.bin.length);

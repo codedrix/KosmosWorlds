@@ -521,10 +521,10 @@ fn a_watcher_sees_the_arc_only_never_sends_a_press_or_keeps_a_token() {
     assert_eq!(fetches(), before, "a watcher's press is never sent");
     // The centre panel sits on the turning axis: a point there stays put sideways, drops to
     // the floor, and the viewer's right flips. Other groups stay parked.
-    let q = place(G_ARC, [WATCH_PIVOT_X, 3.0 - PARK_DROP_M, 0.0], 0.5);
+    let q = place(G_ARC, [WATCH_PIVOT_X, 3.0 - PARK_DROP_M, 0.0], 0.5, true);
     assert!(close3(q, [WATCH_PIVOT_X, 3.0 - WATCH_LOWER_M, 0.5]), "{q:?}");
     let parked = [13.8, 3.0 - PARK_DROP_M, 0.0];
-    assert!(close3(place(G_LEDGE, parked, 0.0), parked));
+    assert!(close3(place(G_LEDGE, parked, 0.0, true), parked));
     snap("AB1\nV 6\nE watch_refused\n");
     assert!(unsafe { WATCH_ENDED });
     close_panel();
@@ -1099,10 +1099,57 @@ fn the_floor_ring_stays_on_the_hall_floor_whatever_the_handles_do() {
     run(0.6);
     assert!(!vis("McFloorRing"), "folded away");
     close_panel();
-    // A watcher's mirrored copy never shows it.
-    unsafe { MODE = Mode::Watcher; }
-    assert!(held_back(FLOOR_I));
-    unsafe { MODE = Mode::Closed; }
+    // A watcher never shows it: a_watcher_through_the_wire_never_sees_the_floor_ring_or_an_owner_node.
+}
+
+/// The real watch path (the Watch post, the typed code, `watch` polls answered through
+/// apply_snapshot): every frame, the floor ring and every owner-only node stay hidden, the
+/// host is never told to show them, and the arc itself shows.
+#[test]
+fn a_watcher_through_the_wire_never_sees_the_floor_ring_or_an_owner_node() {
+    reset();
+    press("McWatchJoin");
+    unsafe { PROMPT_ANSWER[..7].copy_from_slice(b"412 892"); }
+    on_prompt_result(0, 0, REQ_PROMPT_WATCH, 7);
+    assert_eq!(mode(), Mode::Watcher);
+    let owner_only: Vec<usize> = (0..N_ALL).filter(|&i| group(i) != G_ARC && !is_fixture(i)).collect();
+    assert!(owner_only.len() > 30, "the seal, ledge and puck groups: {}", owner_only.len());
+    let check = |when: &str| {
+        let ring = unsafe { host::VIS[h("McFloorRing") as usize] };
+        assert!(ring != 1, "{when}: the floor ring was shown to a watcher");
+        for &i in &owner_only {
+            let hd = unsafe { HANDLES[i] } as usize;
+            assert!(unsafe { host::VIS[hd] } != 1, "{when}: {} was shown to a watcher", node_name(i));
+        }
+    };
+    check("joined");
+    // The owner's whole face arrives through the watch poll: the arc and every owner-only thing.
+    let mut s = full_arc_snapshot();
+    s += "U CubeA 1\nT TxCubeA x\nH CubeA need\nU CubeB 1\nH CubeB calm\nU CubePlus 1\nT TxPuck x\nU BtnPuckApprove 1\nU BtnPuckDeny 1\nH Puck need\nT TxSeal KXT WMP\nH SealRing armed\nU BtnSealType 1\nZ 2\n";
+    run(0.1);
+    assert_eq!(unsafe { LAST_PATH }, PATH_WATCH, "a watch poll went out");
+    snap(&s);
+    check("first answer");
+    for k in 0..40 {
+        k_tick(DT);
+        check(&format!("frame {k}"));
+    }
+    assert!(vis("McCenterFrame"), "the watcher's arc shows");
+    // The handles move a watcher's arc too; the ring still never shows.
+    for hd in ["McMoveUp", "McMoveFarther", "McMoveLeft", "McMoveDown", "McMoveDown", "McMoveCloser"] {
+        press(hd);
+        run(0.1);
+        check(hd);
+    }
+    // A fold and an unfold seen by the watcher (the owner's M changes).
+    snap("AB1\nV 7\nM cubes\nZ 3\n");
+    run(0.6);
+    check("folded");
+    snap(&s);
+    run(0.6);
+    check("unfolded again");
+    assert!(!vis("McFloorRing"));
+    close_panel();
 }
 
 /// Mirrors blender/build_panel.py's ledge: LEDGE_X, the cube slots, CUBE, the need halo

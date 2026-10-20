@@ -17,8 +17,9 @@ package.
   register) and WASM_007 (level 4 against the vendored deployed hint of 2). The art pass's three
   PNGs carry no hidden data (IHDR, IDAT, IEND only), so they raise no SEC_004. It runs end to end
   against the v2.1 bridge in `mockhost.mjs` and was reviewed in lit renders. **Not published**: the
-  CEO sees the renders first, and publishing the Lobby is Class C. The package version stays 1.2.0
-  until the lead picks it.
+  CEO sees the renders first, and publishing the Lobby is Class C. The candidate is **Lobby 1.3.0**
+  (1.1.1 plus Mission Control v2, built fresh from the live 1.1.1 package; 1.2.0 carried v1), to
+  be published unlisted by the lead after the re-review.
 - **Host API level:** **4** (`k_net_*`, `OnNetResult`); also level 3 (`k_haptic_pulse`, `k_log`)
   and level 2 (`k_ui_prompt`). Nothing new is asked of the client.
 - **Capabilities added to the Lobby's `audio`:** `scene_read`, `scene_write`, `transform`, `events`,
@@ -156,9 +157,9 @@ above the bar.
 | Path | What it is |
 |---|---|
 | `V2_CONTRACT.md`, `nodes.json` | the contract and the node list (both owned by the bridge lane; a host test pins the node list) |
-| `src/lib.rs`, `src/tests.rs`, `Cargo.toml`, `build.rs` | the Lobby's program (the music plus Mission Control) and its 32 host tests |
+| `src/lib.rs`, `src/tests.rs`, `Cargo.toml`, `build.rs` | the Lobby's program (the music plus Mission Control) and its 33 host tests |
 | `world.wasm` | the built program; it becomes the Lobby's `module.wasm`; it rebuilds byte-identical from a fresh checkout |
-| `mc_assembly.glb` | every node (parked), merged into the Lobby's `scene.glb`; carries three embedded PNGs (the floor ring, 2048 x 1024; two halos, 128 x 128), which `lobby/merge_glb.mjs` appends with their images, sampler and textures (every original Lobby index still checked identical) |
+| `mc_assembly.glb` | every node (parked), merged into the Lobby's `scene.glb`; carries three embedded PNGs (the floor ring, 2048 x 1024; two halos, 128 x 128), which `lobby/merge_glb.mjs` appends with their images, sampler and textures (every original Lobby index still checked identical; any extension whose indices it would not re-number is refused; `lobby/merge_glb.test.mjs` runs 19 crafted orbs against it) |
 | `lobby-manifest.patch.json` | what the package changes in the Lobby's manifest |
 | `bridge-origin.txt` | the origin compiled into the program |
 | `audio/chime.wav` | the approval chime |
@@ -168,17 +169,18 @@ above the bar.
 | `review/synthetic/*.snapshot` | contract-shaped stand-ins, from `make_synthetic_snapshots.mjs` |
 
 Tools live in `../mission-control-tools/` (ASSET_006 refuses a `.ps1` in a bundle):
-`build_wasm.ps1`, `make_chime.mjs`, `make_synthetic_snapshots.mjs`, `set-bridge-host.mjs`,
-`mockhost.mjs`, and `lobby/`.
+`build_panel.ps1` (the Blender build, with its negative control), `build_wasm.ps1`, `make_chime.mjs`,
+`make_synthetic_snapshots.mjs`, `set-bridge-host.mjs`, `mockhost.mjs`, and `lobby/`.
 
 ## Rebuilding
 
 ```
 node agent-bridge/scripts/write-nodes-json.mjs                 (bridge lane; after npm run build)
 node agent-bridge/scripts/capture-review-snapshots.mjs         (bridge lane: review/*.snapshot)
-"E:/Blender/blender-5.1/Blender Foundation/Blender 5.1/blender.exe" -b -P mission-control/blender/build_panel.py
+powershell -NoProfile -ExecutionPolicy Bypass -File mission-control-tools\build_panel.ps1 [-- --no-render]
 powershell -NoProfile -ExecutionPolicy Bypass -File mission-control-tools\build_wasm.ps1
 node mission-control-tools/mockhost.mjs                         (AGENT_BRIDGE_DIST=<dist/src> for another checkout)
+node mission-control-tools/lobby/merge_glb.test.mjs
 node mission-control-tools/lobby/package_lobby.mjs <live lobby 1.1.1 package> <out>
 node <publisher 0.8.1 or later>/packages/cli/dist/index.js validate <out> --offline
 ```
@@ -187,6 +189,14 @@ node <publisher 0.8.1 or later>/packages/cli/dist/index.js validate <out> --offl
 folder (`MC_SNAPSHOTS=review/synthetic` for the stand-ins); `-- --only arc,watcher` renders a
 subset; `-- --no-render` only exports. An older publisher (0.5.x) has no `--offline` and fails the
 level-3/4 imports.
+
+`build_panel.ps1` runs Blender twice, both with `--python-exit-code 1`. First the **negative
+control** (`MC_AUDIT_NEGATIVE=1`): `build_panel.py` restores the round-4 floor decal and need halo,
+and its audit must refuse them; the script stops if that run exits 0, if the audit did not trip on
+the floor ring, or if `mc_assembly.glb` changed. Then the real build. In both, the contract check
+and the two-layer audit run **before** the export, so a failure exits non-zero and writes no GLB.
+Run `build_panel.py` directly only with `--python-exit-code 1` (it also exits 1 itself on any
+failure).
 
 `mockhost.mjs` runs **two copies** of the built program in Node with every `kosmos.*` import
 stubbed and `k_net_*` sent over real HTTP to a local bridge (fake adapter), and runs the bridge's
@@ -257,15 +267,16 @@ chrome (no amber Kosmos logo, no system-sheet shapes; the buttons and panels are
 own); white text sits on darker glass than before. **Two stacked translucent layers at most:**
 each panel is a single quad; button fills, cube cores and the shelf are opaque. How it is checked,
 three ways:
-1. **On the real meshes** (`build_panel.py` `audit_layers`, every full build): 265,041
+1. **On the real meshes** (`build_panel.py` `audit_before_export`, every build, before the export): 265,041
    sightlines from the eye, every 0.25 degrees across azimuth -75 to 75 and elevation -70 to 40,
    counting Mission Control's translucent faces before anything opaque, faces seen from behind
    culled, the decal and halos counted over their whole quads. Three states, each with every
    cube and the puck in need: the seal raised, folded, and the arc open. All three: worst 2, none
-   over two; with the arc open, 2,707 sightlines reach the floor ring through one layer and 658
-   through two. **Negative control:** with the decal and halo put back where the review found
-   them, the same audit stops the build: 672 sightlines through three layers, CubeC + its need
-   halo + the floor ring, the review's MEDIUM-2 exactly.
+   over two; with the arc open, 2,707 sightlines reach the floor ring through one layer and 656
+   through two. **Negative control** (committed: `MC_AUDIT_NEGATIVE=1`, run by `build_panel.ps1`
+   before every build): with the decal and halo put back where review 4 found them, the audit
+   refuses the build before any export: 672 sightlines through three layers, CubeC + its need
+   halo + the floor ring, the review's MEDIUM-2 exactly; Blender exits 1 and the GLB is untouched.
 2. **Every handle setting** (host test
    `no_sightline_to_the_floor_ring_crosses_two_other_translucent_layers`): for each setting the
    handles can reach where the ring shows, 4,961 sightlines to the decal are cast against both
@@ -274,8 +285,10 @@ three ways:
    `floor_clear` before it shipped: only the plate's near face was tested.)
 3. **The ring never moves** (host test `the_floor_ring_stays_on_the_hall_floor_whatever_the_handles_do`):
    at every one of the handles' 500-plus settings the ring's position is unchanged, and it shows
-   exactly when `floor_clear` says nothing stacks over it; it still folds with the arc, and a
-   watcher never sees it.
+   exactly when `floor_clear` says nothing stacks over it; it still folds with the arc. A watcher
+   never sees it: `a_watcher_through_the_wire_never_sees_the_floor_ring_or_an_owner_node` joins
+   through the Watch post and the `watch` polls, and checks every frame, every handle press, a
+   fold and an unfold that neither the ring nor any seal, ledge or puck node is ever shown.
 
 **What the look review iterated on:** the floor decal and halos first rendered blank (the joined
 parts lost their UV layer; fixed); a decal on the dais hid behind the ledge (moved to the hall

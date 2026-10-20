@@ -288,7 +288,8 @@ that and change that, especially because this is specifically for the lobby worl
 
 The full art direction is `E:\wt\work-in-vr-design\ART_DIRECTION_HOLO_GLASS.md`, and its guardrails are
 binding. Everything is authored geometry, materials and bundle textures: no new host function, no node
-renamed, no layout change. The `nodes.json` contract and every behaviour in §1–§8 are unchanged.
+renamed, no layout change. Every behaviour in §1–§8 is unchanged, and `nodes.json` gains exactly one
+world-only node, `McFloorRing` (the floor ring, 9.10), at the end of its world list.
 
 1. **Panels** (the centre panel, the side panels, the ask plate, the browser spot, the chrome bar):
    - smoked glass about 1 cm thick, no bevels or chunky boxes;
@@ -334,9 +335,14 @@ renamed, no layout change. The `nodes.json` contract and every behaviour in §1�
       dais from the eye. The ring is pinned to the floor and never follows the arc handles.
     - **Halos:** one behind the seal ring, and one behind each cube whose job needs you. Need halos never
       overlap each other, and never overlap the floor decal as seen from the eye. The two-layer rule
-      holds everywhere.
+      holds in every resting state: the floor ring hides where it would not (while the arc is one or
+      more steps Nearer or Down, the ask plate would lie over it), and during the 0.5 s unfold and
+      0.4 s fold the shrinking ring travels with the arc and may pass behind the ask plate for a
+      moment. The Blender build audits the three resting states before it exports, and refuses the
+      round-4 geometry as its negative control.
     - **Texture colours are written in sRGB**: the palette's #5fe6ff cyan and #f3a83a amber.
     - **Watchers don't see the floor ring**, because their mirrored copy would put it under the floor.
     - **The seal rings turn 6° a second**, in plane, one host call a frame.
     - **`merge_glb.mjs` merges textures** with their indices shifted. It refuses any texture or image
-      extension that carries its own `source` index.
+      extension that carries its own `source` index, and any extension anywhere else (a node, a mesh
+      primitive, an accessor, the root...) whose indices it would copy un-offset.

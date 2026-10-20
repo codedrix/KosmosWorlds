@@ -161,6 +161,16 @@ FLOOR_W, FLOOR_D, FLOOR_R = 3.6, 1.4, 0.56
 # Its top stays at 0.93 so its sightlines land short of the floor decal (the host test
 # no_sightline_to_the_floor_ring_crosses_two_other_translucent_layers mirrors these).
 HALO_W, HALO_Z0, HALO_Z1 = 0.24, 0.71, 0.93
+# MC_AUDIT_NEGATIVE=1: the negative control. Restores the round-4 decal and halo (the decal 3.7 to
+# 5.5 m out, ring 0.78 m; the halo 30 x 30 cm up to 1.032 m), which correctness review 4 found
+# stacking three layers (a need cube's glass + its halo + the decal). The pre-export audit must
+# refuse it (CubeC + CubeCNeed + McFloorRing): this run must exit non-zero and write no GLB.
+# mission-control-tools/build_panel.ps1 runs it before every real build and fails if it passes.
+NEGATIVE = os.environ.get("MC_AUDIT_NEGATIVE") == "1"
+if NEGATIVE:
+    FLOOR_X, FLOOR_D, FLOOR_R = 4.6, 1.8, 0.78
+    HALO_W, HALO_Z0, HALO_Z1 = 0.30, 0.732, 1.032
+    print("[mission-control] MC_AUDIT_NEGATIVE=1: round-4 geometry; the audit must refuse it")
 # The floor ring's node (a world-only node in nodes.json): pinned to the floor, never in a
 # watcher's copy (src/lib.rs FLOOR_I).
 FLOOR_NODE = "McFloorRing"
@@ -1124,7 +1134,7 @@ def world_text(anchor_obj, text, dx_m=0.0):
     REVIEW_OBJS.append(o)
 
 
-def apply_view(snaps, mode="owner", stage="signed", arc_e=None, picked=None):
+def apply_view(snaps, mode="owner", stage="signed", arc_e=None, picked=None, words=True):
     """Show what src/lib.rs would show.
 
     snaps:  snapshot names applied in order (review/synthetic/<name>.snapshot)
@@ -1132,6 +1142,7 @@ def apply_view(snaps, mode="owner", stage="signed", arc_e=None, picked=None):
     stage:  "seal" (the ring up), "signed" (ledge + puck, plus the arc when arc_e is set)
     arc_e:  None (folded), or the unfold's eased progress 0..1 (1 = open)
     picked: the cube the arc unfolded from (hidden while it is open)
+    words:  draw the plaques' words (False for the audit: text is opaque and not counted)
     """
     clear_review()
     texts, offsets, wants, hues = {}, {}, {}, {}
@@ -1184,7 +1195,7 @@ def apply_view(snaps, mode="owner", stage="signed", arc_e=None, picked=None):
         else:
             o.hide_render = not shown(n)
     for n, t in texts.items():
-        if n in NODES["text"] and shown(n) and t:
+        if words and n in NODES["text"] and shown(n) and t:
             world_text(built[n], t, offsets.get(n, 0.0))
 
     if tweening:
@@ -1265,6 +1276,38 @@ def audit_layers(tag, step_deg=0.25):
           f"{over} over two; through the floor ring: {on_floor}; deepest at az {deep[0] if deep else 0:.2f} el {deep[1] if deep else 0:.2f}: {deep[2] if deep else []}")
     assert over == 0, f"layer audit ({tag}): {over} sightlines cross three or more translucent layers"
     return worst
+
+
+def audit_before_export():
+    """The two-layer audit (audit_layers) in its three states, run on the built nodes inside the
+    live Lobby BEFORE anything is exported: the Lobby is imported for occlusion, audited, then
+    removed again with everything the import made, and every node is put back as it was (the
+    exporter writes the whole scene). Raises on any sightline through three layers."""
+    before_objs = set(bpy.data.objects)
+    before_cols = set(bpy.data.collections)
+    scene = bpy.context.scene
+    before_keys = set(scene.keys())  # the import copies the Lobby's scene extras onto ours
+    hidden = {n: o.hide_render for n, o in built.items()}
+    bpy.ops.import_scene.gltf(filepath=LOBBY_GLB)
+    try:
+        apply_view(["pair"], stage="seal", words=False)
+        audit_layers("the seal raised")
+        apply_view(["cubes_need"], words=False)
+        show_every_need()
+        audit_layers("folded, every cube in need, the puck in need")
+        apply_view(["arc"], arc_e=1.0, picked="CubeA", words=False)
+        show_every_need()
+        audit_layers("arc open, every cube in need, the puck in need")
+    finally:
+        clear_review()
+        for n, o in built.items():
+            o.hide_render = hidden[n]
+        for o in set(bpy.data.objects) - before_objs:
+            bpy.data.objects.remove(o, do_unlink=True)
+        for c in set(bpy.data.collections) - before_cols:
+            bpy.data.collections.remove(c)
+        for k in set(scene.keys()) - before_keys:
+            del scene[k]
 
 
 def show_every_need():
@@ -1386,26 +1429,18 @@ def review():
 
     apply_view(["pair"], stage="seal")
     render(cam_seal, "seal_ring.jpg")
-    if ONLY is None or "audit" in ONLY:
-        audit_layers("the seal raised")
     apply_view(["pair", "paired"], stage="seal")
     render(cam_seal, "seal_locked.jpg")
     apply_view(["cubes"])
     render(cam_cubes, "cubes_calm.jpg")
     apply_view(["cubes_need"])
     render(cam_cubes, "cubes_need.jpg")
-    if ONLY is None or "audit" in ONLY:
-        show_every_need()
-        audit_layers("folded, every cube in need, the puck in need")
     render(cam_puck, "puck_close.jpg")
     apply_view(["arc"], arc_e=1.0, picked="CubeA")
     render(cam_arc, "arc.jpg", eye=True)
     render(cam_arc_left, "arc_left.jpg", eye=True)
     render(cam_arc_right, "arc_right.jpg", eye=True)
     render(cam_floor, "arc_floor.jpg")
-    if ONLY is None or "audit" in ONLY:
-        show_every_need()
-        audit_layers("arc open, every cube in need, the puck in need")
     apply_view(["arc"], arc_e=0.5, picked="CubeA")
     render(cam_arc, "arc_unfolding.jpg", eye=True)
     clear_review()
@@ -1482,7 +1517,12 @@ def main():
     panel = list(bpy.data.objects)
     place_panel(panel)
     build_fixtures()
+    # Both gates run BEFORE the export (correctness review 5, LOW-2): a failure leaves no fresh
+    # GLB on disk and exits non-zero (see the end of this file).
     check_contract()
+    audit_before_export()
+    if NEGATIVE:
+        raise AssertionError("MC_AUDIT_NEGATIVE=1: the round-4 geometry passed the audit")
     move_all(panel, -PARK_DROP)
     export_glb()
     move_all(panel, PARK_DROP)
@@ -1490,4 +1530,11 @@ def main():
         review()
 
 
-main()
+try:
+    main()
+except Exception as e:  # noqa: BLE001 - any failure: report it and exit non-zero, never 0
+    import traceback
+    traceback.print_exc()
+    print(f"[mission-control] BUILD FAILED: {e}")
+    sys.stdout.flush()
+    os._exit(1)
