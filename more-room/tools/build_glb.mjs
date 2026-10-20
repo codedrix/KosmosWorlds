@@ -455,11 +455,11 @@ function palette(g, variant) {
   const unlit = (name, rgb) => g.material(name, rgb, { unlit: true });
   // Every surface is UNLIT, so it never catches a light or a specular streak (the
   // headset renders LDR; lit glass read as a grey wall and washed out the words on it).
-  // Text fields, capsules, pills, chips and the cocoon are SOLID near-black glass: the
-  // references keep text fields clean, and a translucent field showed the now bar and
-  // the ring through the banner's words (review round 1). Only the ring's band, the MR
-  // plates and the halo are translucent, so no pixel sees more than two translucent
-  // layers; the floor decal is a cut-out drawn in the opaque pass.
+  // Text fields, capsules, pills and chips (and the VR cocoon) are SOLID near-black
+  // glass: the references keep text fields clean, and a translucent field showed the now
+  // bar and the ring through the banner's words (review round 1). Only the ring's band,
+  // the MR plates, the halo and the MR cocoon are translucent, so no pixel sees more
+  // than two translucent layers; the floor decal is a cut-out drawn in the opaque pass.
   return {
     floor: unlit("Floor", [0.008, 0.012, 0.02]),
     floorDecal: variant === "vr" ? g.material("FloorDecal", [1, 1, 1], { unlit: true, texture: g.texture("FloorRing", floorTexture()), mask: true, doubleSided: true }) : undefined,
@@ -468,7 +468,9 @@ function palette(g, variant) {
     glassPill: unlit("GlassPill", [0.02, 0.07, 0.09]),
     glassNow: unlit("GlassPillNow", [0.13, 0.075, 0.018]),
     glassPast: unlit("GlassPillPast", [0.012, 0.017, 0.026]),
-    cocoon: unlit("CocoonGlass", [0.003, 0.006, 0.012]),
+    // VR: solid. MR: see-through, so the real room (the desk, what you could walk into)
+    // stays in view in Focus; with the band hidden in Focus it is the only glass there.
+    cocoon: variant === "mr" ? g.material("CocoonGlass", [0.003, 0.006, 0.012], { alpha: 0.8, unlit: true }) : unlit("CocoonGlass", [0.003, 0.006, 0.012]),
     band: g.material("BandGlass", [0.004, 0.008, 0.016], { alpha: variant === "mr" ? 0.8 : 0.6, unlit: true }),
     plate: g.material("TextPlate", [0.004, 0.008, 0.016], { alpha: 0.84, unlit: true }),
     shelfVr: unlit("ArcShelf", [0.02, 0.03, 0.045]),
@@ -679,8 +681,8 @@ function scripted(g, P, variant) {
 
   // --- The stage, front and centre: the brief, prep, wrap-up, About.
   plaque(g, P, "TxtStage", 1.7, 0, 1.2, 1.5, 0.44, 4, anchor("text"));
-  capsule(g, P, "BtnPrepClose", 1.6, 33, 1.05, 0.36, 0.11, P.cyan);
-  capsule(g, P, "BtnAboutNext", 1.6, 33, 1.05 + 0.0001, 0.36, 0.11, P.cyan);
+  capsule(g, P, "BtnPrepClose", 1.6, 31, 1.05, 0.33, 0.11, P.cyan);
+  capsule(g, P, "BtnAboutNext", 1.6, 31, 1.05 + 0.0001, 0.33, 0.11, P.cyan);
 
   // --- The landing arc. VR: a curved low shelf of dark flat facets with a light
   //     edge; MR: only the light edge (the floor ring is projected on the real floor).
@@ -737,7 +739,7 @@ function scripted(g, P, variant) {
   stud(g, P, "TxtNext", at(1.4, 0, 1.72));
   for (let k = 0; k < L.cocoonFacets; k++) {
     const deg = (k * 360) / L.cocoonFacets;
-    const w = 2 * L.cocoonR * Math.tan((180 / L.cocoonFacets) * RAD) + 0.01;
+    const w = 2 * L.cocoonR * Math.tan((180 / L.cocoonFacets) * RAD) + (variant === "mr" ? 0 : 0.01);
     g.node(`Cocoon${String.fromCharCode(65 + k)}`, at(L.cocoonFromR, deg, L.cocoonY), [
       [boxGeom([0.02, 2.6, w]), P.cocoon],
       [boxGeom([0.004, 0.004, w * 0.9], [FRONT - 0.01, 0.9, 0]), P.teal],
@@ -833,7 +835,7 @@ function mrRoom(g, P) {
  */
 export const PLATES = [
   // name, text centre (glTF), text width x height (m)
-  ["PlateStatus", [...at(1.45, -60, 0.92)], [0.95, 0.2]],
+  ["PlateStatus", [...at(1.45, -60, 0.92)], [1.05, 0.2]],
   ["PlateInbox", [LAYOUT.well[0], 0.92, LAYOUT.well[2]], [0.5, 0.28]],
   ["PlateLater", [...at(1.0, LAYOUT.pileLaterDeg, 0.88)], [0.42, 0.12]],
   ["PlateDone", [...at(1.0, LAYOUT.pileDoneDeg, 0.88)], [0.42, 0.12]],

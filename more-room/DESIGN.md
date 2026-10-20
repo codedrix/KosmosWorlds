@@ -73,7 +73,7 @@ Distances are from where you stand when the world loads, facing forward (+X), wi
 
 **The look: holographic glass** (CEO, 2026-10-19, on the first v2 renders: "It looks like very early-2000s forms when we have the ability to improve that and change that"). The direction is `work-in-vr-design/ART_DIRECTION_HOLO_GLASS.md`, after two references the CEO sent. All of it is authored geometry, materials and bundle textures, so it runs on today's API:
 - **Everything is unlit** (`KHR_materials_unlit`), so nothing catches a light or a specular streak. The first glass pass was lit: the ring's band read as a grey wall and glare washed out button labels.
-- **Text sits on solid near-black glass.** Panels, capsules, pills, cards and the focus cocoon are solid, darker than the room around them. The references keep their text fields clean; a translucent banner let the now bar and the ring labels run through its words (review round 1). Only three things are translucent: the Day Ring's band (alpha 0.6 VR, 0.8 MR), the MR plates (0.84) and the halo.
+- **Text sits on solid near-black glass.** Panels, capsules, pills and cards are solid, darker than the room around them; so is the focus cocoon in VR. The references keep their text fields clean; a translucent banner let the now bar and the ring labels run through its words (review round 1). Translucent: the Day Ring's band (alpha 0.6 VR, 0.8 MR), the MR plates (0.84), the halo, and in MR the cocoon (0.8: passthrough never hides a virtual pixel, so a solid cocoon would hide the real room, and Guardian is off while passthrough shows).
 - **Light bars carry the structure**: a 3 mm unlit cyan bar along each panel's top and bottom, small teal corner brackets. Every light is an unlit colour at most 1.0 (the headset renders LDR, with no bloom), so it reads crisp, not glowing. Amber marks only what needs you (the now bar, the banner, a VIP); green and red only Approve and Deny.
 - **The Day Ring is a segmented light ring**: 120 dashes with hour ticks, two teal hairline rails, and a dark glass band of 21 facets behind it, in both worlds.
 - **Buttons are outlined glass capsules**, the label printed on the glass: a thin cyan outline over a dark fill (Approve green, Deny red).
@@ -82,7 +82,7 @@ Distances are from where you stand when the world loads, facing forward (+X), wi
 - **One faked halo**: a soft amber quad behind the top of the now bar. It also hides in triage and focus.
 - **The window** is a sky gradient (a small texture per pane), with stars at night; its sill is a glass panel.
 - **No fake readable data**: every readable word is real world text.
-- **The translucency guardrail** (no pixel behind more than two translucent layers) holds by construction: the only translucent surfaces are the band, the MR plates and the halo, and no two of the three are ever in line with a third. The halo has only the band behind it; a plate has at most the band behind it; everything in front of them is solid. The frame time is a device check (section 9, item 11).
+- **The translucency guardrail** (no pixel behind more than two translucent layers) holds by construction: the only translucent surfaces are the band, the MR plates, the halo and the MR cocoon. The halo has only the band behind it; a plate has at most the band behind it; in Focus the band and the halo are hidden, so the MR cocoon has at most a plate behind it, and its facets meet edge to edge rather than overlapping; everything in front of them is solid. The frame time is a device check (section 9, item 11).
 - **Never Kosmos chrome**: no amber Kosmos logo and no menu or sheet shapes; the room's capsules and panels are its own.
 
 A side-by-side sheet against the two references is made by `tools/make_sheet.py`; the references are the CEO's and stay outside this repo, so the sheet does too.
@@ -121,6 +121,7 @@ Renders: [renders/](renders/), as `vr-<mode>-<view>.jpg` and `mr-<mode>-<view>.j
 
 ### Triage
 - **The cards rise:** five cards rise from the arc and fan out face-up at reading height (sender and subject), unread VIPs first in an amber frame. Their discs leave the arc while they are up.
+- **The ring clears in front of you:** the banner rises to just under the ring, so the pills, labels and now bar within 24° of now step aside (`TRIAGE_CLEAR_DEG`); seen seated, the banner would otherwise cut them in half (review, glass round 2).
 - **Press a card in the fan** to read it: the reading card rises in front of you (from, subject, a preview), with five capsules under it.
 - **Done** archives it to the Done pile; **Later** snoozes it to the Later pile; **Mute** sends it to the quiet shelf behind you; **Task** ("Make a task") creates a Linear ticket from it, and the status names the ticket.
 - **Reply** ("Claude drafts reply"): the bridge asks Claude for a draft, which takes the reading card's place, front and centre, as "Draft to …" in pages of three lines; **Approve**, **Deny** and **More 1/3** take the action row's place while it waits.
@@ -160,14 +161,14 @@ Every number below was measured by running the built `world.wasm`:
 
 | Budget | Limit (source) | Sample day | Heavy day (`tools/stress.mjs`) |
 |---|---|---|---|
-| World texts at once | 32 (`KWasm::MAX_WORLD_TEXT`) | peak 26 | busiest screen (triage: the fan, a long draft up front, both piles): 23 |
+| World texts at once | 32 (`KWasm::MAX_WORLD_TEXT`) | peak 25 | busiest screen (triage: the fan, a long draft up front, both piles): 22 |
 | Bytes per text / lines | 128 / 4, refused not cut | every text built by `text::Lines`; 0 refusals | 0 refusals |
 | Created objects | 128 (`MAX_CREATED_NODES`) | peak 30 | peak 39 (30 cards drawn + 8 events) |
 | Creates per frame | 16 (`MAX_NODE_CREATES_PER_FRAME`) | at most 12 (the script's own cap; the rest wait a frame) | at most 12 |
 | Request body | 16 KiB | largest 83 B | — |
 | Answer | 256 KiB, text or JSON only | largest 4.8 KB (the whole sample day) | 7.7 KB for 40 messages |
 | Requests | 4 in flight, 1 a second with bursts of 10 | 15 polls plus presses; never rate-limited | — |
-| Wasm | 256 KB | 107.7 KB (6.4 KB of it is the built-in sample, about 20 KB a scratch day a live answer is read into first) | — |
+| Wasm | 256 KB | 107.9 KB (6.4 KB of it is the built-in sample, about 20 KB a scratch day a live answer is read into first) | — |
 | Triangles | 1,000,000 | 16,846 VR, 16,676 MR (doctor; the glass pass added light bars, capsules and rings) | — |
 | Texture memory | 48 MB | 4.2 MB VR (the floor decal, the halo and three window skies), 0.2 MB MR (no floor decal) | — |
 
@@ -189,7 +190,7 @@ Every number below was measured by running the built `world.wasm`:
 | Wrap-up | about 21 |
 
 **Test totals:**
-- `tools/scenario.mjs`: 308 checks across both worlds, all passing (including the halo, the band in both worlds, and the MR plate names matching between the scene and the script). Part 1 runs the built-in sample with **no request at all**: the ring turning with the clock, a past/now/later pill (and 25 minutes on, the counsel call amber under the now bar), prep, About, the cocoon closing in, the fan rising, the reading card rising, every triage action and the wrap-up. Part 2 signs in and runs the live day: a cut answer, a card falling onto the well, a VIP's single tick in focus, the VIPs leading the fan, Approve reaching the bridge, a sign-out and network off;
+- `tools/scenario.mjs`: 310 checks across both worlds, all passing (including the halo, the band in both worlds, the ring clearing in triage, and the MR plate names matching between the scene and the script). Part 1 runs the built-in sample with **no request at all**: the ring turning with the clock, a past/now/later pill (and 25 minutes on, the counsel call amber under the now bar), prep, About, the cocoon closing in, the fan rising, the reading card rising, every triage action and the wrap-up. Part 2 signs in and runs the live day: a cut answer, a card falling onto the well, a VIP's single tick in focus, the VIPs leading the fan, Approve reaching the bridge, a sign-out and network off;
 - `cargo test`: 21 host tests, including "the baked sample is a complete DAY/1 day", "every About page fits whole", the ring's angles, and the sine and cosine the room computes without a math library;
 - `kosmos-wp validate` and `bundle` at publisher main `fced9cf` (CLI 0.8.1, 83 rules) pass both worlds against level 4;
 - `kosmos-wp doctor`: VR 17 ✅, 0 ⚠️, 0 ❌; MR 17 ✅, 0 ⚠️, 0 ❌;
@@ -341,7 +342,7 @@ Each was found reading the client at the cooked commit, or in the lit review of 
 1. Open each world: it is full at once on the sample day, with the banner. Press Sign in: the system sheet names the world (its address and author), and the room's own prompt text says the passphrase goes to your bridge. A wrong passphrase says so, and the right one switches to the bridge's day.
 2. About: all seven pages are readable from where you stand, and Next and Close about work.
 3. The Day Ring: is it readable and comfortable at 2.4 m, standing and seated? Does it turn smoothly (no judder) as the minutes pass? Do the labels face you, and does a label shown again after its pill moved look right? Does the amber now bar read as "now"?
-4. The cocoon: does it close in smoothly, and does Focus feel calmer, not claustrophobic? Do the facets draw correctly over passthrough in MR (mobile alpha)?
+4. The cocoon: does it close in smoothly, and does Focus feel calmer, not claustrophobic? It is solid in VR and see-through (alpha 0.8) in MR. **Safety, MR:** Guardian is suppressed while passthrough renders, so check that the desk and anything you could walk into stay visible through it. Do the facets draw correctly over passthrough (mobile alpha)?
 5. Cards: does a new card falling onto the arc read as landing, not popping? Do the fan and the reading card rise smoothly, and is the fan readable at 1.75 m?
 6. The text is readable at eye height in VR and in MR (plates against a real wall). Is the open card readable over a real monitor? Do translucent plates and mats draw correctly over passthrough on the headset (mobile alpha)? Do the 1 cm text-anchor studs show as specks on a real wall? Is the inbox count on the well readable in MR (it has its own plate, `PlateInbox`)? Is text printed flat on the dark cards as the plaque rule says? Check it all standing **and seated at a real desk**: the plates are sized for any eye from 1.15 m to 1.75 m (`EYE_LOW`, `EYE_HIGH` in `tools/build_glb.mjs`), and the renders include a seated view (`*-seated`).
    - **The glass look on the headset** (2026-10-19): do the unlit glass, the light bars and the textures (the floor decal, the halo, the window skies) draw as in the renders? glTFRuntime must honour `KHR_materials_unlit` with BLEND (the band, the plates, the halo) and MASK (the VR floor decal); the client's source maps both. Is the halo soft, not a hard square? The headset loads textures without mipmaps: does the floor decal shimmer or moiré 2 to 4 m out? Do the thin lines hold or crawl: the 3.5 mm panel bars at 1.4 to 1.8 m, the 2 mm ring rails at 2.4 m and the band's 3 to 4 mm bars at 2.95 m (about 1 px each)? Over passthrough, does the glass read against a real wall as in `mr-*-eye`?
@@ -349,7 +350,7 @@ Each was found reading the client at the cooked commit, or in the lit review of 
 8. Read, Done, Later, Mute, Task, Reply → Approve: each lands where it lives (in the sample, nothing is sent; signed in, Approve reaches Mission Control's approval log).
 9. Focus: a VIP arriving ticks once from the well; a normal message is silent.
 10. Put the headset to sleep and wake it, then turn off the PC: the status says "The bridge did not answer. Is the PC awake?", and nothing crashes.
-11. Frame time with the full room visible stays within 13.8 ms. The room is about 16,800 triangles, 170 authored nodes (VR), several translucent glass panels (the guardrail: never more than two stacked on a pixel) and up to about 40 clones; the ring moves 23 nodes a frame while its clock moves, so it is expected to be fine.
+11. Frame time with the full room visible stays within 13.8 ms. The room is about 16,800 triangles, 170 authored nodes (VR), the VR floor decal (a 6 m alpha-tested cut-out: its alpha-test cost counts), several translucent glass panels (the guardrail: never more than two stacked on a pixel) and up to about 40 clones; the ring moves 23 nodes a frame while its clock moves, so it is expected to be fine.
 
 ## 10. Publishing
 

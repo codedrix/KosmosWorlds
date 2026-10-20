@@ -181,6 +181,10 @@ const SAMPLE: &[u8] = include_bytes!("sample_day.txt");
 /// the 32-text budget, DESIGN.md. Triage shows fewer, focus none.
 pub const CAL_LABELS: usize = 5;
 pub const CAL_LABELS_TRIAGE: usize = 2;
+/// In triage the banner rises to just under the ring; seen seated, it would cut the
+/// pills and labels within this many degrees of now in half (review, glass round 2),
+/// so triage clears that stretch of the ring, the now bar included.
+pub const TRIAGE_CLEAR_DEG: f32 = 24.0;
 /// The fan in triage.
 pub const FAN: usize = 5;
 /// The About panel, one page per press of Next. Each fits 4 lines of 30 characters.
@@ -293,6 +297,8 @@ struct Nodes {
     panes: [i32; 3],
     /// The one faked halo, behind the top of the now bar.
     halo: i32,
+    /// The now bar (hidden in triage, with the stretch of ring around it, and in focus).
+    now_bar: i32,
     fan: [i32; FAN],
     fan_vip: [i32; FAN],
     cocoon: [i32; L::COCOON_FACETS],
@@ -409,6 +415,7 @@ const NO_NODES: Nodes = Nodes {
     ticks: [0; HOUR_TICKS],
     panes: [0; 3],
     halo: 0,
+    now_bar: 0,
     fan: [0; FAN],
     fan_vip: [0; FAN],
     cocoon: [0; L::COCOON_FACETS],
@@ -746,6 +753,7 @@ pub extern "C" fn k_init() {
     n.ticks = find_letters::<HOUR_TICKS>("HourTick");
     n.panes = [find("PaneDay"), find("PaneDusk"), find("PaneNight")];
     n.halo = find("NowHalo");
+    n.now_bar = find("NowBar");
     n.fan = find_letters::<FAN>("Fan");
     n.fan_vip = find_letters::<FAN>("FanVip");
     n.cocoon = find_letters::<{ L::COCOON_FACETS }>("Cocoon");
@@ -965,7 +973,7 @@ fn turn_ring(dt: f32) {
     for e in 0..a.n_event_nodes.min(a.day.n_events) {
         let deg = L::ring_deg(a.day.events[e].start as f32, now);
         let node = a.events[e];
-        let shown = deg.abs() <= L::RING_SHOW_DEG && a.mode != Mode::Focus;
+        let shown = deg.abs() <= L::RING_SHOW_DEG && a.mode != Mode::Focus && !(triage_clears(a) && deg.abs() < TRIAGE_CLEAR_DEG);
         set_vis(node, &mut a.event_vis[e], shown);
         if shown {
             place(node, L::ring_at(deg));
@@ -1858,6 +1866,11 @@ fn event_nodes() {
 /// The Day Ring's labels: a few around now (the one just past, then the next),
 /// on two alternating rows. `reface`: show again any label whose event has
 /// moved round since, so it faces you again.
+/// Triage (not under About) clears the ring within TRIAGE_CLEAR_DEG of now.
+fn triage_clears(a: &App) -> bool {
+    a.mode == Mode::Triage && a.about.is_none()
+}
+
 fn ring_labels(reface: bool) {
     let a = app();
     let budget = if a.about.is_some() || a.mode == Mode::Focus {
@@ -1876,7 +1889,7 @@ fn ring_labels(reface: bool) {
         let node = a.events[e];
         let now = if a.ring_now < 0.0 { a.clock_now() } else { a.ring_now };
         let deg = if e < a.day.n_events { L::ring_deg(a.day.events[e].start as f32, now) } else { 0.0 };
-        let wanted = e < n_ev && e >= first && e < first + budget && deg.abs() <= L::RING_SHOW_DEG;
+        let wanted = e < n_ev && e >= first && e < first + budget && deg.abs() <= L::RING_SHOW_DEG && !(triage_clears(a) && deg.abs() < TRIAGE_CLEAR_DEG);
         if !wanted {
             a.untext(node);
             a.label_deg[e] = f32::NAN;
@@ -2099,6 +2112,7 @@ pub fn render() {
     // The banner sits under the now bar; in triage it moves up, clear of the fan.
     place(n.txt_banner, L::at(L::BANNER_R, 0.0, if triage { L::BANNER_TRIAGE_Y } else { L::BANNER_Y }));
 
+    visible(n.now_bar, !triage && !focus); // focus: it would cross "Next: …" through the MR cocoon
     // The halo hides when the banner (triage) or the cocoon (focus) would stack a
     // third translucent layer on it (the art direction's guardrail).
     visible(n.halo, !triage && !focus);

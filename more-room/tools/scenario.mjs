@@ -211,7 +211,7 @@ function runVariant(variant) {
   host.press("BtnFocusGo");
   host.run(3.1);
   ok(/24:5[67] +focus/.test(host.textOf("TxtTimer") ?? ""), `focus: the timer runs (${host.textOf("TxtTimer")})`);
-  ok(!host.byName.get("NowHalo").visible, "focus: the now halo is hidden");
+  ok(!host.byName.get("NowHalo").visible && !host.byName.get("NowBar").visible, "focus: the now halo and the now bar are hidden");
   snap("focus");
 
   // Triage, all local: the fan rises; read, reply, approve, task, done, later, mute.
@@ -244,6 +244,7 @@ function runVariant(variant) {
   ok(/Draft ready/.test(status()), `the status says so (${status()})`);
   textsOk("sample triage with a draft");
   ok(!host.byName.get("NowHalo").visible, "triage: the now halo is hidden");
+  ok(!host.byName.get("NowBar").visible && events().every((e) => !e.visible || Math.abs(deg(e.pos)) >= 24 - 1e-3), "triage: the ring clears within 24 degrees of now, the now bar too (seated, the banner would cut them)");
   snap("triage");
   // Deny, then draft again: the new draft has its own id and Approve clears it (review lens A, MED-2).
   host.press("BtnDeny");
