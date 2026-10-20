@@ -348,18 +348,12 @@ pub const NODES_BUTTON: [&str; 31] = [
     "BtnPuckDeny", "BtnSealType",
 ];
 pub const NODES_SHOW: [&str; 5] = ["AskPanel", "RailSelA", "RailSelB", "RailSelC", "RailSelD"];
-pub const NODES_WORLD: [&str; 33] = [
+pub const NODES_WORLD: [&str; 34] = [
     "McSeal", "McWatchJoin", "McClose", "McMoveCloser", "McMoveFarther", "McMoveLeft", "McMoveRight", "McMoveUp", "McMoveDown",
     "McCenterFrame", "McLeftFrame", "McRightFrame", "McPageDock", "McLedge", "Puck", "SealRing", "McSealCancel", "CubeACalm",
     "CubeANeed", "CubeAIdle", "CubeBCalm", "CubeBNeed", "CubeBIdle", "CubeCCalm", "CubeCNeed", "CubeCIdle", "CubeDCalm",
-    "CubeDNeed", "CubeDIdle", "PuckCalm", "PuckNeed", "SealRingArmed", "SealRingLocked",
+    "CubeDNeed", "CubeDIdle", "PuckCalm", "PuckNeed", "SealRingArmed", "SealRingLocked", "McFloorRing",
 ];
-/// The world's private nodes: meshes the program finds and places but the bridge never names
-/// (not in nodes.json; the face can't show, hide or colour them). `McFloorRing` is the projected
-/// floor ring and grid (contract 9.6 and 9.10): in the arc group, so it shows, unfolds and folds
-/// with the arc, but pinned to the hall floor: the handles never move it (correctness review 4,
-/// MEDIUM-1).
-pub const NODES_PRIVATE: [&str; 1] = ["McFloorRing"];
 /// The `hue` bases and their states (nodes.json `hue`). Each state is a pre-built variant
 /// node `<base><State>` in NODES_WORLD.
 pub const HUE_BASES: [&str; 6] = ["CubeA", "CubeB", "CubeC", "CubeD", "Puck", "SealRing"];
@@ -381,9 +375,13 @@ const N_TEXT: usize = NODES_TEXT.len();
 const N_BUTTON: usize = NODES_BUTTON.len();
 const N_SHOW: usize = NODES_SHOW.len();
 const N_FACE: usize = N_TEXT + N_BUTTON + N_SHOW;
-const N_ALL: usize = N_FACE + NODES_WORLD.len() + NODES_PRIVATE.len();
-/// The floor ring's node index (the first private node).
-const FLOOR_I: usize = N_FACE + NODES_WORLD.len();
+const N_ALL: usize = N_FACE + NODES_WORLD.len();
+/// `McFloorRing`'s node index: the last world-only node in nodes.json (a host test pins it).
+/// The projected floor ring and grid (contract 9.6 and 9.10) is in the arc group, so it shows,
+/// unfolds and folds with the arc, but it is pinned to the hall floor: `place` never applies the
+/// handles to it (correctness review 4, MEDIUM-1), and `held_back` hides it for a watcher and
+/// where the ask plate would stack over it (MEDIUM-2).
+const FLOOR_I: usize = N_FACE + NODES_WORLD.len() - 1;
 
 /// The groups the world shows and moves together (contract section 3).
 const G_FIXTURE: u8 = 0;
@@ -400,10 +398,8 @@ fn node_name(i: usize) -> &'static str {
         NODES_BUTTON[i - N_TEXT]
     } else if i < N_FACE {
         NODES_SHOW[i - N_TEXT - N_BUTTON]
-    } else if i < FLOOR_I {
-        NODES_WORLD[i - N_FACE]
     } else {
-        NODES_PRIVATE[i - FLOOR_I]
+        NODES_WORLD[i - N_FACE]
     }
 }
 

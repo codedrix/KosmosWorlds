@@ -161,8 +161,9 @@ FLOOR_W, FLOOR_D, FLOOR_R = 3.6, 1.4, 0.56
 # Its top stays at 0.93 so its sightlines land short of the floor decal (the host test
 # no_sightline_to_the_floor_ring_crosses_two_other_translucent_layers mirrors these).
 HALO_W, HALO_Z0, HALO_Z1 = 0.24, 0.71, 0.93
-# Nodes the program finds and places that the bridge never names (src/lib.rs NODES_PRIVATE).
-PRIVATE_NODES = {"McFloorRing"}
+# The floor ring's node (a world-only node in nodes.json): pinned to the floor, never in a
+# watcher's copy (src/lib.rs FLOOR_I).
+FLOOR_NODE = "McFloorRing"
 
 built = {}
 
@@ -998,8 +999,6 @@ def check_contract():
     for base, states in NODES["hue"].items():
         for st in states:
             assert base + st[0].upper() + st[1:] in want, (base, st)
-    assert not (want & PRIVATE_NODES), "a private node is in nodes.json"
-    want |= PRIVATE_NODES
     have = set(built)
     missing, extra = sorted(want - have), sorted(have - want)
     assert not missing and not extra, f"nodes.json mismatch: missing {missing}, extra {extra}"
@@ -1159,7 +1158,7 @@ def apply_view(snaps, mode="owner", stage="signed", arc_e=None, picked=None):
     tweening = arc_up and arc_e < 1.0
 
     def held(n):
-        if n in PRIVATE_NODES and mode == "watcher":
+        if n == FLOOR_NODE and mode == "watcher":
             return True  # src/lib.rs held_back: never in a watcher's mirrored copy
         if n in NODES["text"] and group(n) == "arc" and tweening:
             return True

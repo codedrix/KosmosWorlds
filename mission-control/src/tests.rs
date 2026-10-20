@@ -1068,6 +1068,7 @@ fn reach_every_handle_setting(mut each: impl FnMut([f32; 3])) -> usize {
 
 #[test]
 fn the_floor_ring_stays_on_the_hall_floor_whatever_the_handles_do() {
+    assert_eq!(node_name(FLOOR_I), "McFloorRing", "FLOOR_I is nodes.json's last world-only node");
     sign_in_to_cubes();
     snap(&full_arc_snapshot());
     run(0.6);
