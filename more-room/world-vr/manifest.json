@@ -5,7 +5,7 @@
     "name": "More Room",
     "author": "micknerks",
     "description": "A sample day, given a place around you: the calendar on the wall, messages on the desk, tasks beside you. Everything shown is invented. Its owner can connect it to a bridge on their own PC.",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "spawn_point": {
       "x": 0,
       "y": 0,
