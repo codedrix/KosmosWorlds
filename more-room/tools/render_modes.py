@@ -291,6 +291,11 @@ VIEWS = [
     # Turned to the left (the window and the mode column) and to the right (the tasks).
     ("left", EYE, (0.9, 2.0, 1.45), 16),
     ("right", EYE, (1.4, -1.8, 1.45), 16),
+    # Head turns, narrower (24 mm, about 74 degrees): what the eye renders show only at their
+    # stretched edges. The mode column and its status line (60 degrees left, low), and the
+    # Focus start/pause capsule (26 degrees right, low).
+    ("column", EYE, (0.725, 1.256, 1.05), 24),
+    ("go", EYE, (1.168, -0.570, 0.94), 24),
 ]
 
 os.makedirs(OUT, exist_ok=True)
@@ -305,8 +310,8 @@ for mode in MODES:
     by = {v[0]: v for v in VIEWS}
     views = {
         "morning": ["eye", "arc", "overview", "seated", "left", "right"],
-        "focus": ["eye", "overview", "seated"],
-        "triage": ["eye", "arc", "overview", "seated"],
+        "focus": ["eye", "overview", "seated", "column", "go"],
+        "triage": ["eye", "arc", "overview", "seated", "column"],
         "wrap": ["eye", "right"],
         "now": ["eye", "seated"],
         "read": ["eye"],

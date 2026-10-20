@@ -103,7 +103,7 @@ The room floats at fixed spots relative to where you stand when the world loads.
 
 One capsule each, on the mode column. The current mode reads `[Triage]`.
 
-Renders: [renders/](renders/), as `vr-<mode>-<view>.jpg` and `mr-<mode>-<view>.jpg`. The views are `eye` (standing, straight ahead), `arc` (looking down at the landing arc), `overview` (from above and behind), `seated` (a 1.2 m eye, at a desk), and, for Morning, `left` (the window and the modes) and `right` (the tasks).
+Renders: [renders/](renders/), as `vr-<mode>-<view>.jpg` and `mr-<mode>-<view>.jpg`. The views are `eye` (standing, straight ahead), `arc` (looking down at the landing arc), `overview` (from above and behind), `seated` (a 1.2 m eye, at a desk), for Morning, `left` (the window and the modes) and `right` (the tasks), and for Focus and Triage, `column` (a head turn to the mode column and its status line) and, in Focus, `go` (a head turn to Start/Pause). The eye views use a 16 mm lens, about 97° wide, so text at their edges (the status line 60° left, Pause 26° right) is stretched there; the head-turn views, at 24 mm, show it as a visitor turning to it would.
 
 ### Morning brief
 - **The stage:** Claude's brief, up to four lines ("3 things need you today: …").
