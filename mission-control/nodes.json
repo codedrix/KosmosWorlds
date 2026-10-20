@@ -136,6 +136,7 @@
     "PuckCalm",
     "PuckNeed",
     "SealRingArmed",
-    "SealRingLocked"
+    "SealRingLocked",
+    "McFloorRing"
   ]
 }

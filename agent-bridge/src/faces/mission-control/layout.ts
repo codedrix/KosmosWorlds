@@ -150,6 +150,7 @@ export const CONV_LEFT_M = -0.6;
  *   SealRing      the ring that rises from the seal (hue base)
  *   McSealCancel  closes the raised seal
  *   <base><State> every hue variant
+ *   McFloorRing   the projected floor ring on the hall floor (the world shows it only when nothing stacks over it)
  */
 export const WORLD_ONLY_NODES = [
   "McSeal",
@@ -170,4 +171,5 @@ export const WORLD_ONLY_NODES = [
   "SealRing",
   "McSealCancel",
   ...Object.entries(HUE_NODES).flatMap(([base, states]) => states.map((st) => hueVariant(base, st))),
+  "McFloorRing",
 ] as const;
