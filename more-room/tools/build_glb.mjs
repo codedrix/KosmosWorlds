@@ -56,6 +56,7 @@
  */
 
 import fs from "node:fs";
+import zlib from "node:zlib";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -111,9 +112,9 @@ export const LAYOUT = {
 // meshes of several primitives)
 // ---------------------------------------------------------------------------
 
-/** A primitive's geometry: positions, normals and triangle indices. */
+/** A primitive's geometry: positions, normals, triangle indices, and (for textured parts) UVs. */
 function geom() {
-  return { pos: [], nrm: [], idx: [] };
+  return { pos: [], nrm: [], idx: [], uv: null };
 }
 function quad(g, a, b, c, d, n) {
   const base = g.pos.length / 3;
@@ -186,6 +187,19 @@ class Gltf {
     this.byteLength = 0;
     this.materialIndex = new Map();
     this.names = new Set();
+    this.used = new Set();
+  }
+
+  /** A PNG texture embedded in the binary chunk; returns its texture index. */
+  texture(name, png) {
+    const j = this.j;
+    j.images = j.images ?? [];
+    j.textures = j.textures ?? [];
+    j.samplers = j.samplers ?? [{ magFilter: 9729, minFilter: 9987, wrapS: 33071, wrapT: 33071 }];
+    const bv = this.view(png);
+    j.images.push({ name, bufferView: bv, mimeType: "image/png" });
+    j.textures.push({ name, source: j.images.length - 1, sampler: 0 });
+    return j.textures.length - 1;
   }
 
   /** opts: {alpha: 0..1, emissive: [r,g,b], rough, metal} */
@@ -198,6 +212,17 @@ class Gltf {
     };
     if (opts.alpha !== undefined && opts.alpha < 1) m.alphaMode = "BLEND";
     if (opts.emissive) m.emissiveFactor = opts.emissive;
+    if (opts.texture !== undefined) {
+      m.pbrMetallicRoughness.baseColorTexture = { index: opts.texture };
+      m.alphaMode = "BLEND";
+    }
+    if (opts.doubleSided) m.doubleSided = true;
+    if (opts.unlit) {
+      // KHR_materials_unlit (allowlisted): the colour is drawn as is, unshaded. The headset
+      // renders LDR with no bloom, so a light bar reads as crisp, not glowing.
+      m.extensions = { KHR_materials_unlit: {} };
+      this.used.add("KHR_materials_unlit");
+    }
     this.j.materials.push(m);
     this.materialIndex.set(name, i);
     return i;
@@ -210,7 +235,9 @@ class Gltf {
       this.byteLength += pad;
     }
     const i = this.j.bufferViews.length;
-    this.j.bufferViews.push({ buffer: 0, byteOffset: this.byteLength, byteLength: bytes.length, target });
+    const v = { buffer: 0, byteOffset: this.byteLength, byteLength: bytes.length };
+    if (target) v.target = target;
+    this.j.bufferViews.push(v);
     this.chunks.push(bytes);
     this.byteLength += bytes.length;
     return i;
@@ -239,7 +266,12 @@ class Gltf {
       a.push({ bufferView: this.view(Buffer.from(new Float32Array(gm.nrm).buffer), 34962), componentType: 5126, count: n, type: "VEC3" });
       const idxA = a.length;
       a.push({ bufferView: this.view(Buffer.from(new Uint16Array(gm.idx).buffer), 34963), componentType: 5123, count: gm.idx.length, type: "SCALAR" });
-      return { attributes: { POSITION: posA, NORMAL: nrmA }, indices: idxA, material: materialIndex, mode: 4 };
+      const attributes = { POSITION: posA, NORMAL: nrmA };
+      if (gm.uv) {
+        attributes.TEXCOORD_0 = a.length;
+        a.push({ bufferView: this.view(Buffer.from(new Float32Array(gm.uv).buffer), 34962), componentType: 5126, count: n, type: "VEC2" });
+      }
+      return { attributes, indices: idxA, material: materialIndex, mode: 4 };
     });
     const m = this.j.meshes.length;
     this.j.meshes.push({ name, primitives });
@@ -271,6 +303,7 @@ class Gltf {
     const bin = Buffer.concat(this.chunks);
     const binPadded = Buffer.concat([bin, Buffer.alloc((4 - (bin.length % 4)) % 4)]);
     this.j.buffers[0].byteLength = bin.length;
+    if (this.used.size) this.j.extensionsUsed = [...this.used].sort();
     let jsonBuf = Buffer.from(JSON.stringify(this.j), "utf8");
     jsonBuf = Buffer.concat([jsonBuf, Buffer.alloc((4 - (jsonBuf.length % 4)) % 4, 0x20)]);
     const header = Buffer.alloc(12);
@@ -288,98 +321,252 @@ class Gltf {
 }
 
 // ---------------------------------------------------------------------------
-// The look: one palette. State colours are chosen by which pre-built variant
-// the script shows (script/src/style.rs); the visual pack (DB-045) will later
-// set them at runtime instead.
+// The look: holographic glass (CEO, 2026-10-19: "It looks like very early-2000s
+// forms when we have the ability to improve that and change that"; art
+// direction in work-in-vr-design/ART_DIRECTION_HOLO_GLASS.md). Smoked-glass
+// panels, thin unlit cyan light bars and hairlines, outlined glass buttons, a
+// segmented light ring with ticks, a projected floor ring and grid, and one
+// faked halo. All of it authored here: geometry, materials and two bundle
+// textures. Amber means "needs you" (now, a VIP); green and red only on Approve
+// and Deny.
+//
+// Guardrails (the art direction's): at most two translucent layers on any pixel
+// (glass panels never overlap each other in view; the halo hides when the banner
+// or the cocoon would stack on it); emission at most 1.0 (LDR, no bloom: the
+// light bars are unlit colour, so they read crisp); the world's glass never
+// imitates Kosmos's own chrome (no amber Kosmos logo, no menu or sheet shapes).
+//
+// State colours are still chosen by which pre-built variant the script shows
+// (script/src/style.rs); the visual pack (DB-045) will later set them at runtime.
 // ---------------------------------------------------------------------------
 
 const PRESS = { interactable: true };
 const anchor = (role) => ({ script_node: role });
 
-function palette(g) {
-  const glow = (name, rgb, k = 0.55) => g.material(name, rgb, { emissive: rgb.map((v) => v * k) });
+// --- PNG textures, made here (no dependencies), byte-for-byte deterministic ---
+
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+function crc32(buf) {
+  let c = 0xffffffff;
+  for (const b of buf) c = CRC_TABLE[(c ^ b) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+/** An RGBA PNG from a w x h pixel function (x, y) -> [r, g, b, a] in 0..255. */
+export function png(w, h, px) {
+  const raw = Buffer.alloc(h * (1 + w * 4));
+  for (let y = 0; y < h; y++) {
+    raw[y * (1 + w * 4)] = 0;
+    for (let x = 0; x < w; x++) {
+      const c = px(x, y);
+      raw.set(c.map((v) => Math.max(0, Math.min(255, Math.round(v)))), y * (1 + w * 4) + 1 + x * 4);
+    }
+  }
+  const chunk = (type, data) => {
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(data.length);
+    const td = Buffer.concat([Buffer.from(type, "ascii"), data]);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(crc32(td));
+    return Buffer.concat([len, td, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0);
+  ihdr.writeUInt32BE(h, 4);
+  ihdr.set([8, 6, 0, 0, 0], 8);
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk("IHDR", ihdr), chunk("IDAT", zlib.deflateSync(raw, { level: 9 })), chunk("IEND", Buffer.alloc(0))]);
+}
+
+const CYAN = [95, 230, 255];
+const FLOOR_M = 8; // the floor decal spans 8 x 8 m, centred on the spawn
+/** The projected floor ring and grid: rings under the arc and the Day Ring, tick marks, a fading grid. */
+function floorTexture() {
+  const S = 1024;
+  const line = (d, w) => Math.max(0, 1 - Math.abs(d) / w);
+  return png(S, S, (x, y) => {
+    const wx = ((x + 0.5) / S - 0.5) * FLOOR_M, wz = ((y + 0.5) / S - 0.5) * FLOOR_M;
+    const r = Math.hypot(wx, wz);
+    const ang = (Math.atan2(wz, wx) * 180) / Math.PI;
+    const arcDist = (step) => {
+      const d = ang - Math.round(ang / step) * step;
+      return (Math.abs(d) * Math.PI * r) / 180;
+    };
+    const parts = [
+      0.55 * line(r - LAYOUT.arcR, 0.012),
+      0.9 * line(r - LAYOUT.ringR, 0.016),
+      0.35 * line(r - (LAYOUT.ringR + 0.22), 0.01),
+      0.3 * line(r - 0.45, 0.01),
+      // tick marks just outside the Day Ring's floor ring: every 5 degrees, longer every 15
+      r > LAYOUT.ringR + 0.03 && r < LAYOUT.ringR + 0.12 ? 0.6 * line(arcDist(5), 0.012) : 0,
+      r > LAYOUT.ringR + 0.03 && r < LAYOUT.ringR + 0.2 ? 0.8 * line(arcDist(15), 0.014) : 0,
+      // a hairline grid every half metre, fading out past 2.2 m
+      0.16 * Math.max(line(wx - Math.round(wx * 2) / 2, 0.01), line(wz - Math.round(wz * 2) / 2, 0.01)) * Math.max(0, Math.min(1, (3.8 - r) / 1.6)),
+    ];
+    const a = 1 - parts.reduce((acc, v) => acc * (1 - v), 1);
+    return [...CYAN, a * 255];
+  });
+}
+/** A soft round glow (the one faked halo): white, alpha falling off from the centre. */
+function haloTexture() {
+  const S = 128;
+  return png(S, S, (x, y) => {
+    const d = Math.hypot((x + 0.5) / S - 0.5, (y + 0.5) / S - 0.5) / 0.5;
+    return [255, 255, 255, 255 * Math.max(0, Math.exp(-d * d * 4) - 0.02)];
+  });
+}
+
+/** A window pane: a sky that fades from its top colour to its horizon, with stars at night. Abstract, never a photo. */
+function skyTexture(top, horizon, stars) {
+  const W = 128, H = 96;
+  const hash = (x, y) => {
+    let h = (x * 374761393 + y * 668265263) >>> 0;
+    h = Math.imul(h ^ (h >>> 13), 1274126177) >>> 0;
+    return (h ^ (h >>> 16)) / 4294967296;
+  };
+  return png(W, H, (x, y) => {
+    const t = Math.pow(y / (H - 1), 1.4);
+    const c = top.map((v, i) => v + (horizon[i] - v) * t);
+    if (stars && y < H * 0.7 && hash(x, y) > 0.985) return [200, 220, 255, 255];
+    return [...c, 255];
+  });
+}
+
+function palette(g, variant) {
+  const unlit = (name, rgb) => g.material(name, rgb, { unlit: true });
+  // Smoked glass: near-black navy, translucent and UNLIT, so it never catches a
+  // light or a specular streak (the headset renders LDR; lit glass read as a grey
+  // wall and washed out the words on it). In MR it is darker, so white text still
+  // reads against a light real wall.
+  const glassA = variant === "mr" ? 0.82 : 0.62;
   return {
-    floor: g.material("Floor", [0.02, 0.025, 0.035]),
-    grid: g.material("GridLine", [0.1, 0.14, 0.2], { emissive: [0.02, 0.04, 0.07] }),
-    shelf: g.material("Shelf", [0.05, 0.06, 0.08], { rough: 0.4, metal: 0.3 }),
-    shelfVr: g.material("ArcShelf", [0.07, 0.08, 0.11], { rough: 0.35, metal: 0.2 }),
-    arcMat: g.material("ArcMat", [0.02, 0.03, 0.06], { alpha: 0.7 }),
-    edge: glow("EdgeGlow", [0.32, 0.6, 1.0], 0.8),
-    track: glow("RingTrack", [0.3, 0.42, 0.62], 0.5),
-    tick: glow("HourTick", [0.38, 0.5, 0.7], 0.45),
-    tickMajor: glow("HourTickMajor", [0.55, 0.7, 0.9], 0.6),
-    now: g.material("NowBar", [1.0, 0.82, 0.45], { emissive: [1.0, 0.75, 0.32] }),
-    nowHalo: g.material("NowHalo", [1.0, 0.7, 0.3], { alpha: 0.28, emissive: [0.9, 0.55, 0.15] }),
-    evFuture: glow("EventFuture", [0.35, 0.72, 1.0], 0.7),
-    evNow: g.material("EventNow", [1.0, 0.72, 0.28], { emissive: [0.95, 0.6, 0.18] }),
-    evPast: g.material("EventPast", [0.2, 0.23, 0.3], { emissive: [0.03, 0.04, 0.06] }),
-    card: g.material("CardBody", [0.06, 0.08, 0.13], { rough: 0.45 }),
-    cardRead: g.material("CardRead", [0.22, 0.26, 0.34], { rough: 0.5 }),
-    gmail: glow("SrcGmail", [0.95, 0.38, 0.32]),
-    slack: glow("SrcSlack", [0.65, 0.42, 0.95]),
-    github: glow("SrcGithub", [0.62, 0.68, 0.78], 0.35),
-    linear: glow("SrcLinear", [0.42, 0.52, 1.0]),
-    vip: g.material("SrcVip", [1.0, 0.82, 0.32], { emissive: [1.0, 0.72, 0.2] }),
-    plaque: g.material("Plaque", [0.035, 0.045, 0.075], { rough: 0.5 }),
-    plaqueEdge: glow("PlaqueEdge", [0.3, 0.5, 0.8], 0.45),
-    focusEdge: g.material("FocusEdge", [1.0, 0.7, 0.25], { emissive: [0.85, 0.52, 0.14] }),
-    plate: g.material("TextPlate", [0.02, 0.03, 0.06], { alpha: 0.84 }),
-    band: g.material("RingBand", [0.015, 0.02, 0.04], { alpha: 0.8 }),
-    cocoon: g.material("Cocoon", [0.004, 0.006, 0.012], { alpha: 0.88 }),
+    floor: unlit("Floor", [0.008, 0.012, 0.02]),
+    floorDecal: g.material("FloorDecal", [1, 1, 1], { unlit: true, texture: g.texture("FloorRing", floorTexture()), doubleSided: true }),
+    halo: g.material("NowHalo", [1.0, 0.66, 0.23], { unlit: true, texture: g.texture("Halo", haloTexture()), doubleSided: true }),
+    glass: g.material("SmokedGlass", [0.015, 0.03, 0.05], { alpha: glassA, unlit: true }),
+    glassPill: g.material("GlassPill", [0.04, 0.12, 0.16], { alpha: 0.5, unlit: true }),
+    glassNow: g.material("GlassPillNow", [0.2, 0.12, 0.03], { alpha: 0.55, unlit: true }),
+    glassPast: g.material("GlassPillPast", [0.03, 0.04, 0.06], { alpha: 0.45, unlit: true }),
+    cocoon: g.material("CocoonGlass", [0.004, 0.008, 0.014], { alpha: 0.88, unlit: true }),
+    band: g.material("BandGlass", [0.01, 0.018, 0.03], { alpha: variant === "mr" ? 0.8 : 0.6, unlit: true }),
+    plate: g.material("TextPlate", [0.01, 0.02, 0.035], { alpha: 0.84, unlit: true }),
+    shelfVr: unlit("ArcShelf", [0.02, 0.03, 0.045]),
+    shelf: unlit("Shelf", [0.02, 0.03, 0.045]),
+    // The floor and the shelves are unlit too: a lit floor caught a white glare streak.
+    // Light: unlit colour, at most 1.0.
+    cyan: unlit("LightCyan", [0.37, 0.9, 1.0]),
+    teal: unlit("LightTeal", [0.12, 0.45, 0.55]),
+    dim: unlit("LightDim", [0.08, 0.22, 0.28]),
+    amber: unlit("LightAmber", [0.95, 0.66, 0.23]),
+    amberCore: unlit("NowCore", [1.0, 0.85, 0.55]),
+    green: unlit("LightGreen", [0.3, 0.9, 0.55]),
+    red: unlit("LightRed", [1.0, 0.42, 0.36]),
+    paneDay: g.material("PaneDay", [1, 1, 1], { unlit: true, texture: g.texture("SkyDay", skyTexture([22, 62, 110], [92, 150, 186], false)) }),
+    paneDusk: g.material("PaneDusk", [1, 1, 1], { unlit: true, texture: g.texture("SkyDusk", skyTexture([34, 26, 64], [196, 104, 52], false)) }),
+    paneNight: g.material("PaneNight", [1, 1, 1], { unlit: true, texture: g.texture("SkyNight", skyTexture([3, 6, 18], [14, 24, 52], true)) }),
     // Fully transparent: text anchors and plaque keels must exist (for k_node_find
-    // and the rendered centre) but never show (review v2, lens B, LOW-3 and LOW-4).
+    // and the rendered centre) but never show.
     stud: g.material("Unseen", [0, 0, 0], { alpha: 0 }),
-    puck: glow("ModePuck", [0.32, 0.55, 0.95], 0.55),
-    signin: g.material("SignInPuck", [1.0, 0.7, 0.28], { emissive: [0.6, 0.38, 0.08] }),
-    about: glow("AboutPuck", [0.7, 0.75, 0.85], 0.35),
-    action: glow("ActionPuck", [0.55, 0.6, 0.72], 0.3),
-    done: glow("DonePuck", [0.25, 0.85, 0.5]),
-    later: glow("LaterPuck", [1.0, 0.72, 0.25]),
-    mute: glow("MutePuck", [0.45, 0.48, 0.58], 0.3),
-    approve: glow("ApprovePuck", [0.25, 0.9, 0.5], 0.7),
-    deny: glow("DenyPuck", [1.0, 0.35, 0.3], 0.6),
-    focus: g.material("FocusPuck", [1.0, 0.7, 0.28], { emissive: [0.6, 0.38, 0.08] }),
-    frame: g.material("WindowFrame", [0.06, 0.07, 0.09], { rough: 0.35, metal: 0.4 }),
-    paneDay: g.material("PaneDay", [0.45, 0.7, 0.95], { emissive: [0.3, 0.5, 0.75] }),
-    paneDusk: g.material("PaneDusk", [0.98, 0.55, 0.32], { emissive: [0.75, 0.36, 0.17] }),
-    paneNight: g.material("PaneNight", [0.04, 0.06, 0.16], { emissive: [0.02, 0.03, 0.1] }),
-    well: glow("WellRim", [0.35, 0.6, 1.0], 0.6),
-    pile: g.material("PilePad", [0.08, 0.1, 0.15], { rough: 0.4 }),
-    quiet: g.material("QuietCard", [0.16, 0.17, 0.2]),
   };
 }
 
 const CARD_R = 0.065;
-const CARD_H = 0.014;
-const PUCK_R = 0.034;
-const PUCK_H = 0.05;
-const PLAQUE_D = 0.012;
-
-/** A pressable or findable vertical puck. */
-function puck(g, name, t, mat, extras = PRESS) {
-  g.node(name, t, [[cylGeom(PUCK_R, -PUCK_H / 2, PUCK_H / 2, 20), mat]], extras);
-}
+const CARD_H = 0.012;
+const FRONT = -0.006; // light bars sit this far in front of a panel's glass (toward the spawn)
 
 /** The height of a block of n lines of world text (8 cm glyphs, spaced). Mirrors style.rs. */
 export const textH = (n) => 0.08 + (n - 1) * 0.084;
 
-/**
- * A plaque: a thin dark card that faces the spawn, with a glowing hairline
- * along its bottom edge. Text shown on it is printed flat on its face.
- *
- * The client puts a text's BOTTOM at the anchor's rendered centre plus
- * offset_y, and clamps a negative offset to 0 (KDomUI.cpp). So a hair-thin
- * dark keel hangs under the card, lowering its rendered centre by half the
- * height of `maxLines` lines: then a positive offset (style::offset) centres
- * any 1..maxLines of text on the card.
- */
-function plaque(g, P, name, r, deg, y, w, h, maxLines, extras, edgeMat = P.plaqueEdge) {
+/** A keel: invisible, hanging under a panel so its rendered centre is half of maxLines of text lower. */
+function keel(P, h, maxLines) {
   const k = textH(maxLines) / 2;
-  const body = boxGeom([PLAQUE_D, h, w]);
-  const edge = boxGeom([PLAQUE_D * 1.2, 0.006, w], [0, -h / 2 + 0.003, 0]);
-  const keel = boxGeom([0.002, 2 * k, 0.002], [0, -h / 2 - k, 0]);
+  return [boxGeom([0.002, 2 * k, 0.002], [0, -h / 2 - k, 0]), P.stud];
+}
+
+/** Light bars along a panel's top and bottom edge, and small corner brackets: the structure. */
+function lightBars(P, w, h, mat) {
+  const t = 0.0035;
+  const parts = [
+    [boxGeom([0.004, t, w * 0.94], [FRONT, h / 2 - t / 2, 0]), mat],
+    [boxGeom([0.004, t, w * 0.94], [FRONT, -h / 2 + t / 2, 0]), mat],
+  ];
+  const b = Math.min(0.05, h / 3), bt = 0.0025;
+  for (const sy of [1, -1]) {
+    for (const sz of [1, -1]) {
+      const cy = sy * (h / 2 + 0.012), cz = sz * (w / 2 + 0.012);
+      parts.push([boxGeom([0.003, bt, b], [FRONT, cy, cz - sz * (b / 2)]), P.teal]);
+      parts.push([boxGeom([0.003, b, bt], [FRONT, cy - sy * (b / 2), cz]), P.teal]);
+    }
+  }
+  return parts;
+}
+
+/**
+ * A glass panel that faces the spawn: smoked glass, a light bar along its top
+ * and bottom edges, corner brackets, and a keel (see keel()). Text shown on it
+ * is printed flat on its face (the client's plaque rule), centred by the keel.
+ */
+function plaque(g, P, name, r, deg, y, w, h, maxLines, extras, barMat = P.cyan) {
   if (textH(maxLines) > h) throw new Error(`${name}: ${maxLines} lines do not fit ${h} m`);
-  g.node(name, at(r, deg, y), [[body, P.plaque], [edge, edgeMat], [keel, P.stud]], extras, facing(deg));
+  const body = boxGeom([0.006, h, w]);
+  g.node(name, at(r, deg, y), [[body, P.glass], ...lightBars(P, w, h, barMat), keel(P, h, maxLines)], extras, facing(deg));
+}
+
+/** A stadium (a capsule outline) in the panel plane (z across, y up), at depth x, inset by `inset`. */
+function stadiumPoints(w, h, inset = 0, n = 10) {
+  const rr = h / 2 - inset, cz = w / 2 - h / 2;
+  const pts = [];
+  for (let k = 0; k <= n; k++) {
+    const a = -Math.PI / 2 + (k / n) * Math.PI;
+    pts.push([cz + rr * Math.cos(a), rr * Math.sin(a)]);
+  }
+  for (let k = 0; k <= n; k++) {
+    const a = Math.PI / 2 + (k / n) * Math.PI;
+    pts.push([-cz + rr * Math.cos(a), rr * Math.sin(a)]);
+  }
+  return pts;
+}
+function stadiumFill(w, h, x) {
+  const g = geom();
+  const pts = stadiumPoints(w, h);
+  for (const [face, nx] of [[x - 0.003, -1], [x + 0.003, 1]]) {
+    const base = g.pos.length / 3;
+    g.pos.push(face, 0, 0);
+    g.nrm.push(nx, 0, 0);
+    for (const [z, y] of pts) {
+      g.pos.push(face, y, z);
+      g.nrm.push(nx, 0, 0);
+    }
+    for (let k = 0; k < pts.length; k++) {
+      const a = base + 1 + k, b = base + 1 + ((k + 1) % pts.length);
+      if (nx < 0) g.idx.push(base, b, a);
+      else g.idx.push(base, a, b);
+    }
+  }
+  return g;
+}
+function stadiumOutline(w, h, t, x) {
+  const g = geom();
+  const o = stadiumPoints(w, h, 0), i = stadiumPoints(w, h, t);
+  for (let k = 0; k < o.length; k++) {
+    const k2 = (k + 1) % o.length;
+    quad(g, [x, o[k][1], o[k][0]], [x, o[k2][1], o[k2][0]], [x, i[k2][1], i[k2][0]], [x, i[k][1], i[k][0]], [-1, 0, 0]);
+  }
+  return g;
+}
+
+/**
+ * A button: an outlined glass capsule facing the spawn, its label printed on it
+ * (centred by its keel). Outlines are cyan; green and red only on Approve and Deny.
+ */
+function capsule(g, P, name, r, deg, y, w, h, outline, extras = PRESS) {
+  g.node(name, at(r, deg, y), [[stadiumFill(w, h, 0), P.glass], [stadiumOutline(w, h, 0.004, FRONT), outline], keel(P, h, 1)], extras, facing(deg));
 }
 
 /** A text anchor for floating (upright) text: a 1 cm stud the script can find. */
@@ -387,11 +574,49 @@ function stud(g, P, name, t) {
   g.box(name, t, [0.01, 0.01, 0.01], P.stud, anchor("text"));
 }
 
-/** A face-down card: a dark disc with a coloured rim (the rim is its state colour; a VIP's is wider). */
-function cardParts(rimMat, topMat, rimW = 0.01) {
+/** An arc of a flat ring band around the vertical axis, from angle a0 to a1 (radians). */
+function arcGeom(r0, r1, y0, y1, a0, a1, segs) {
+  const g = geom();
+  for (let s = 0; s < segs; s++) {
+    const b0 = a0 + ((a1 - a0) * s) / segs, b1 = a0 + ((a1 - a0) * (s + 1)) / segs;
+    const c0 = Math.cos(b0), s0 = Math.sin(b0), c1 = Math.cos(b1), s1 = Math.sin(b1);
+    const bm = (b0 + b1) / 2, cm = Math.cos(bm), sm = Math.sin(bm);
+    quad(g, [r1 * c1, y0, r1 * s1], [r1 * c0, y0, r1 * s0], [r1 * c0, y1, r1 * s0], [r1 * c1, y1, r1 * s1], [cm, 0, sm]);
+    quad(g, [r0 * c0, y0, r0 * s0], [r0 * c1, y0, r0 * s1], [r0 * c1, y1, r0 * s1], [r0 * c0, y1, r0 * s0], [-cm, 0, -sm]);
+    quad(g, [r0 * c0, y1, r0 * s0], [r0 * c1, y1, r0 * s1], [r1 * c1, y1, r1 * s1], [r1 * c0, y1, r1 * s0], [0, 1, 0]);
+    quad(g, [r0 * c1, y0, r0 * s1], [r0 * c0, y0, r0 * s0], [r1 * c0, y0, r1 * s0], [r1 * c1, y0, r1 * s1], [0, -1, 0]);
+  }
+  return g;
+}
+/** A segmented light ring: `n` dashes with gaps (a HUD ring, never a solid torus). */
+function segmentedRing(r0, r1, y0, y1, n, duty) {
+  const g = geom();
+  const step = (2 * Math.PI) / n;
+  for (let k = 0; k < n; k++) {
+    const part = arcGeom(r0, r1, y0, y1, k * step, k * step + step * duty, 2);
+    const base = g.pos.length / 3;
+    g.pos.push(...part.pos);
+    g.nrm.push(...part.nrm);
+    g.idx.push(...part.idx.map((i) => i + base));
+  }
+  return g;
+}
+
+/** A face-down card: a glass chip with a light rim (the rim is its state colour; a VIP's is wider, amber). */
+function cardParts(P, rimMat, rimW = 0.006) {
   return [
-    [cylGeom(CARD_R, -CARD_H / 2, CARD_H / 2, 24), topMat],
-    [ringGeom(CARD_R + 0.002 - rimW, CARD_R + 0.002, -CARD_H / 2 - 0.001, CARD_H / 2 + 0.001, 24), rimMat],
+    [cylGeom(CARD_R, -CARD_H / 2, CARD_H / 2, 28), P.glass],
+    [ringGeom(CARD_R + 0.001 - rimW, CARD_R + 0.001, -CARD_H / 2 - 0.0015, CARD_H / 2 + 0.0015, 28), rimMat],
+  ];
+}
+
+/** An event: a glass pill with a light ring at its top and bottom (its tone), round so it reads the same from anywhere. */
+function pillParts(P, glassMat, lightMat) {
+  const r = 0.055, h = 0.085;
+  return [
+    [cylGeom(r, -h, h, 24), glassMat],
+    [ringGeom(r - 0.001, r + 0.003, h - 0.008, h - 0.002, 24), lightMat],
+    [ringGeom(r - 0.001, r + 0.003, -h + 0.002, -h + 0.008, 24), lightMat],
   ];
 }
 
@@ -399,162 +624,201 @@ function scripted(g, P, variant) {
   const L = LAYOUT;
   const T = L.templatePark;
 
-  // --- The Day Ring: a thin track, hour ticks the script turns with the day,
-  //     and the now bar, always straight ahead.
+  // --- The Day Ring: a segmented cyan light ring with a teal rail above and below,
+  //     hour ticks the script turns with the day, and the now bar straight ahead.
   // `hollow`: a ring, not a disc. The mock host's laser check tests the band itself
   // (on the headset the laser passes through the ring's open middle).
-  g.node("RingTrack", [0, L.ringY, 0], [[ringGeom(L.ringR - 0.004, L.ringR + 0.004, -0.003, 0.003, 144), P.track]], { script_node: "ring", hollow: [L.ringR - 0.004, L.ringR + 0.004, -0.003, 0.003] });
+  g.node("RingTrack", [0, L.ringY, 0], [[segmentedRing(L.ringR - 0.005, L.ringR + 0.005, -0.0025, 0.0025, 120, 0.78), P.cyan]], { script_node: "ring", hollow: [L.ringR - 0.005, L.ringR + 0.005, -0.0025, 0.0025] });
+  for (const [name, dy] of [["RingRailHi", 0.07], ["RingRailLo", -0.07]]) {
+    g.node(name, [0, L.ringY + dy, 0], [[ringGeom(L.ringR - 0.002, L.ringR + 0.002, -0.001, 0.001, 144), P.teal]], { hollow: [L.ringR - 0.002, L.ringR + 0.002, -0.001, 0.001] });
+  }
   for (let h = 7; h <= 19; h++) {
     const major = h % 3 === 0;
-    const len = major ? 0.09 : 0.05;
-    g.node(`HourTick${String.fromCharCode(65 + h - 7)}`, at(L.ringR, 0, L.ringY), [[cylGeom(0.004, -len / 2, len / 2, 8), major ? P.tickMajor : P.tick]], anchor("tick"));
+    const len = major ? 0.16 : 0.09;
+    g.node(`HourTick${String.fromCharCode(65 + h - 7)}`, at(L.ringR, 0, L.ringY), [[cylGeom(0.0025, -len / 2, len / 2, 8), major ? P.cyan : P.teal]], anchor("tick"));
   }
   // It stops just above the pills, under the labels' lower row (they start 0.1 m up).
-  g.node("NowBar", at(L.ringR - 0.03, 0, L.ringY), [[cylGeom(0.009, -0.2, 0.09, 12), P.now], [cylGeom(0.035, -0.22, 0.095, 20), P.nowHalo]], anchor("now"));
+  g.node("NowBar", at(L.ringR - 0.03, 0, L.ringY), [[cylGeom(0.006, -0.2, 0.09, 12), P.amberCore], [ringGeom(0.012, 0.018, 0.085, 0.09, 16), P.amber], [ringGeom(0.012, 0.018, -0.2, -0.195, 16), P.amber]], anchor("now"));
+  // The one faked halo: a soft amber glow behind the top of the now bar, kept above
+  // the banner so no pixel stacks three translucent layers (the script hides it in
+  // triage and focus, when the banner or the cocoon would cover it).
+  {
+    const hq = geom(), hw = 0.34, hh = 0.3;
+    quad(hq, [0, -hh / 2, -hw / 2], [0, -hh / 2, hw / 2], [0, hh / 2, hw / 2], [0, hh / 2, -hw / 2], [-1, 0, 0]);
+    hq.uv = [0, 1, 1, 1, 1, 0, 0, 0];
+    g.node("NowHalo", at(L.ringR + 0.02, 0, L.ringY + 0.04), [[hq, P.halo]], anchor("halo"), facing(0));
+  }
   // --- The banner, under the now bar, on every mode: inside the focus cocoon, so
-  //     it stays readable when the room closes in.
-  plaque(g, P, "TxtBanner", 1.8, 0, L.bannerY, 1.45, 0.19, 2, anchor("text"), P.focusEdge);
+  //     it stays readable when the room closes in. Amber bars: it is the notice band.
+  plaque(g, P, "TxtBanner", 1.8, 0, L.bannerY, 1.45, 0.19, 2, anchor("text"), P.amber);
 
-  // --- The mode column on the left: Owner sign in, About, then the four modes.
-  //     Pucks are round, so they read the same from anywhere; labels sit above each.
+  // --- The mode column on the left: outlined glass capsules with their labels on them.
   const modeDeg = -60, modeR = 1.45;
-  [["BtnSignIn", 1.86, P.signin], ["BtnAbout", 1.7, P.about], ["BtnModeMorning", 1.54, P.puck], ["BtnModeFocus", 1.38, P.puck], ["BtnModeTriage", 1.22, P.puck], ["BtnModeWrap", 1.06, P.puck]].forEach(
-    ([n, y, m]) => puck(g, n, at(modeR, modeDeg, y), m),
+  [["BtnSignIn", 1.86, 0.56], ["BtnAbout", 1.715, 0.44], ["BtnModeMorning", 1.57, 0.44], ["BtnModeFocus", 1.425, 0.44], ["BtnModeTriage", 1.28, 0.44], ["BtnModeWrap", 1.135, 0.44]].forEach(
+    ([n, y, w]) => capsule(g, P, n, modeR, modeDeg, y, w, 0.11, P.cyan),
   );
   stud(g, P, "TxtStatus", at(modeR, modeDeg, 0.84));
 
   // --- The stage, front and centre: the brief, prep, wrap-up, About.
   plaque(g, P, "TxtStage", 1.7, 0, 1.2, 1.5, 0.44, 4, anchor("text"));
-  puck(g, "BtnPrepClose", at(1.6, 25, 1.05), P.action);
-  puck(g, "BtnAboutNext", at(1.6, 25, 1.05 + 0.0001), P.about);
+  capsule(g, P, "BtnPrepClose", 1.6, 26, 1.05, 0.36, 0.11, P.cyan);
+  capsule(g, P, "BtnAboutNext", 1.6, 26, 1.05 + 0.0001, 0.36, 0.11, P.cyan);
 
-  // --- The landing arc. VR: a curved low shelf of flat facets; MR: a faint mat.
+  // --- The landing arc. VR: a curved low shelf of dark flat facets with a light
+  //     edge; MR: only the light edge (the floor ring is projected on the real floor).
   const facetDeg = 10;
   for (let k = 0; k < 17; k++) {
     const deg = -80 + k * facetDeg;
     const w = 2 * L.arcR * Math.tan((facetDeg / 2) * RAD) + 0.004;
-    const name = `ArcFacet${String.fromCharCode(65 + k)}`;
-    if (variant === "vr") g.box(name, at(L.arcR, deg, L.cardY - CARD_H / 2 - 0.012), [0.3, 0.024, w], P.shelfVr, undefined, facing(deg));
-    else g.box(name, at(L.arcR, deg, L.cardY - CARD_H / 2 - 0.004), [0.3, 0.006, w], P.arcMat, undefined, facing(deg));
-    g.box(`ArcEdge${String.fromCharCode(65 + k)}`, at(L.arcR - 0.152, deg, L.cardY - CARD_H / 2 - 0.006), [0.006, 0.01, w], P.edge, undefined, facing(deg));
+    if (variant === "vr") g.box(`ArcFacet${String.fromCharCode(65 + k)}`, at(L.arcR, deg, L.cardY - CARD_H / 2 - 0.012), [0.3, 0.024, w * 0.985], P.shelfVr, undefined, facing(deg));
+    g.box(`ArcEdge${String.fromCharCode(65 + k)}`, at(L.arcR - 0.152, deg, L.cardY - CARD_H / 2 - 0.004), [0.004, 0.004, w * 0.9], P.cyan, undefined, facing(deg));
+    g.box(`ArcEdgeBack${String.fromCharCode(65 + k)}`, at(L.arcR + 0.152, deg, L.cardY - CARD_H / 2 - 0.004), [0.003, 0.003, w * 0.9], P.teal, undefined, facing(deg));
   }
   // Later and Done at the arc's ends; their counts ride on them.
-  g.node("PileLater", at(L.arcR, L.pileLaterDeg, L.cardY - CARD_H / 2 - 0.002), [[cylGeom(CARD_R + 0.012, -0.002, 0.002, 24), P.pile], [ringGeom(CARD_R + 0.008, CARD_R + 0.014, -0.0025, 0.0025, 24), P.later]], anchor("pile"));
-  g.node("PileDone", at(L.arcR, L.pileDoneDeg, L.cardY - CARD_H / 2 - 0.002), [[cylGeom(CARD_R + 0.012, -0.002, 0.002, 24), P.pile], [ringGeom(CARD_R + 0.008, CARD_R + 0.014, -0.0025, 0.0025, 24), P.done]], anchor("pile"));
+  const pad = (mat) => [[cylGeom(CARD_R + 0.012, -0.002, 0.002, 28), P.glass], [ringGeom(CARD_R + 0.008, CARD_R + 0.013, -0.0025, 0.0025, 28), mat]];
+  g.node("PileLater", at(L.arcR, L.pileLaterDeg, L.cardY - CARD_H / 2 - 0.002), pad(P.teal), anchor("pile"));
+  g.node("PileDone", at(L.arcR, L.pileDoneDeg, L.cardY - CARD_H / 2 - 0.002), pad(P.teal), anchor("pile"));
   // The inbox well, front and centre behind the arc: what waits for a slot stacks here.
-  g.node("InboxWell", [L.well[0], L.cardY - CARD_H / 2 - 0.002, L.well[2]], [[cylGeom(CARD_R + 0.016, -0.002, 0.002, 28), P.pile], [ringGeom(CARD_R + 0.01, CARD_R + 0.018, -0.003, 0.003, 28), P.well]], anchor("inbox"));
+  g.node("InboxWell", [L.well[0], L.cardY - CARD_H / 2 - 0.002, L.well[2]], [[cylGeom(CARD_R + 0.016, -0.002, 0.002, 28), P.glass], [ringGeom(CARD_R + 0.011, CARD_R + 0.017, -0.003, 0.003, 28), P.cyan]], anchor("inbox"));
 
-  // --- Triage: the fan of five face-up cards (built facing the spawn, hidden until
+  // --- Triage: the fan of five glass cards (built facing the spawn, hidden until
   //     triage; the script raises each from its card's slot), the reading card, the
-  //     five action pucks, and the draft with Approve, Deny and More.
+  //     five action capsules, and a draft with Approve, Deny and More.
   L.fanDeg.forEach((deg, i) => {
     const s = String.fromCharCode(65 + i);
     plaque(g, P, `Fan${s}`, L.fanR, deg, L.fanY, 0.62, 0.26, 2, PRESS);
-    // A VIP's amber frame, just behind its card.
-    g.node(`FanVip${s}`, at(L.fanR + 0.012, deg, L.fanY), [[boxGeom([0.006, 0.29, 0.65]), P.vip]], anchor("fanvip"), facing(deg));
+    // A VIP's amber frame: four thin bars just outside its card.
+    const w = 0.62, h = 0.26, t = 0.004;
+    g.node(`FanVip${s}`, at(L.fanR + 0.004, deg, L.fanY), [
+      [boxGeom([0.004, t, w + 0.03], [FRONT, h / 2 + 0.015, 0]), P.amber],
+      [boxGeom([0.004, t, w + 0.03], [FRONT, -h / 2 - 0.015, 0]), P.amber],
+      [boxGeom([0.004, h + 0.03, t], [FRONT, 0, w / 2 + 0.015]), P.amber],
+      [boxGeom([0.004, h + 0.03, t], [FRONT, 0, -w / 2 - 0.015]), P.amber],
+    ], anchor("fanvip"), facing(deg));
   });
   plaque(g, P, "TxtOpen", L.readR, 0, L.readY, 1.12, 0.4, 4, anchor("text"));
-  [["BtnDone", -24, P.done], ["BtnLater", -12, P.later], ["BtnReply", 0, P.action], ["BtnTask", 12, P.action], ["BtnMute", 24, P.mute]].forEach(([n, deg, m]) =>
-    puck(g, n, at(1.15, deg, 0.8), m),
-  );
+  [["BtnDone", -26], ["BtnLater", -13], ["BtnReply", 0], ["BtnTask", 13], ["BtnMute", 26]].forEach(([n, deg]) => capsule(g, P, n, 1.15, deg, 0.8, 0.23, 0.1, P.cyan));
   // A draft takes the reading card's place, front and centre, and Approve, Deny and
-  // More take the action row's (review v2: the side draft ran off the comfortable band
-  // and its buttons' labels ran together). Never shown at the same time as the card
-  // and the five actions, so the shared spots never both take a press.
+  // More take the action row's. Never shown at the same time as the card and the five
+  // actions, so the shared spots never both take a press.
   plaque(g, P, "TxtDraft", L.readR, 0, L.readY, 1.12, 0.4, 4, anchor("text"));
-  [["BtnApprove", -20, P.approve], ["BtnDeny", 0, P.deny], ["BtnMore", 20, P.action]].forEach(([n, deg, m]) => puck(g, n, at(1.15, deg, 0.8 + 0.0001), m));
+  [["BtnApprove", -20, 0.34, P.green], ["BtnDeny", 0, 0.26, P.red], ["BtnMore", 20, 0.34, P.cyan]].forEach(([n, deg, w, m]) => capsule(g, P, n, 1.15, deg, 0.8 + 0.0001, w, 0.1, m));
 
   // --- Pinned tasks on the right, with a header line of counts.
   // Below the Day Ring's labels (they start 0.1 m above the ring at 1.78 m).
-  plaque(g, P, "TxtTasks", 1.6, 52, 1.6, 1.0, 0.12, 1, anchor("text"));
+  plaque(g, P, "TxtTasks", 1.6, 52, 1.6, 1.0, 0.12, 1, anchor("text"), P.teal);
   [["TaskA", 1.4], ["TaskB", 1.18], ["TaskC", 0.96]].forEach(([n, y]) => plaque(g, P, n, 1.6, 52, y, 0.8, 0.19, 2, PRESS));
 
   // --- Focus: the task and its timer, close and centred; the next event above;
-  //     start or pause; and the cocoon, 16 flat facets that close in from 3 m.
-  // Low enough that a seated eye still sees the banner over it (review v2, lens B, MED-3).
-  plaque(g, P, "TxtFocus", 1.45, 0, 1.2, 1.1, 0.3, 3, anchor("text"), P.focusEdge);
-  plaque(g, P, "TxtTimer", 1.45, 0, 0.94, 0.8, 0.13, 1, anchor("text"));
-  puck(g, "BtnFocusGo", at(1.3, 26, 0.94), P.focus);
+  //     start or pause; and the cocoon, 16 dark glass facets that close in from 3 m,
+  //     each with a light bar along its top and bottom.
+  plaque(g, P, "TxtFocus", 1.45, 0, 1.2, 1.1, 0.3, 3, anchor("text"));
+  plaque(g, P, "TxtTimer", 1.45, 0, 0.94, 0.8, 0.13, 1, anchor("text"), P.teal);
+  capsule(g, P, "BtnFocusGo", 1.3, 26, 0.94, 0.28, 0.11, P.cyan);
   stud(g, P, "TxtNext", at(1.4, 0, 1.72));
   for (let k = 0; k < L.cocoonFacets; k++) {
     const deg = (k * 360) / L.cocoonFacets;
     const w = 2 * L.cocoonR * Math.tan((180 / L.cocoonFacets) * RAD) + 0.01;
-    g.box(`Cocoon${String.fromCharCode(65 + k)}`, at(L.cocoonFromR, deg, L.cocoonY), [0.02, 2.6, w], P.cocoon, anchor("cocoon"), facing(deg));
+    g.node(`Cocoon${String.fromCharCode(65 + k)}`, at(L.cocoonFromR, deg, L.cocoonY), [
+      [boxGeom([0.02, 2.6, w]), P.cocoon],
+      [boxGeom([0.004, 0.004, w * 0.9], [FRONT - 0.01, 0.9, 0]), P.teal],
+      [boxGeom([0.004, 0.004, w * 0.9], [FRONT - 0.01, -0.9, 0]), P.teal],
+    ], anchor("cocoon"), facing(deg));
   }
 
-  // --- The window, on the left: a frame, three panes (day, dusk, night) and a sill
-  //     carrying the weather and one headline.
+  // --- The window, on the left: three panes (day, dusk, night) framed by light
+  //     bars and brackets, and a glass sill carrying the weather and one headline.
   const winDeg = -82, winR = 2.1, winY = 1.52;
-  g.box("WindowFrame", at(winR + 0.02, winDeg, winY), [0.04, 0.78, 1.0], P.frame, undefined, facing(winDeg));
-  g.box("PaneDay", at(winR, winDeg, winY), [0.01, 0.68, 0.9], P.paneDay, anchor("pane"), facing(winDeg));
-  g.box("PaneDusk", at(winR - 0.004, winDeg, winY), [0.01, 0.68, 0.9], P.paneDusk, anchor("pane"), facing(winDeg));
-  g.box("PaneNight", at(winR - 0.008, winDeg, winY), [0.01, 0.68, 0.9], P.paneNight, anchor("pane"), facing(winDeg));
-  g.box("WindowBarV", at(winR - 0.014, winDeg, winY), [0.012, 0.68, 0.025], P.frame, undefined, facing(winDeg));
-  g.box("WindowBarH", at(winR - 0.014, winDeg, winY), [0.012, 0.025, 0.9], P.frame, undefined, facing(winDeg));
-  plaque(g, P, "TxtWindow", winR - 0.02, winDeg, 1.0, 1.0, 0.26, 3, anchor("text"));
+  g.node("WindowFrame", at(winR + 0.02, winDeg, winY), lightBars(P, 0.9, 0.68, P.cyan), undefined, facing(winDeg));
+  const pane = (name, dr, mat) => {
+    const q = geom();
+    quad(q, [0, -0.34, -0.45], [0, -0.34, 0.45], [0, 0.34, 0.45], [0, 0.34, -0.45], [-1, 0, 0]);
+    q.uv = [0, 1, 1, 1, 1, 0, 0, 0];
+    g.node(name, at(winR - dr, winDeg, winY), [[q, mat]], anchor("pane"), facing(winDeg));
+  };
+  pane("PaneDay", 0, P.paneDay);
+  pane("PaneDusk", 0.004, P.paneDusk);
+  pane("PaneNight", 0.008, P.paneNight);
+  g.box("WindowBarV", at(winR - 0.014, winDeg, winY), [0.004, 0.66, 0.004], P.dim, undefined, facing(winDeg));
+  g.box("WindowBarH", at(winR - 0.014, winDeg, winY), [0.004, 0.004, 0.88], P.dim, undefined, facing(winDeg));
+  plaque(g, P, "TxtWindow", winR - 0.02, winDeg, 1.0, 1.0, 0.26, 3, anchor("text"), P.teal);
 
   // --- The quiet shelf behind you, with its label above it.
-  g.node("QuietShelf", [L.shelfX, 0.99, 0], [[boxGeom([0.3, 0.03, 1.4]), P.shelf], [boxGeom([0.006, 0.008, 1.4], [0.153, 0.012, 0]), P.edge]], anchor("shelf"));
-  plaque(g, P, "TxtQuiet", Math.abs(L.shelfX) + 0.1, 180, 1.26, 1.0, 0.2, 2, anchor("text"));
+  g.node("QuietShelf", [L.shelfX, 0.99, 0], [[boxGeom([0.3, 0.02, 1.4]), P.shelf], [boxGeom([0.004, 0.004, 1.4], [0.152, 0.012, 0]), P.teal]], anchor("shelf"));
+  plaque(g, P, "TxtQuiet", Math.abs(L.shelfX) + 0.1, 180, 1.26, 1.0, 0.2, 2, anchor("text"), P.teal);
 
   // --- Templates the script clones (parked under the floor, hidden at init).
+  // The message cards' rims follow the palette (structure cyan, VIP amber), not the
+  // sources' brand colours; the sources keep their own templates for the visual pack.
   const tpl = (name, i, parts, extras = PRESS) => g.node(name, [T[0] + i * 0.3, T[1], T[2]], parts, extras);
-  tpl("TplMsgGmail", 0, cardParts(P.gmail, P.card));
-  tpl("TplMsgSlack", 1, cardParts(P.slack, P.card));
-  tpl("TplMsgGithub", 2, cardParts(P.github, P.card));
-  tpl("TplMsgLinear", 3, cardParts(P.linear, P.card));
-  tpl("TplMsgVip", 4, cardParts(P.vip, P.card, 0.02));
-  tpl("TplMsgRead", 5, cardParts(P.edge, P.cardRead));
-  // 11 cm wide: 2.6 degrees at 2.4 m, over the research's 2.5 degree minimum target.
-  const pill = (mat) => [[cylGeom(0.055, -0.085, 0.085, 24), mat]];
-  tpl("TplEvent", 6, pill(P.evFuture));
-  tpl("TplEventNow", 7, pill(P.evNow));
-  tpl("TplEventPast", 8, pill(P.evPast));
+  tpl("TplMsgGmail", 0, cardParts(P, P.cyan));
+  tpl("TplMsgSlack", 1, cardParts(P, P.cyan));
+  tpl("TplMsgGithub", 2, cardParts(P, P.cyan));
+  tpl("TplMsgLinear", 3, cardParts(P, P.cyan));
+  tpl("TplMsgVip", 4, cardParts(P, P.amber, 0.014));
+  tpl("TplMsgRead", 5, cardParts(P, P.dim));
+  tpl("TplEvent", 6, pillParts(P, P.glassPill, P.cyan));
+  tpl("TplEventNow", 7, pillParts(P, P.glassNow, P.amber));
+  tpl("TplEventPast", 8, pillParts(P, P.glassPast, P.dim));
   g.empty("spawn_point", [0, 0, 0], { spawn_point: true });
   g.box(variant === "mr" ? "VariantMr" : "VariantVr", [T[0], T[1] - 1, T[2]], [0.01, 0.01, 0.01], P.stud, anchor("variant"));
 }
 
-function vrRoom(g, P) {
-  // A dark floor with a faint grid, a line every metre, and a glowing ring on the
-  // floor under the Day Ring. No walls: sky "night".
-  g.box("Floor", [0, -0.05, 0], [14, 0.1, 14], P.floor);
-  for (let i = -7; i <= 7; i++) {
-    const s = String.fromCharCode(76 + i); // E..S, never a digit
-    g.box(`GridX${s}`, [i, 0.002, 0], [0.008, 0.004, 14], P.grid);
-    g.box(`GridZ${s}`, [0, 0.002, i], [14, 0.004, 0.008], P.grid);
-  }
-  g.node("FloorRing", [0, 0.004, 0], [[ringGeom(LAYOUT.ringR - 0.01, LAYOUT.ringR + 0.01, -0.002, 0.002, 144), P.track]], { hollow: [LAYOUT.ringR - 0.01, LAYOUT.ringR + 0.01, -0.002, 0.002] });
+/** The projected floor ring and grid: one textured quad on the floor. */
+function floorDecal(g, P, y) {
+  const q = geom(), h = FLOOR_M / 2;
+  quad(q, [-h, 0, h], [h, 0, h], [h, 0, -h], [-h, 0, -h], [0, 1, 0]);
+  q.uv = [0, 1, 1, 1, 1, 0, 0, 0];
+  g.node("FloorDecal", [0, y, 0], [[q, P.floorDecal]]);
 }
 
-function mrRoom(g, P) {
-  // The real room is the room. Dark plates sit behind the text that floats.
-  mrPlates(g, P);
-  // The Day Ring's band: dark flat facets 0.55 m behind the ring, from -100 to
-  // +100 degrees, so its labels read against a light wall. Shown while a ring label shows.
+/**
+ * The Day Ring's band: dark glass facets 0.55 m behind the ring, from -100 to
+ * +100 degrees, each with a light bar along its top and bottom (the glass wall of
+ * the first reference). Its labels read against it; shown while a ring label shows.
+ */
+function ringBand(g, P) {
   for (let k = 0; k < 21; k++) {
     const deg = -100 + k * 10;
     const r = LAYOUT.ringR + 0.55;
     const w = 2 * r * Math.tan(5 * RAD) + 0.006;
-    g.box(`RingBand${String.fromCharCode(65 + k)}`, at(r, deg, 2.08), [0.01, 0.95, w], P.band, anchor("band"), facing(deg));
+    g.node(`RingBand${String.fromCharCode(65 + k)}`, at(r, deg, 2.08), [
+      [boxGeom([0.01, 0.95, w]), P.band],
+      [boxGeom([0.004, 0.004, w * 0.98], [FRONT, 0.475 - 0.004, 0]), P.cyan],
+      [boxGeom([0.004, 0.003, w * 0.98], [FRONT, -0.475 + 0.004, 0]), P.teal],
+    ], anchor("band"), facing(deg));
   }
 }
 
+function vrRoom(g, P) {
+  // A dark glossy floor with the projected ring and grid. No walls: sky "night".
+  g.box("Floor", [0, -0.05, 0], [14, 0.1, 14], P.floor);
+  floorDecal(g, P, 0.003);
+  ringBand(g, P);
+}
+
+function mrRoom(g, P) {
+  // The real room is the room: the ring and grid are projected on the real floor,
+  // and dark plates sit behind the text that floats.
+  floorDecal(g, P, 0.004);
+  ringBand(g, P);
+  mrPlates(g, P);
+}
+
 /**
- * MR only: dark plates behind the floating text groups (plaque text needs
- * none: its card is its plate). Each plate sits 0.5 m beyond its text along the
- * line from the spawn and is sized to frame the text from any eye height from
- * seated (EYE_LOW) to standing (EYE_HIGH). The script shows a plate only while
- * its text shows (PLATES in script/src/lib.rs). Every plate is farther from the
- * spawn than anything pressable in its direction, so it never blocks a press.
+ * MR only: dark plates behind the floating text groups (text on glass panels and
+ * capsules needs none). Each plate sits 0.5 m beyond its text along the line from
+ * the spawn and is sized to frame the text from any eye height from seated
+ * (EYE_LOW) to standing (EYE_HIGH). The script shows a plate only while its text
+ * shows (PLATES in script/src/lib.rs). Every plate is farther from the spawn than
+ * anything pressable in its direction, so it never blocks a press.
  */
 export const PLATES = [
   // name, text centre (glTF), text width x height (m)
-  ["PlateModes", [...at(1.45, -60, 1.42)], [0.9, 1.25]],
-  ["PlateActions", [...at(1.15, 0, 0.87)], [1.3, 0.12]],
+  ["PlateStatus", [...at(1.45, -60, 0.92)], [1.2, 0.2]],
   ["PlateInbox", [LAYOUT.well[0], 0.92, LAYOUT.well[2]], [0.5, 0.28]],
   ["PlateLater", [...at(1.0, LAYOUT.pileLaterDeg, 0.88)], [0.42, 0.12]],
   ["PlateDone", [...at(1.0, LAYOUT.pileDoneDeg, 0.88)], [0.42, 0.12]],
-  ["PlateStageBtn", [...at(1.6, 25, 1.12)], [0.42, 0.12]],
 ];
 
 // The eye heights a plate must frame its text from: seated at a desk to standing.
@@ -576,7 +840,7 @@ function mrPlates(g, P) {
 
 export function build(variant) {
   const g = new Gltf(`KosmosWorlds more-room/tools/build_glb.mjs (${variant})`);
-  const P = palette(g);
+  const P = palette(g, variant);
   if (variant === "vr") vrRoom(g, P);
   else mrRoom(g, P);
   scripted(g, P, variant);

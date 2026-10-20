@@ -294,7 +294,11 @@ VIEWS = [
 ]
 
 os.makedirs(OUT, exist_ok=True)
+# Optional third argument: only these modes (comma-separated), for quick iteration.
+ONLY = argv[2].split(",") if len(argv) > 2 else None
 for mode in MODES:
+    if ONLY and mode not in ONLY:
+        continue
     path = os.path.join(ROOT, "renders", f"state-{VARIANT}-{mode}.json")
     with open(path, encoding="utf-8") as f:
         state = json.load(f)

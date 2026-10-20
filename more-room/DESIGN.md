@@ -49,43 +49,58 @@ Distances are from where you stand when the world loads, facing forward (+X), wi
 
 | Where | What | Height |
 |---|---|---|
-| 2.4 m, all round | **The Day Ring**: a thin glowing track; **events as pills** on it (past: dim slate; now: amber; later: blue), each labelled with its time and title on one of two rows; hour ticks (every third one longer); the amber **now bar** straight ahead. Pills more than 100° round are hidden; 19:00 is behind you at 10:00 | 1.78 m |
+| 2.4 m, all round | **The Day Ring**: a thin segmented cyan light ring with tick marks, over a dark glass band; **events as glass pills** on it (past: dim slate; now: amber; later: blue), each labelled with its time and title on one of two rows; hour ticks (every third one longer); the amber **now bar** straight ahead. Pills more than 100° round are hidden; 19:00 is behind you at 10:00 | 1.78 m |
 | 1.8 m ahead | **The banner**, under the now bar: the sample line, and for 90 s after a VIP lands a second line naming them (the room's one notice band). In triage it moves up, just above the fan | 1.46–1.65 m (triage 1.62–1.80 m) |
-| 1.7 m ahead | **The stage**, a dark card: the brief, a prep sheet, the wrap-up, the About pages. Close (prep) and Next (About) are a puck to its right | 0.98–1.42 m |
+| 1.7 m ahead | **The stage**, a dark card: the brief, a prep sheet, the wrap-up, the About pages. Close (prep) and Next (About) are a capsule to its right | 0.98–1.42 m |
 | 1.0 m, -55° to +55° | **The landing arc**: 12 slots where cards lie face-down. VR: a curved shelf of 17 flat facets with a glowing front edge; MR: a faint dark mat | 0.79 m |
 | 1.0 m, -67° and +67° | **Later** (amber ring) and **Done** (green ring), at the arc's ends | 0.79 m |
 | 1.3 m ahead, behind the arc | **The inbox well**: up to 3 messages that have no slot yet wait here (unread VIPs on top), and its label counts the rest | 0.79 m |
-| 1.45 m, 60° left | **The mode column**: round pucks for Owner sign in (until signed in), About, Morning, Focus, Triage and Wrap-up; the status line under them | 0.84–1.86 m |
+| 1.45 m, 60° left | **The mode column**: outlined glass capsules for Owner sign in (until signed in), About, Morning, Focus, Triage and Wrap-up; the status line under them | 0.84–1.92 m |
 | 1.6 m, 52° right | **Pinned tasks**: a line of counts, then three task cards, below the ring's labels | 0.86–1.66 m |
 | 1.75 m, -42° to +42° | **The fan** (triage): five face-up cards; a VIP's card has an amber frame | 1.29–1.55 m |
-| 1.4 m ahead | **The reading card** (triage): from, subject, preview. The five action pucks are under it at 1.15 m | 0.9–1.3 m |
+| 1.4 m ahead | **The reading card** (triage): from, subject, preview. The five action capsules are under it at 1.15 m | 0.9–1.3 m |
 | 1.4 m ahead | **A draft** (triage): "Draft to …" takes the reading card's place; Approve, Deny and More take the action row's | 0.9–1.3 m |
 | 1.45 m ahead | **Focus**: the task and its timer, with Start/Pause to the right and "Next: …" above | 0.88–1.76 m |
 | 1.95 m, all round | **The cocoon** (focus): 16 dark flat facets that slide in from 3 m | 0–2.6 m |
-| 2.1 m, 82° left | **The window**: a framed pane that turns from day to dusk to night against the sunset time, with weather, sunset and one headline on its sill | 0.87–1.91 m |
+| 2.1 m, 82° left | **The window**: a pane framed by light bars, its sky turning from day to dusk to night against the sunset time, with weather, sunset and one headline on its sill | 0.87–1.91 m |
 | 1.7 m behind | **The quiet shelf**: muted messages, with a label card above it | 1.0 m |
 
 **How the look is made** (the client can only print white text and cannot change a colour at runtime):
 - **State colours are pre-built variants.** An event pill comes in three tones and a card in seven; when a state changes, the room swaps in a clone of the other variant, in the same place. All of these choices live in `style.rs`: `style::template`, `style::event_tone`, `style::card_tone`, `style::pane` (the window) and `style::fan_frame` (a VIP's amber frame in the fan).
-- **Text sits on dark cards (plaques).** The client prints text on a thin upright plane flat on its face. So the stage, the fan, the reading card, the draft, the tasks, the window sill, the focus cards, the banner and the quiet label each carry their own text, and in MR each card is its own plate. Every text goes through one function, `App::say` with a `style::Place`.
-- **Nothing is rotated at runtime.** What moves is round about the vertical (pills, discs, pucks), so it looks the same from anywhere; what is flat is built already facing you, its yaw in the node.
+- **Text sits on dark glass cards (plaques).** The client prints text on a thin upright plane flat on its face. So the stage, the fan, the reading card, the draft, the tasks, the window sill, the focus cards, the banner and the quiet label each carry their own text, and in MR each card is its own plate. Every text goes through one function, `App::say` with a `style::Place`.
+- **Nothing is rotated at runtime.** What moves is round about the vertical (pills and discs), so it looks the same from anywhere; what is flat is built already facing you, its yaw in the node.
 - **Motion is per frame** (`k_tick`): the ring turns, cards fall, the fan and the reading card rise, the cocoon closes in.
 
+**The look: holographic glass** (CEO, 2026-10-19, on the first v2 renders: "It looks like very early-2000s forms when we have the ability to improve that and change that"). The direction is `work-in-vr-design/ART_DIRECTION_HOLO_GLASS.md`, after two references the CEO sent. All of it is authored geometry, materials and bundle textures, so it runs on today's API:
+- **Panels are smoked glass**: near-black navy, translucent (alpha 0.62 in VR, 0.82 in MR) and **unlit** (`KHR_materials_unlit`), so they never catch a light or a specular streak. The first glass pass was lit: the ring's band read as a grey wall and glare washed out button labels, so every glass material is now unlit.
+- **Light bars carry the structure**: a 3 mm unlit cyan bar along each panel's top and bottom, small corner brackets, hairline dividers. Every light is an unlit colour at most 1.0 (the headset renders LDR, with no bloom), so it reads crisp, not glowing. Amber marks only what needs you (the now bar, the banner, a VIP); green and red only Approve and Deny.
+- **The Day Ring is a segmented light ring**: 120 dashes with hour ticks, two teal hairline rails, and a dark glass band of 21 facets behind it, in both worlds.
+- **Buttons are outlined glass capsules**, the label printed on the glass: a thin cyan outline over a dark fill (Approve green, Deny red).
+- **Cards and event pills are glass chips with a light rim**; a VIP's rim is wider and amber.
+- **The floor carries a projected ring and grid** (a 1024² decal texture, 8 m across): rings under the landing arc and the Day Ring, ticks every 5° and 15°, and a half-metre grid that fades out past 2.2 m. In MR the decal lies over your real floor.
+- **One faked halo**: a soft amber quad behind the top of the now bar. It hides in triage and focus, where the banner or the cocoon would stack a third translucent layer on it.
+- **The window** is a sky gradient (a small texture per pane), with stars at night; its sill is a glass panel.
+- **No fake readable data**: every readable word is real world text.
+- **The translucency guardrail** (no pixel behind more than two translucent layers): glass panels never overlap each other in view; the band sits behind the ring's labels, and the only glass in front of it is the banner; the halo hides when the banner or the cocoon would cover it. Checked in the renders; the frame time is a device check (section 9, item 11).
+- **Never Kosmos chrome**: no amber Kosmos logo and no menu or sheet shapes; the room's capsules and panels are its own.
+
+A side-by-side sheet against the two references is made by `tools/make_sheet.py`; the references are the CEO's and stay outside this repo, so the sheet does too.
+
 **VR** (`more-room`):
-- a dark floor with a faint grid and a glowing ring under the Day Ring;
+- a dark floor carrying the projected ring-and-grid decal;
 - sky `night`, because world text is always white and needs a dark field.
 
 **MR** (`more-room-mr`):
 - `presentation.mode: immersive-ar`, `blend: alpha-blend`, sky `void`;
-- no floor, only a faint dark mat where the cards lie;
-- **a dark band behind the Day Ring**: 21 flat facets 0.55 m behind it, from -100° to +100°, shown while a ring label shows;
-- dark plates behind the text that floats (the mode column and status, the action row's labels, the inbox and pile counts, the stage's Close/Next).
+- no floor: the projected ring-and-grid decal lies on your real floor, and the landing arc is a cyan edge;
+- **the dark glass band behind the Day Ring** is darker (alpha 0.8), so the ring and its labels read against a light wall;
+- dark plates behind only the text that floats (the status line, the inbox count and the two pile counts): every other text now sits on its own glass panel or capsule.
 
 The room floats at fixed spots relative to where you stand when the world loads. MR worlds register the room to the world once, in the travel fade (D-062). No room data is read (section 8).
 
 ## 3. The four modes
 
-One puck each, on the mode column. The current mode reads `[Triage]`.
+One capsule each, on the mode column. The current mode reads `[Triage]`.
 
 Renders: [renders/](renders/), as `vr-<mode>-<view>.jpg` and `mr-<mode>-<view>.jpg`. The views are `eye` (standing, straight ahead), `arc` (looking down at the landing arc), `overview` (from above and behind), `seated` (a 1.2 m eye, at a desk), and, for Morning, `left` (the window and the modes) and `right` (the tasks).
 
@@ -101,15 +116,15 @@ Renders: [renders/](renders/), as `vr-<mode>-<view>.jpg` and `mr-<mode>-<view>.j
 - **In front of you:** "Focus on: Answer counsel on terms", a 25-minute timer under it, Start and Pause to its right, and above it the only other thing you see: "Next: 10:30 Counsel call".
 - **Messages keep landing**, out of sight and **silent**.
 - **A VIP ticks once, from the well**, and for 90 seconds the banner gains a second line, "VIP: Dana Whitfield": the banner is the room's one low notice band. Nothing moves toward you.
-- Any mode puck opens the room out again.
+- Any mode capsule opens the room out again.
 
 ### Triage
 - **The cards rise:** five cards rise from the arc and fan out face-up at reading height (sender and subject), unread VIPs first in an amber frame. Their discs leave the arc while they are up.
-- **Press a card in the fan** to read it: the reading card rises in front of you (from, subject, a preview), with five pucks under it.
+- **Press a card in the fan** to read it: the reading card rises in front of you (from, subject, a preview), with five capsules under it.
 - **Done** archives it to the Done pile; **Later** snoozes it to the Later pile; **Mute** sends it to the quiet shelf behind you; **Task** ("Make a task") creates a Linear ticket from it, and the status names the ticket.
 - **Reply** ("Claude drafts reply"): the bridge asks Claude for a draft, which takes the reading card's place, front and centre, as "Draft to …" in pages of three lines; **Approve**, **Deny** and **More 1/3** take the action row's place while it waits.
   - **Approve** hands it to the bridge, which sends it through Mission Control's approval path.
-  - **Deny** discards it. For 0.3 s after the row swaps, its pucks ignore presses, so a double press on Reply can't land on Deny.
+  - **Deny** discards it. For 0.3 s after the row swaps, its capsules ignore presses, so a double press on Reply can't land on Deny.
   - **Nothing is sent without that press.** The test asserts that no approval reaches the bridge before it.
 - The fan refills from what is left. Leaving triage puts the fan away and the cards back on the arc.
 
@@ -118,7 +133,7 @@ Renders: [renders/](renders/), as `vr-<mode>-<view>.jpg` and `mr-<mode>-<view>.j
 - **The tasks:** "Roll to tomorrow: press one", and every open task. A press rolls it to tomorrow.
 
 ### About this room
-- **The About puck** (second on the mode column) opens seven short pages on the stage, while the room around it clears. The banner stays.
+- **The About capsule** (second on the mode column) opens seven short pages on the stage, while the room around it clears. The banner stays.
   1. What the room is: the rectangle question, and a place for each part of the day.
   2. Sample day: nothing here is real yet.
   3. The ring and the modes.
@@ -130,7 +145,7 @@ Renders: [renders/](renders/), as `vr-<mode>-<view>.jpg` and `mr-<mode>-<view>.j
 - A test asserts that every page fits whole: 4 lines of 30 characters, no cut.
 
 ### Always there
-- **Prep:** press any event pill (outside focus) and the stage shows its prep sheet, which Claude gathers: attendees, agenda, related mail and tickets. A Close puck returns.
+- **Prep:** press any event pill (outside focus) and the stage shows its prep sheet, which Claude gathers: attendees, agenda, related mail and tickets. A Close capsule returns.
 - **The window:** weather, sunset and one headline.
 - **The quiet shelf:** "Quiet shelf: 1" and the senders' names.
 - **The status line**, under the mode column: "Sample day. Only the owner can sign in.", "Live. Updated 3 s ago", "Press a card in the fan to read it." in triage, or a plain error ("Wrong passphrase", "The bridge did not answer. Is the PC awake?", "Network is off for this world", "Signed out by the bridge. Sign in again.").
@@ -151,8 +166,9 @@ Every number below was measured by running the built `world.wasm`:
 | Request body | 16 KiB | largest 83 B | — |
 | Answer | 256 KiB, text or JSON only | largest 4.8 KB (the whole sample day) | 7.7 KB for 40 messages |
 | Requests | 4 in flight, 1 a second with bursts of 10 | 15 polls plus presses; never rate-limited | — |
-| Wasm | 256 KB | 107.9 KB (6.4 KB of it is the built-in sample, about 20 KB a scratch day a live answer is read into first) | — |
-| Triangles | 1,000,000 | 10,532 VR, 9,356 MR (doctor) | — |
+| Wasm | 256 KB | 107.7 KB (6.4 KB of it is the built-in sample, about 20 KB a scratch day a live answer is read into first) | — |
+| Triangles | 1,000,000 | 16,846 VR, 16,678 MR (doctor; the glass pass added light bars, capsules and rings) | — |
+| Texture memory | 48 MB | 4.2 MB (the floor decal, the halo and three window skies) | — |
 
 **Per frame**, the ring moves 10 pills and 13 ticks only when its clock has moved, and sets visibility only when it changes; the cocoon moves 16 facets only while it is closing in or opening out.
 
@@ -269,7 +285,7 @@ Each was found reading the client at the cooked commit, or in the lit review of 
 8. **A clone keeps its source's visibility and collision**, so the hidden templates' clones are shown on creation.
    - Presses on clones dispatch through the handle registry. This is **inferred from source, not yet seen on a headset**, and it is on the device check list.
    - Every clone's `OnInteract` subscription is released when it is destroyed. Subscriptions are a capped pool (256).
-9. **`k_transform_set_rotation` replaces a node's relative rotation with a raw engine rotator** (`KDomTransform.cpp`, client `944abfa`): it overrides whatever rotation the glTF importer gave the node. So v2 never rotates anything at runtime (a test asserts the wasm does not import it). What moves is round about the vertical: pills, discs and pucks look the same from anywhere. What is flat (the fan, the facets, the plates) is built already facing the spawn, with its yaw in the node, and moves only by position. A card "turns over" by swapping its face: the face-down disc is destroyed and a read-face disc is cloned in its place.
+9. **`k_transform_set_rotation` replaces a node's relative rotation with a raw engine rotator** (`KDomTransform.cpp`, client `944abfa`): it overrides whatever rotation the glTF importer gave the node. So v2 never rotates anything at runtime (a test asserts the wasm does not import it). What moves is round about the vertical: pills and discs look the same from anywhere. What is flat (the fan, the panels, the capsules, the facets, the plates) is built already facing the spawn, with its yaw in the node, and moves only by position. A card "turns over" by swapping its face: the face-down disc is destroyed and a read-face disc is cloned in its place.
 10. **Text plaques** (`KWorldTextPool.cpp`, KOS-981, in both installed cooks `00d9a69` and `ecad7c5`): text on a thin upright plane (its thinnest extent at most a fifth of the next, its rotation in the node, not baked) is printed flat on the plane's face, a hair in front, and never turned. Any other anchor gets upright text faced toward your eye **once, when it is shown**, then carried with its node. v2 puts most text on dark cards for this reason, and shows a Day Ring label again once its pill has moved 6° round, so it faces you again. The renders (`tools/render_modes.py`) follow the same rule.
 11. **A text's bottom sits at its anchor's rendered centre plus `offset_y`, and a negative offset is clamped to 0** (`KDomUI.cpp`: metres, clamped to 0..5 m). So text can only rise from a card's middle, never centre on it. Each v2 card therefore hangs a hair-thin dark keel below it, which lowers its rendered centre by half the height of the most lines it holds; `style::offset(Place::Plaque(max), n)` then lifts n lines by the difference, so any text is centred and no offset is negative. The mock host and the renders use the same rendered centre. And when only a held text's words change, the client keeps its first placement and offset: so the room hides and shows a text again whenever its offset must change (a card going from one line to two), and the mock host keeps the first offset too, so a test catches it.
 
@@ -327,11 +343,12 @@ Each was found reading the client at the cooked commit, or in the lit review of 
 4. The cocoon: does it close in smoothly, and does Focus feel calmer, not claustrophobic? Do the facets draw correctly over passthrough in MR (mobile alpha)?
 5. Cards: does a new card falling onto the arc read as landing, not popping? Do the fan and the reading card rise smoothly, and is the fan readable at 1.75 m?
 6. The text is readable at eye height in VR and in MR (plates against a real wall). Is the open card readable over a real monitor? Do translucent plates and mats draw correctly over passthrough on the headset (mobile alpha)? Do the 1 cm text-anchor studs show as specks on a real wall? Is the inbox count on the well readable in MR (it has its own plate, `PlateInbox`)? Is text printed flat on the dark cards as the plaque rule says? Check it all standing **and seated at a real desk**: the plates are sized for any eye from 1.15 m to 1.75 m (`EYE_LOW`, `EYE_HIGH` in `tools/build_glb.mjs`), and the renders include a seated view (`*-seated`).
+   - **The glass look on the headset** (2026-10-19): do the unlit glass, the light bars and the textures (the floor decal, the halo, the window skies) draw as in the renders? glTFRuntime must honour `KHR_materials_unlit` with BLEND alpha. Is the halo soft, not a hard square? Is the 3 mm light bar still visible at 2.4 m, or does it shimmer (aliasing)? Over passthrough, does the glass read against a real wall as in `mr-*-eye`?
 7. Presses on clones (cards, event pills, the fan's cards) work, including a low controller angle on the arc (the tests trace the press from the eye, not the hand). If they don't, the fallback is authored slots instead of clones.
 8. Read, Done, Later, Mute, Task, Reply → Approve: each lands where it lives (in the sample, nothing is sent; signed in, Approve reaches Mission Control's approval log).
 9. Focus: a VIP arriving ticks once from the well; a normal message is silent.
 10. Put the headset to sleep and wake it, then turn off the PC: the status says "The bridge did not answer. Is the PC awake?", and nothing crashes.
-11. Frame time with the full room visible stays within 13.8 ms. The room is about 10,500 triangles, 159 authored nodes (VR) and up to about 40 clones; the ring moves 23 nodes a frame while its clock moves, so it is expected to be fine.
+11. Frame time with the full room visible stays within 13.8 ms. The room is about 16,800 triangles, 170 authored nodes (VR), several translucent glass panels (the guardrail: never more than two stacked on a pixel) and up to about 40 clones; the ring moves 23 nodes a frame while its clock moves, so it is expected to be fine.
 
 ## 10. Publishing
 

@@ -17,7 +17,7 @@ pub enum Place {
     /// On a plaque (a thin card printed flat by the client) that holds up to
     /// this many lines; centred on it (see `offset`).
     Plaque(u8),
-    /// A short label above a puck.
+    /// A button's label, printed on its glass capsule (one line, centred by its keel).
     Puck,
     /// A label above an event pill on the Day Ring, on one of two rows.
     Ring(u8),
@@ -45,7 +45,7 @@ pub fn offset(place: Place, lines: usize) -> f32 {
         // its rendered centre by half a block of `max` lines (tools/build_glb.mjs),
         // so lifting a block of `n` lines by the difference centres it.
         Place::Plaque(max) => (block_h(max as usize) - block_h(lines)) / 2.0,
-        Place::Puck => 0.035,
+        Place::Puck => 0.0,
         Place::Ring(0) => 0.1,
         Place::Ring(_) => 0.31,
         Place::Float => 0.0,

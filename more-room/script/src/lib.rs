@@ -254,7 +254,7 @@ struct FanCard {
 const EMPTY_FAN: FanCard = FanCard { id: S::new(), pos: [0.0; 3], from: [0.0; 3], t: 1.0 };
 
 /// MR plates, in the order of `Nodes::plates` (mirrors PLATES in tools/build_glb.mjs).
-const PLATES: [&str; 6] = ["PlateModes", "PlateActions", "PlateInbox", "PlateLater", "PlateDone", "PlateStageBtn"];
+const PLATES: [&str; 4] = ["PlateStatus", "PlateInbox", "PlateLater", "PlateDone"];
 const BAND_FACETS: usize = 21;
 const HOUR_TICKS: usize = 13;
 
@@ -291,6 +291,8 @@ struct Nodes {
     pile_done: i32,
     ticks: [i32; HOUR_TICKS],
     panes: [i32; 3],
+    /// The one faked halo, behind the top of the now bar.
+    halo: i32,
     fan: [i32; FAN],
     fan_vip: [i32; FAN],
     cocoon: [i32; L::COCOON_FACETS],
@@ -406,6 +408,7 @@ const NO_NODES: Nodes = Nodes {
     pile_done: 0,
     ticks: [0; HOUR_TICKS],
     panes: [0; 3],
+    halo: 0,
     fan: [0; FAN],
     fan_vip: [0; FAN],
     cocoon: [0; L::COCOON_FACETS],
@@ -742,6 +745,7 @@ pub extern "C" fn k_init() {
     n.pile_done = find("PileDone");
     n.ticks = find_letters::<HOUR_TICKS>("HourTick");
     n.panes = [find("PaneDay"), find("PaneDusk"), find("PaneNight")];
+    n.halo = find("NowHalo");
     n.fan = find_letters::<FAN>("Fan");
     n.fan_vip = find_letters::<FAN>("FanVip");
     n.cocoon = find_letters::<{ L::COCOON_FACETS }>("Cocoon");
@@ -2095,6 +2099,10 @@ pub fn render() {
     // The banner sits under the now bar; in triage it moves up, clear of the fan.
     place(n.txt_banner, L::at(L::BANNER_R, 0.0, if triage { L::BANNER_TRIAGE_Y } else { L::BANNER_Y }));
 
+    // The halo hides when the banner (triage) or the cocoon (focus) would stack a
+    // third translucent layer on it (the art direction's guardrail).
+    visible(n.halo, !triage && !focus);
+
     // --- Buttons and groups.
     visible(n.sign_in, !a.signed_in);
     visible(n.about, true);
@@ -2491,30 +2499,25 @@ pub fn render() {
     show_plates();
 }
 
-/// MR only: show each dark plate only while a text it frames is showing,
-/// and the ring's band while any ring label shows.
+/// Show the ring's glass band while any ring label shows, and (MR only) each
+/// dark plate only while the floating text it frames is showing.
 /// (World text is always white; a light real wall behind it is unreadable.)
 fn show_plates() {
     let a = app();
     let n = a.n;
-    if !n.mr {
-        return;
-    }
     let held = |node: i32| a.held(node);
-    let wanted = [
-        n.mode.iter().any(|&m| held(m)) || held(n.about) || held(n.sign_in) || held(n.txt_status),
-        held(n.done) || held(n.approve),
-        held(n.inbox),
-        held(n.pile_later),
-        held(n.pile_done),
-        held(n.prep_close) || held(n.about_next),
-    ];
-    for k in 0..PLATES.len() {
-        visible(n.plates[k], wanted[k]);
-    }
+    // The ring's glass band (both worlds): shown while a ring label shows.
     let ring = (0..a.n_event_nodes).any(|e| held(a.events[e]));
     for b in n.band {
         visible(b, ring);
+    }
+    if !n.mr {
+        return;
+    }
+    // Text on glass panels and capsules needs no plate: only the text that floats does.
+    let wanted = [held(n.txt_status), held(n.inbox), held(n.pile_later), held(n.pile_done)];
+    for k in 0..PLATES.len() {
+        visible(n.plates[k], wanted[k]);
     }
 }
 
