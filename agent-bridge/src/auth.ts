@@ -17,6 +17,9 @@
  *     per person, so the lock is global: a stranger can lock the CEO out, but
  *     never in. That trade is stated in DB-044.
  *   - At most one attempt every 2 seconds, so guessing is slow even before the lock.
+ *   - A PAIRED session (Mission Control v2, pairing.ts) is approved at the PC, so `issue()` makes it
+ *     whatever the lockout says, and the LOCKED file does not end it: the lock is about passphrase
+ *     guessing. It is otherwise the same session: same token rules, one at a time.
  */
 
 import crypto from "node:crypto";
@@ -32,12 +35,14 @@ export const MIN_ATTEMPT_GAP_MS = 2000;
 
 export type SignInResult =
   | { ok: true; token: string; expiresInS: number }
-  | { ok: false; reason: "wrong" | "locked" | "hard_locked" | "too_fast" | "not_set"; retryAfterS?: number };
+  | { ok: false; reason: "wrong" | "locked" | "hard_locked" | "too_fast" | "not_set" | "off"; retryAfterS?: number };
 
 interface Session {
   hash: string;
   createdAt: number;
   lastSeen: number;
+  /** Made from a pairing approved at the PC (survives the passphrase lockout's LOCKED file). */
+  paired: boolean;
 }
 
 function sha(s: string): string {
@@ -83,8 +88,21 @@ export class AuthGate {
     }
 
     this.consecutiveFails = 0;
+    return this.newSession(false);
+  }
+
+  /**
+   * A session from a pairing the owner approved at the PC (server.ts calls this only after
+   * `Pairing.take` succeeded). Ends any other session, and ignores the passphrase lockout.
+   */
+  issue(): { ok: true; token: string; expiresInS: number } {
+    return this.newSession(true);
+  }
+
+  private newSession(paired: boolean): { ok: true; token: string; expiresInS: number } {
+    const t = this.now();
     const token = crypto.randomBytes(32).toString("base64url");
-    this.session = { hash: sha(token), createdAt: t, lastSeen: t };
+    this.session = { hash: sha(token), createdAt: t, lastSeen: t, paired };
     return { ok: true, token, expiresInS: TOKEN_IDLE_MS / 1000 };
   }
 
@@ -93,7 +111,7 @@ export class AuthGate {
     if (!token || !this.session) return false;
     const t = this.now();
     const s = this.session;
-    if (t - s.lastSeen > TOKEN_IDLE_MS || t - s.createdAt > TOKEN_MAX_MS || isHardLocked()) {
+    if (t - s.lastSeen > TOKEN_IDLE_MS || t - s.createdAt > TOKEN_MAX_MS || (!s.paired && isHardLocked())) {
       this.session = null;
       return false;
     }

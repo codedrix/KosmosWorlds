@@ -13,6 +13,7 @@
  *
  *   AB1
  *   tok <token>          the sign-in token, when there is one
+ *   pair <id>            the pairing id from an `I` record, while waiting (32 lowercase hex)
  *   v <n>                the snapshot version the world is showing
  *   press <node>         a node the visitor pressed
  *   ---
@@ -22,12 +23,17 @@
  *
  *   AB1                  magic
  *   V <n>                snapshot version (echo it back as `v`)
- *   M <mode>             lock | wall | chat
+ *   M <mode>             lock | pair | cubes | arc
  *   K <token>            a new sign-in token: keep it in memory
- *   E <code>             an event: signed_out, refused, stale, busy, ...
+ *   I <id>               a pairing id (32 lowercase hex): keep it in memory, echo it as `pair <id>`
+ *   E <code>             an event: signed_out, refused, stale, pair_wait, paired, pair_expired,
+ *                        pair_refused, passphrase_off, ...
  *   T <node> <text>      show world text on <node>; "\n" in <text> is a newline, "\\" a backslash
  *   X <node>             hide <node>'s world text
  *   U <node> <0|1>       hide or show <node> (k_node_set_visible)
+ *   H <node> <state>     paint <node> in <state>: calm | need | idle | armed | locked | off
+ *                        (the world shows the variant node <node><State>; off shows none)
+ *   (v1, unused by Mission Control v2:)
  *   G <node> <0..1000>   a gauge: <node>'s X scale in thousandths
  *   O <node> <mm>        shift <node> sideways (along the panel's right) by <mm> millimetres
  *   C <node> <count>     show <count> copies of <node> in a row (k_node_clone)
@@ -44,9 +50,17 @@ export interface WorldRequest {
   tok?: string;
   v?: number;
   press?: string;
+  /** A pairing id the world is waiting on (32 lowercase hex only). */
+  pair?: string;
   text?: string;
   fields: Record<string, string>;
 }
+
+/** A pairing id: 16 random bytes, lowercase hex. */
+export const PAIR_ID_RE = /^[0-9a-f]{32}$/;
+/** A colour state the world knows (`H`). */
+export type HueState = "calm" | "need" | "idle" | "armed" | "locked" | "off";
+export type Mode = "lock" | "pair" | "cubes" | "arc";
 
 const FIELD_RE = /^([a-z]{1,12}) (.{0,200})$/;
 
@@ -82,6 +96,7 @@ export function parseWorldRequest(body: string, contentType: string | undefined)
   if (req.fields.tok) req.tok = req.fields.tok;
   if (req.fields.v !== undefined && /^\d{1,9}$/.test(req.fields.v)) req.v = Number(req.fields.v);
   if (req.fields.press && /^[A-Za-z][A-Za-z0-9]{0,40}$/.test(req.fields.press)) req.press = req.fields.press;
+  if (req.fields.pair && PAIR_ID_RE.test(req.fields.pair)) req.pair = req.fields.pair;
   return req;
 }
 
@@ -99,12 +114,26 @@ export class Snapshot {
     this.ver = n;
     return this;
   }
-  mode(m: "lock" | "wall" | "chat"): this {
+  get versionNumber(): number {
+    return this.ver;
+  }
+  mode(m: Mode): this {
     this.lines.push(`M ${m}`);
     return this;
   }
   token(t: string): this {
     this.lines.push(`K ${t}`);
+    return this;
+  }
+  /** The pairing id the world echoes back while it waits. Refuses anything but 32 lowercase hex. */
+  pairId(id: string): this {
+    if (!PAIR_ID_RE.test(id)) throw new Error("not a pairing id");
+    this.lines.push(`I ${id}`);
+    return this;
+  }
+  /** Paint <node> in <state>. A face calls this from ONE function, the only place a state is chosen. */
+  hue(node: string, state: HueState): this {
+    this.lines.push(`H ${node} ${state}`);
     return this;
   }
   event(code: string): this {
@@ -156,6 +185,15 @@ export class Snapshot {
       return parts.length < 2 || parts[1] !== node || parts[0] === "Z";
     });
     return this;
+  }
+  /** Append another snapshot's records (not its version) after these. */
+  extend(other: Snapshot): this {
+    this.lines.push(...other.lines);
+    return this;
+  }
+  /** How many `T` records (labels shown) this snapshot carries. */
+  get shownTexts(): number {
+    return this.lines.filter((l) => l.startsWith("T ")).length;
   }
   same(): this {
     this.lines.push("S");
