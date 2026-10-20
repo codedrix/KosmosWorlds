@@ -818,6 +818,119 @@ fn a_cube_press_commits_only_through_a_reply_that_takes_it() {
 }
 
 #[test]
+fn the_unfold_comes_from_the_pressed_cube_when_the_poll_lands_first() {
+    // The bridge's press handler wakes the view poll with the same M arc (correctness review 3,
+    // HIGH-2): the poll's reply reaches the world before the press's own.
+    sign_in_to_cubes();
+    press("CubeB");
+    let press_id = unsafe { host::LAST_FETCH_ID };
+    snap(&full_arc_snapshot()); // the poll's reply (REPLY_ID 0)
+    assert!(unsafe { ARC_SHOWN });
+    assert!(close3(pos("McCenterFrame"), placed(idx("CubeB"))), "unfolds from the pressed cube");
+    assert!(!vis("CubeB"), "the pressed cube hides at once");
+    run(0.2);
+    apply_reply(press_id, full_arc_snapshot().as_bytes()); // then the press's own reply
+    assert!(!vis("CubeB") && vis("CubeA"));
+    assert_eq!(unsafe { PICKED }, idx("CubeB"));
+    run(0.4);
+    snap("AB1\nM cubes\n");
+    assert!(close3(unsafe { FOLD_TO }, placed(idx("CubeB"))), "and folds back into it");
+    close_panel();
+}
+
+#[test]
+fn the_unfold_comes_from_the_pressed_cube_when_the_press_reply_lands_first() {
+    sign_in_to_cubes();
+    press("CubeB");
+    reply(&full_arc_snapshot()); // the press's own reply first
+    assert!(close3(pos("McCenterFrame"), placed(idx("CubeB"))), "unfolds from the pressed cube");
+    assert!(!vis("CubeB"));
+    snap(&full_arc_snapshot()); // then the poll's
+    assert!(!vis("CubeB") && unsafe { PICKED } == idx("CubeB"));
+    close_panel();
+    // CubePlus the same way.
+    sign_in_to_cubes();
+    press("CubePlus");
+    snap(&full_arc_snapshot());
+    assert!(close3(pos("McCenterFrame"), placed(idx("CubePlus"))));
+    assert!(!vis("CubePlus"));
+    close_panel();
+}
+
+#[test]
+fn a_refused_or_stale_cube_press_never_moves_the_unfold() {
+    // The poll opens the arc from the pending cube, then the press's reply refuses it: the cube
+    // shows again and the fold goes to the ledge's centre.
+    sign_in_to_cubes();
+    press("CubeB");
+    let press_id = unsafe { host::LAST_FETCH_ID };
+    snap(&full_arc_snapshot());
+    assert!(!vis("CubeB"));
+    apply_reply(press_id, (full_arc_snapshot() + "E stale\n").as_bytes());
+    assert!(vis("CubeB"), "the refused cube shows again");
+    assert_eq!(unsafe { PICKED }, NONE);
+    assert!(close3(unsafe { FOLD_TO }, placed(idx("McLedge"))));
+    close_panel();
+    // No answer to the press (status 0): the same.
+    sign_in_to_cubes();
+    press("CubeB");
+    let press_id = unsafe { host::LAST_FETCH_ID };
+    on_net_result(0, 0, press_id, 0);
+    snap(&full_arc_snapshot());
+    assert!(close3(pos("McCenterFrame"), placed(idx("McLedge"))), "a lost press leaves the ledge's centre");
+    assert!(vis("CubeB"));
+    close_panel();
+    // A pending pick that outlives its timeout is not used.
+    sign_in_to_cubes();
+    press("CubeB");
+    run(PICK_TIMEOUT_S + 0.2);
+    snap(&full_arc_snapshot());
+    assert!(close3(pos("McCenterFrame"), placed(idx("McLedge"))), "a stale pick times out");
+    close_panel();
+    // Close clears it.
+    sign_in_to_cubes();
+    press("CubeB");
+    press("McClose");
+    assert_eq!(unsafe { PENDING_PICK }, NONE);
+}
+
+#[test]
+fn the_seal_rings_turn_slowly_one_call_a_frame() {
+    reset();
+    press("McSeal");
+    snap(&pair_records());
+    let h = h("SealRing") as usize;
+    run(0.7); // the ring has risen (no spin while it moves)
+    let r0 = unsafe { host::ROLL[h] };
+    let c0 = unsafe { host::CALLS };
+    k_tick(DT);
+    let per_tick = unsafe { host::CALLS } - c0;
+    assert!(per_tick <= 2, "a quiet seal frame costs the spin and nothing more: {per_tick}");
+    run(1.0);
+    let turned = unsafe { host::ROLL[h] } - r0;
+    assert!((turned - SEAL_SPIN_DEG_S * (1.0 + DT)).abs() < 0.5, "about 6 degrees a second: {turned}");
+    // Steady: equal steps, never back and forth.
+    let mut last = unsafe { host::ROLL[h] };
+    for _ in 0..30 {
+        k_tick(DT);
+        let now = unsafe { host::ROLL[h] };
+        let step = (now - last + 360.0) % 360.0;
+        assert!((step - SEAL_SPIN_DEG_S * DT).abs() < 1e-3, "{step}");
+        last = now;
+    }
+    // Signed in, the ring is gone and nothing turns.
+    snap(PAIRED);
+    run(1.6);
+    let r1 = unsafe { host::ROLL[h] };
+    run(1.0);
+    assert_eq!(unsafe { host::ROLL[h] }, r1, "no spin once the seal is down");
+    close_panel();
+    let r2 = unsafe { host::ROLL[h] };
+    run(1.0);
+    assert_eq!(unsafe { host::ROLL[h] }, r2, "no spin while closed");
+}
+
+#[test]
 fn a_rail_press_folds_to_the_ledge_centre() {
     sign_in_to_cubes();
     press("CubeA");
