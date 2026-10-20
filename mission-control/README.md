@@ -202,7 +202,7 @@ not pixels**: the device checkpoint is the real check.
 | `arc_left.jpg` | the head turned to the left panel: ticker, four rails, done |
 | `arc_right.jpg` | the head turned to the right panel: the browser spot |
 | `arc_unfolding.jpg` | the arc half way out of its cube (no words yet) |
-| `arc_floor.jpg` | from the eye, looking down past the ask plate: the projected floor ring and grid under the arc, between the chrome bar and the ledge |
+| `arc_floor.jpg` | a review camera, not the owner's eye: an elevated three-quarter view from behind and above the throne, a step to its right, over the floating arc at its several depths to the projected floor ring on the hall floor (how reference 2 is shot) |
 | `watcher.jpg` | a watcher's copy from the hall: the arc only, turned and lowered, no action buttons |
 | `art_sheet.jpg` | the look check: CEO reference 1 (the glass wall) beside `arc.jpg` and `seal_ring.jpg`; reference 2 (the floating panels) beside `arc_floor.jpg` and `watcher.jpg` |
 

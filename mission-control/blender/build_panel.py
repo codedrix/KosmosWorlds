@@ -1281,8 +1281,11 @@ def review():
     a = math.radians(LEFT[0])
     cam_arc_left = camera("CamArcLeft", eye, vpt(1.8 * math.cos(a), 1.8 * math.sin(a), 1.45), 90)
     cam_arc_right = camera("CamArcRight", eye, vpt(1.8 * math.cos(a), -1.8 * math.sin(a), 1.45), 90)
-    # The head tilted down: the ledge, the arc's foot and the projected floor ring.
-    cam_floor = camera("CamArcFloor", eye, vpt(1.25, 0, 0.35), 90)
+    # A review camera, not the owner's eye (reference 2 is shot this way): an elevated three-
+    # quarter view from behind and above the throne, a step to its right, looking out over the
+    # floating arc at its several depths to the projected floor ring in the hall below it.
+    cam_floor = camera("CamArcFloor", vpt(FLOOR_CAM[0], FLOOR_CAM[1], FLOOR_CAM[2]),
+                       vpt(FLOOR_LOOK[0], FLOOR_LOOK[1], FLOOR_LOOK[2]), FLOOR_CAM_FOV)
     pivot_x = STAND[0] - CENTER[1]
     cam_watch = camera("CamWatcher", (pivot_x - 3.2, 0.0, 1.66), (pivot_x, 0.0, 1.5), 80)
 
@@ -1299,7 +1302,7 @@ def review():
     render(cam_arc, "arc.jpg", eye=True)
     render(cam_arc_left, "arc_left.jpg", eye=True)
     render(cam_arc_right, "arc_right.jpg", eye=True)
-    render(cam_floor, "arc_floor.jpg", eye=True)
+    render(cam_floor, "arc_floor.jpg")
     apply_view(["arc"], arc_e=0.5, picked="CubeA")
     render(cam_arc, "arc_unfolding.jpg", eye=True)
     clear_review()
@@ -1311,6 +1314,10 @@ def review():
     art_sheet()
 
 
+# The arc_floor review camera (viewer frame): behind and above the throne, a step to the side.
+FLOOR_CAM = (-1.5, -2.2, 2.8)
+FLOOR_LOOK = (3.0, -0.15, 0.35)
+FLOOR_CAM_FOV = 72
 REFS = os.environ.get("MC_REFS", "E:/wt/work-in-vr-design/references")
 
 
