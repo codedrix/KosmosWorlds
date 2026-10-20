@@ -87,9 +87,9 @@ and when its groups show.
 - **Groups by name:** seal (`SealRing*`, `TxSeal*`, `BtnSealType`, `McSealCancel`), ledge
   (`McLedge`, `McClose`, `Cube*`, `TxCube*`), puck (`Puck*`, `BtnPuck*`, `TxPuck`), arc (everything
   else, the chrome bar included); `McSeal` and `McWatchJoin` are fixtures.
-- **One world-private node, `McFloorRing`** (`NODES_PRIVATE` in `lib.rs`): the projected floor
-  ring. The program finds and places it, but the bridge never names it, so it is not in
-  `nodes.json` (`build_panel.py`'s contract check allows exactly this one extra). It is in the arc
+- **`McFloorRing`**, the projected floor ring, is a world-only node: it is listed in `nodes.json`
+  like the others (the bridge's `WORLD_ONLY_NODES`), and the bridge never names it on the wire;
+  `build_panel.py`'s contract check requires an exact match with `nodes.json`. It is in the arc
   group, so it shows, unfolds and folds with the arc, but `place` never applies the handle
   adjustment to it: it stays on the hall floor at every handle setting (correctness review 4,
   MEDIUM-1). It is hidden for a watcher, and while the handles hold the arc where the ask plate
@@ -295,8 +295,8 @@ with them); (4) the watcher never sees the floor ring (in the mirrored copy it w
 floor); (5) the browser spot keeps its "BROWSER SPOT" heading mesh; (6) the floor ring hides while
 the arc is one or more steps Nearer or Down, where the ask plate would stack over it; (7) the need
 halo is smaller (24 x 22 cm, was 30 x 30) so it stays off the ring; it reads as a tight amber glow
-around the cube; (8) `McFloorRing` is a node the bridge never names, kept out of `nodes.json`;
-if the lead wants every node listed there, the bridge lane adds one line. (9) The audit covers resting states: during
+around the cube; (8) `McFloorRing` is a node the bridge never names on the wire, but it is listed in
+`nodes.json` (the lead's ruling: one node list, no private exceptions). (9) The audit covers resting states: during
 the 0.5 s unfold (0.4 s fold) the shrinking ring travels with the arc and can pass behind the ask
 plate for a moment.
 
