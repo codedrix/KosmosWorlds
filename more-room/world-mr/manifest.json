@@ -1,0 +1,49 @@
+{
+  "kosmos_version": "1.0",
+  "world": {
+    "id": "more-room-mr",
+    "name": "More Room (MR)",
+    "author": "micknerks",
+    "description": "A sample day, given a place in your real room: cards at desk height, the calendar where a wall would be. Everything shown is invented. Its owner can connect it to a bridge on their own PC.",
+    "version": "1.0.0",
+    "spawn_point": {
+      "x": 0,
+      "y": 0,
+      "z": 1.1
+    },
+    "sky": "void"
+  },
+  "capabilities": [
+    "scene_read",
+    "scene_write",
+    "transform",
+    "events",
+    "ui_basic",
+    "audio",
+    "network"
+  ],
+  "requires": {
+    "host_api": 4
+  },
+  "network": {
+    "connect": [
+      "https://kosmos-agent-bridge.micknerks.workers.dev"
+    ],
+    "purpose": "Lets the room's owner read their day (calendar, messages, tasks) from the bridge on their own PC, and send back presses.",
+    "privacy_url": "https://kosmos-agent-bridge.micknerks.workers.dev/privacy",
+    "required": false
+  },
+  "assets": {
+    "gltf": "world.glb",
+    "wasm": "world.wasm",
+    "audio": [
+      "tick.wav"
+    ]
+  },
+  "presentation": {
+    "mode": "immersive-ar",
+    "blend": "alpha-blend",
+    "requiredFeatures": [],
+    "optionalFeatures": []
+  }
+}
