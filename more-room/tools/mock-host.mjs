@@ -123,14 +123,31 @@ export class Host {
     for (const n of gltf.nodes) {
       // Box half-extents (from the POSITION accessor) and yaw, for the laser check.
       let half = null;
-      if (n.mesh !== undefined) {
-        const acc = gltf.accessors[gltf.meshes[n.mesh].primitives[0].attributes.POSITION];
-        half = acc.max.map((v, i) => (v - acc.min[i]) / 2);
-      }
+      // The rendered centre the client anchors text to (KWorldTextPool: the
+      // component's bounds origin): the middle of ALL the mesh's primitives,
+      // turned by the node's yaw. A plaque's keel lowers it on purpose.
+      let center = [0, 0, 0];
       const q = n.rotation ?? [0, 0, 0, 1];
       const yaw = 2 * Math.atan2(q[1], q[3]);
+      if (n.mesh !== undefined) {
+        const prims = gltf.meshes[n.mesh].primitives;
+        const acc = gltf.accessors[prims[0].attributes.POSITION];
+        half = acc.max.map((v, i) => (v - acc.min[i]) / 2);
+        const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+        for (const pr of prims) {
+          const a = gltf.accessors[pr.attributes.POSITION];
+          for (let k = 0; k < 3; k++) {
+            lo[k] = Math.min(lo[k], a.min[k]);
+            hi[k] = Math.max(hi[k], a.max[k]);
+          }
+        }
+        const c = lo.map((v, k) => (v + hi[k]) / 2);
+        // glTF yaw about +Y: x' = x cos + z sin, z' = -x sin + z cos.
+        center = [c[0] * Math.cos(yaw) + c[2] * Math.sin(yaw), c[1], -c[0] * Math.sin(yaw) + c[2] * Math.cos(yaw)];
+      }
       const node = {
         half,
+        center,
         yaw,
         handle: h++,
         name: collapse(n.name ?? ""),
@@ -274,7 +291,10 @@ export class Host {
           H.textRefusals.push({ node: n.name, reason: "pool full", text });
           return -5;
         }
-        H.texts.set(h, { text, offset: Math.min(5, Math.max(0, off)) });
+        // The client keeps a held text's first placement when only the words change
+        // (KWorldTextPool.cpp): a new offset is ignored until the text is hidden.
+        const prev = H.texts.get(h);
+        H.texts.set(h, { text, offset: prev ? prev.offset : Math.min(5, Math.max(0, off)) });
         H.textPeak = Math.max(H.textPeak, H.texts.size);
         return 0;
       },
@@ -415,6 +435,20 @@ export class Host {
     for (const n of this.nodes.values()) {
       if (!n.alive || !n.visible || !n.half) continue;
       if (n.half.every((h) => h < 0.006)) continue; // 1 cm text studs
+      if (n.extras.hollow) {
+        // A ring (radii r0..r1, heights y0..y1 about its node): sample the ray through the band.
+        const [r0, r1, y0, y1] = n.extras.hollow;
+        for (let k = 1; k < 600; k++) {
+          const t = k / 600;
+          const p = [o[0] + d[0] * t - n.pos[0], o[1] + d[1] * t - n.pos[1], o[2] + d[2] * t - n.pos[2]];
+          const r = Math.hypot(p[0], p[2]);
+          if (r >= r0 && r <= r1 && p[1] >= y0 && p[1] <= y1) {
+            if (!best || t < best.t) best = { t, node: n };
+            break;
+          }
+        }
+        continue;
+      }
       // Into the box's frame (yaw about +Y).
       const c = Math.cos(-n.yaw), s = Math.sin(-n.yaw);
       const rel = o.map((v, i) => v - n.pos[i]);
@@ -461,7 +495,10 @@ export class Host {
     return [...this.texts.entries()]
       .map(([h, t]) => ({ node: this.nodes.get(h), ...t }))
       .filter((t) => t.node && t.node.alive && t.node.visible !== false)
-      .map((t) => ({ name: t.node.name, text: t.text, pos: [t.node.pos[0], t.node.pos[1] + t.offset, t.node.pos[2]] }));
+      .map((t) => {
+        const c = t.node.center ?? [0, 0, 0];
+        return { name: t.node.name, text: t.text, pos: [t.node.pos[0] + c[0], t.node.pos[1] + c[1] + t.offset, t.node.pos[2] + c[2]] };
+      });
   }
 
   textOf(name) {

@@ -9,8 +9,11 @@ Usage (Blender 5.1, headless):
 What it draws: the variant's world.glb, then, for each renders/state-<v>-<mode>.json
 written by `scenario.mjs --snapshots`, exactly the nodes the world script left
 visible (clones are copies of their template at the script's position) and
-every world text it showed, as white 8 cm text facing the camera. So a render
-shows what the script did, not a drawing of what it should do.
+every world text it showed, as white 8 cm text placed the way the headset
+places it (KWorldTextPool.cpp, KOS-981): on a thin upright card, printed flat on
+the card's face; anywhere else, upright and turned toward the visitor's eye at
+the spawn (where they stood when it was shown). So a render shows what the
+script did, not a drawing of what it should do.
 
 What it does NOT show truthfully, and the design doc says so:
   - lighting: a lit review rig (CLAUDE.md section 3: agents' green assertions
@@ -30,7 +33,7 @@ from mathutils import Vector
 argv = sys.argv[sys.argv.index("--") + 1:]
 VARIANT, OUT = argv[0], os.path.abspath(argv[1])
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-MODES = ["morning", "prep", "about", "focus", "triage", "triage-after", "wrap"]
+MODES = ["morning", "now", "prep", "about", "focus", "read", "triage", "triage-after", "wrap"]
 EYE = (0.0, 0.0, 1.62)  # Blender Z-up; the visitor at the spawn, standing
 
 
@@ -125,7 +128,26 @@ def text_material():
     return m
 
 
-def add_text(name, body, pos, mat, cam_loc):
+def plaque_normal(ob):
+    """The client's plaque rule: a thin upright plane (its thinnest extent at most a
+    fifth of the next, the next over 1 cm) gets its text printed flat on its face.
+    Returns (outward normal toward the eye, half thickness) or None."""
+    if ob is None or ob.type != "MESH":
+        return None
+    dims = list(ob.dimensions)
+    thin = min(range(3), key=lambda k: dims[k])
+    nxt = min(dims[(thin + 1) % 3], dims[(thin + 2) % 3])
+    if not (nxt > 0.01 and dims[thin] <= 0.2 * nxt):
+        return None
+    n = ob.matrix_world.col[thin].xyz.normalized()
+    if abs(n.z) >= 0.7:
+        return None  # lying flat: no upright face to print on
+    if n.dot(Vector(EYE) - ob.matrix_world.translation) < 0:
+        n = -n
+    return n, dims[thin] / 2
+
+
+def add_text(name, body, pos, mat, anchor_ob):
     curve = bpy.data.curves.new(name, "FONT")
     curve.body = body
     curve.size = 0.08  # the headset's fixed 8 cm
@@ -135,10 +157,21 @@ def add_text(name, body, pos, mat, cam_loc):
     ob = bpy.data.objects.new(name, curve)
     bpy.context.collection.objects.link(ob)
     ob.location = g2b(pos)
-    # Yaw-faces the camera, as world text does.
-    d = cam_loc - ob.location
+    pl = plaque_normal(anchor_ob)
+    if pl:
+        # Printed flat on the card, a hair in front of it.
+        d, half = pl
+        ob.location = ob.location + d * (half + 0.005)
+    else:
+        # Upright, turned toward the visitor's eye once, when it was shown.
+        d = Vector(EYE) - ob.location
     ob.rotation_euler = (math.radians(90), 0, math.atan2(d.y, d.x) + math.radians(90))
     ob.data.materials.append(mat)
+    # The headset's world text casts no shadow; the review rig must not draw one either.
+    try:
+        ob.visible_shadow = False
+    except AttributeError:
+        pass
     return ob
 
 
@@ -162,6 +195,7 @@ def render_state(state, out_png, views):
         else:
             ob.location = g2b(n["pos"])
     # Clones: a copy of the template at the script's position.
+    anchors = dict(imported)
     for n in state["nodes"]:
         if n["name"] in imported:
             continue
@@ -175,6 +209,8 @@ def render_state(state, out_png, views):
         c.hide_viewport = False
         c.location = g2b(n["pos"])
         bpy.context.collection.objects.link(c)
+        anchors[n["name"]] = c
+    bpy.context.view_layer.update()
     mat = text_material()
     for i, (view_name, cam_pos, target, lens) in enumerate(views):
         cam_data = bpy.data.cameras.new("Cam" + view_name)
@@ -187,7 +223,7 @@ def render_state(state, out_png, views):
         scene.camera = cam
         texts = []
         for k, t in enumerate(state["texts"]):
-            texts.append(add_text(f"T{k}", t["text"], t["pos"], mat, cam.location))
+            texts.append(add_text(f"T{k}", t["text"], t["pos"], mat, anchors.get(t["name"])))
         final = out_png.replace(".png", f"-{view_name}.png")
         if VARIANT == "vr":
             scene.render.filepath = final
@@ -247,19 +283,40 @@ def composite(under_path, over_path, out_path):
 
 VIEWS = [
     # name, camera (Blender), look-at (Blender), lens mm (18 mm ~ 90 degrees wide)
-    ("eye", EYE, (3.0, 0.0, 1.35), 16),
-    ("desk", (0.0, 0.0, 1.62), (0.9, 0.0, 0.72), 18),
-    ("overview", (-2.6, -2.2, 2.9), (1.4, 0.2, 1.1), 16),
+    ("eye", EYE, (3.0, 0.0, 1.45), 16),
+    ("arc", (0.0, 0.0, 1.62), (0.9, 0.0, 0.8), 16),
+    ("overview", (-3.0, 2.6, 3.4), (1.2, -0.2, 1.2), 16),
     # Seated at a real desk: in MR the floor is the real floor (review round 3, lens B, MED-1).
-    ("seated", (0.0, 0.0, 1.2), (3.0, 0.0, 1.15), 16),
+    ("seated", (0.0, 0.0, 1.2), (3.0, 0.0, 1.3), 16),
+    # Turned to the left (the window and the mode column) and to the right (the tasks).
+    ("left", EYE, (0.9, 2.0, 1.45), 16),
+    ("right", EYE, (1.4, -1.8, 1.45), 16),
+    # Head turns, narrower (24 mm, about 74 degrees): what the eye renders show only at their
+    # stretched edges. The mode column and its status line (60 degrees left, low), and the
+    # Focus start/pause capsule (26 degrees right, low).
+    ("column", EYE, (0.725, 1.256, 1.05), 24),
+    ("go", EYE, (1.168, -0.570, 0.94), 24),
 ]
 
 os.makedirs(OUT, exist_ok=True)
+# Optional third argument: only these modes (comma-separated), for quick iteration.
+ONLY = argv[2].split(",") if len(argv) > 2 else None
 for mode in MODES:
+    if ONLY and mode not in ONLY:
+        continue
     path = os.path.join(ROOT, "renders", f"state-{VARIANT}-{mode}.json")
     with open(path, encoding="utf-8") as f:
         state = json.load(f)
-    views = VIEWS if mode in ("morning", "triage", "focus", "wrap") else VIEWS[:1]
+    by = {v[0]: v for v in VIEWS}
+    views = {
+        "morning": ["eye", "arc", "overview", "seated", "left", "right"],
+        "focus": ["eye", "overview", "seated", "column", "go"],
+        "triage": ["eye", "arc", "overview", "seated", "column"],
+        "wrap": ["eye", "right"],
+        "now": ["eye", "seated"],
+        "read": ["eye"],
+    }.get(mode, ["eye"])
+    views = [by[v] for v in views]
     if mode == "triage-after":
-        views = [VIEWS[1], ("behind", (0.3, 0.0, 1.62), (-1.7, 0.0, 1.0), 18)]
+        views = [by["eye"], ("behind", (0.3, 0.0, 1.62), (-1.7, 0.0, 1.0), 18)]
     render_state(state, os.path.join(OUT, f"{VARIANT}-{mode}.png"), views)

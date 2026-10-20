@@ -2,62 +2,68 @@
 //! `world://more-room-mr.micknerks`, MR). One script for both.
 //!
 //! @kosmos-system  Content (KosmosWorlds) — More Room
-//! @kosmos-owner   More Room v1 (design session 2026-10-14)
+//! @kosmos-owner   More Room v2, the Day Ring (CEO 2026-10-19: "Take ... the Day Ring forward")
 //! @kosmos-level   host API level 4 (`k_net_*`), level 3 (`k_node_clone`, `k_node_destroy`, `k_log`)
 //!
 //! What a phone crams into one rectangle, given a place around you, live.
 //! The rule of the room: **everything has a place, and nothing jumps in front
-//! of you; it lands where it lives.** A new message lands face-down in its
-//! slot on the desk, sliding out of the inbox tray; it never pops up in front
-//! of the visitor. Only a VIP message makes a sound (one tick, from the tray).
+//! of you; it lands where it lives.**
 //!
-//! Four modes, one button each on the desk's front edge:
-//! - **Morning:** the brief on the stage, the pinned tasks on the right, the
-//!   message count under the brief, the day on the calendar strip.
-//! - **Focus:** one task large with a 25-minute timer; veils dim the rest;
-//!   messages still land, face-down and silent, and only a VIP ticks.
-//! - **Triage:** press a card to turn it over; Done, Later, Reply ("Claude
-//!   drafts reply"), Task ("Make a task", a Linear ticket) and Mute (to the
-//!   quiet shelf behind you). A draft waits on the side table for Approve or
-//!   Deny: nothing is sent without that press.
-//! - **Wrap-up:** what got done, what rolls to tomorrow (press a task to roll
-//!   it), and the first thing tomorrow.
-//! Pressing an event on the calendar shows its prep on the stage.
+//! - **The Day Ring.** The day is a ring of time around you at eye height,
+//!   2.4 m out. Now is always straight ahead, at the amber now bar; the next
+//!   hours wait to your right and the morning fades to your left. The whole
+//!   ring turns as time passes, a little every frame. Press an event for its prep.
+//! - **Messages land, they don't pop.** A new message drops onto the low arc
+//!   in front of you, face-down. A VIP's card has an amber rim and makes one
+//!   tick. What doesn't fit waits in the inbox well behind the arc.
+//! - **Four modes**, on the column of capsules to your left:
+//!   - Morning: the brief on the stage, pinned tasks on the right;
+//!   - Focus: the room closes in (16 dark facets slide in to 1.95 m) around one
+//!     task and its timer; the next event is the only other thing you see;
+//!   - Triage: the cards rise and fan out face-up at reading height. Press one
+//!     to read it, then Done, Later, Reply ("Claude drafts reply"), Task (a
+//!     Linear ticket) or Mute (to the quiet shelf behind you). A draft waits on
+//!     the right for Approve or Deny: nothing is sent without that press;
+//!   - Wrap-up: what got done, and what rolls to tomorrow.
 //!
 //! **The room opens on a built-in sample day** (sample_day.txt, baked from the
 //! bridge face's sample-day.ts by tools/gen_sample.mjs), with a banner on every
 //! mode, so it is full without a PC, a bridge or a sign-in; presses then act on
-//! the sample locally and send nothing. "Sign in" switches to the bridge.
-//! "About" opens a short paged panel: what the room is, that the day is a
-//! sample, the modes and piles, how the real one connects, the visitor's
-//! steps and what is coming.
+//! the sample locally and send nothing. "Owner sign in" switches to the bridge.
 //!
-//! The brain is the bridge on the CEO's PC (Mission Control's): Claude reads
-//! mail, calendar and Linear there. This world only draws what the bridge's
-//! face says (agent-bridge/src/faces/more-room/day-core.ts, on the shared
-//! agent bridge) and sends the presses.
-//! It polls "what changed since N" every `POLL_S` seconds.
+//! The brain is the bridge on the owner's PC (the shared agent bridge,
+//! agent-bridge/src/faces/more-room/day-core.ts). This world only draws what
+//! the face says and sends the presses. It polls "what changed since N" every
+//! `POLL_S` seconds.
 //!
 //! Host limits this file is built around (each checked by tests or by
 //! ../../tools/mock-host.mjs):
-//! - at most 32 world texts at once, each at most 128 bytes and 4 lines
-//!   (`texts`, `text::Lines`); the per-mode budget is in ../../DESIGN.md §4;
+//! - at most 32 world texts at once, each at most 128 bytes and 4 lines; the
+//!   per-mode budget is in ../../DESIGN.md;
 //! - at most 128 created objects and 16 creates a frame (`CREATES_PER_TICK`);
 //! - requests at most 16 KiB, answers at most 256 KiB, text only;
 //!   4 in flight, 1 a second with bursts of 10;
 //! - no `player_read` (a network world may not have it), so nothing here
 //!   knows where the visitor's head or hands are: everything sits at fixed
-//!   spots around the spawn, which in MR is where the visitor stands.
+//!   spots around the spawn, which in MR is where the visitor stands;
+//! - nothing is rotated at runtime (`k_transform_set_rotation` replaces a
+//!   node's relative rotation in raw engine degrees): what moves is round
+//!   about the vertical, and what is flat is built facing the spawn;
 //! - `k_node_find` sees only meshes; clone names may not end in a digit.
+//!
+//! Text placement and state colours each have ONE home, `style.rs`, so the
+//! visual pack (DB-045) can drop styled text and runtime colours in later.
 
 #![cfg_attr(target_arch = "wasm32", no_std, no_main)]
 
 pub mod layout;
 pub mod model;
+pub mod style;
 pub mod text;
 
 use layout as L;
-use model::{Day, Pile, Prep, Src, TaskState};
+use model::{Day, Pile, Prep, TaskState};
+use style::{Place, Tone};
 use text::{Buf, Lines, S};
 
 #[cfg(all(target_arch = "wasm32", not(test)))]
@@ -153,6 +159,17 @@ const READ_BUF_BYTES: usize = 32 * 1024;
 const FOCUS_S: f32 = 25.0 * 60.0;
 /// How long a card takes to slide to where it lives.
 const SLIDE_S: f32 = 0.45;
+/// How long a new card takes to fall onto its slot.
+const FALL_S: f32 = 0.7;
+/// How long a fan card or the reading card takes to rise.
+const RISE_S: f32 = 0.45;
+/// How quickly the ring and the cocoon follow their targets (per second).
+const FOLLOW_PER_S: f32 = 4.0;
+/// A ring label is shown again (and so faces you again) once its event has
+/// moved this far round since it was shown (degrees).
+const LABEL_REFACE_DEG: f32 = 6.0;
+/// How long presses on the action row are ignored after it swaps (actions <-> draft buttons).
+const ROW_SWAP_GUARD_S: f32 = 0.3;
 /// How long the VIP line stays up.
 const VIP_LINE_S: f32 = 90.0;
 /// How long an error stays on the status line.
@@ -160,14 +177,21 @@ const STATUS_HOLD_S: f32 = 10.0;
 
 /// The built-in sample day (DAY/1 plus PREPL and REPLY records).
 const SAMPLE: &[u8] = include_bytes!("sample_day.txt");
-/// At most this many calendar labels at once (the rest keep their tiles):
-/// the 32-text budget, DESIGN.md section 4.
+/// At most this many Day Ring labels at once (the rest keep their pills):
+/// the 32-text budget, DESIGN.md. Triage shows fewer, focus none.
 pub const CAL_LABELS: usize = 5;
+pub const CAL_LABELS_TRIAGE: usize = 2;
+/// In triage the banner rises to just under the ring; seen seated, it would cut the
+/// pills and labels within this many degrees of now in half (review, glass round 2),
+/// so triage clears that stretch of the ring, the now bar included.
+pub const TRIAGE_CLEAR_DEG: f32 = 24.0;
+/// The fan in triage.
+pub const FAN: usize = 5;
 /// The About panel, one page per press of Next. Each fits 4 lines of 30 characters.
 pub const ABOUT_PAGES: [&str; 7] = [
     "More Room. How much of your life do you fit in a rectangle? Here each part of your day has a place.",
     "SAMPLE DAY. Nothing here is real yet. Every name, message and task is made up.",
-    "Morning: your brief. Focus: one task, the rest dims. Triage: turn cards over. Wrap-up: what got done.",
+    "The ring is your day: now is ahead, later to your right. Morning, Focus, Triage, Wrap-up are on the left.",
     "Done files it. Later snoozes. Mute goes to the shelf behind you. Task makes a ticket. Reply drafts it.",
     "Its owner will be able to link a bridge on their PC: mail, calendar, Linear. Kosmos stores none of the mail.",
     "Going live needs steps on the owner's PC. iPhone texts cannot be read; Android would need a small app.",
@@ -199,40 +223,51 @@ enum Req {
     Prep,
 }
 
-#[derive(Clone, Copy, PartialEq)]
-enum Look {
-    Gmail,
-    Slack,
-    Github,
-    Linear,
-    Vip,
-    Read,
-}
-
 /// One message's card in the room.
 #[derive(Clone, Copy)]
 struct Card {
     id: S<32>,
     node: i32,
-    look: Look,
-    /// Grid slot while in the inbox, else usize::MAX.
+    tone: Tone,
+    /// Arc slot while in the inbox, else usize::MAX.
     slot: usize,
     pos: [f32; 3],
     from: [f32; 3],
     to: [f32; 3],
     t: f32,
+    /// true: falling onto its place (a new card); false: sliding there.
+    fall: bool,
     alive: bool,
     /// The OnInteract subscription, released when the card is destroyed.
     sub: i32,
 }
 
 const NO_SLOT: usize = usize::MAX;
-const EMPTY_CARD: Card = Card { id: S::new(), node: 0, look: Look::Read, slot: NO_SLOT, pos: [0.0; 3], from: [0.0; 3], to: [0.0; 3], t: 1.0, alive: false, sub: 0 };
+const EMPTY_CARD: Card = Card { id: S::new(), node: 0, tone: Tone::CardRead, slot: NO_SLOT, pos: [0.0; 3], from: [0.0; 3], to: [0.0; 3], t: 1.0, fall: false, alive: false, sub: 0 };
+
+/// One of the five face-up cards in triage's fan.
+#[derive(Clone, Copy)]
+struct FanCard {
+    /// The message shown (its id), or empty.
+    id: S<32>,
+    pos: [f32; 3],
+    from: [f32; 3],
+    t: f32,
+}
+
+const EMPTY_FAN: FanCard = FanCard { id: S::new(), pos: [0.0; 3], from: [0.0; 3], t: 1.0 };
+
+/// MR plates, in the order of `Nodes::plates` (mirrors PLATES in tools/build_glb.mjs).
+const PLATES: [&str; 4] = ["PlateStatus", "PlateInbox", "PlateLater", "PlateDone"];
+const BAND_FACETS: usize = 21;
+const HOUR_TICKS: usize = 13;
 
 #[derive(Clone, Copy)]
 struct Nodes {
     mode: [i32; 4],
     sign_in: i32,
+    about: i32,
+    about_next: i32,
     done: i32,
     later: i32,
     reply: i32,
@@ -244,30 +279,34 @@ struct Nodes {
     more: i32,
     prep_close: i32,
     tasks: [i32; 3],
+    txt_tasks: i32,
     txt_open: i32,
     txt_draft: i32,
     txt_stage: i32,
-    txt_low: i32,
+    txt_focus: i32,
+    txt_timer: i32,
     txt_status: i32,
-    txt_vip: i32,
     txt_next: i32,
     txt_window: i32,
     txt_quiet: i32,
+    txt_banner: i32,
     inbox: i32,
     pile_later: i32,
     pile_done: i32,
-    now_line: i32,
+    ticks: [i32; HOUR_TICKS],
     panes: [i32; 3],
-    veils: [i32; 4],
-    /// MR only (absent in VR): dark plates behind text groups, see PLATES.
-    plates: [i32; 12],
-    about: i32,
-    about_next: i32,
-    txt_about: i32,
-    txt_banner: i32,
-    tpl_msg: [i32; 6],
-    tpl_event: i32,
-    tpl_quiet: i32,
+    /// The one faked halo, behind the top of the now bar.
+    halo: i32,
+    /// The now bar (hidden in triage, with the stretch of ring around it, and in focus).
+    now_bar: i32,
+    fan: [i32; FAN],
+    fan_vip: [i32; FAN],
+    cocoon: [i32; L::COCOON_FACETS],
+    /// MR only (absent in VR): dark plates behind floating text, see PLATES.
+    plates: [i32; PLATES.len()],
+    band: [i32; BAND_FACETS],
+    /// One template per `style::Tone`, in `style::TONES` order.
+    tpl: [i32; style::TONES.len()],
     mr: bool,
 }
 
@@ -280,7 +319,7 @@ pub struct App {
     prep: Prep,
     showing_prep: bool,
     have_day: bool,
-    /// Requests in flight: (request id, kind, a message index when it matters).
+    /// Requests in flight: (request id, kind).
     reqs: [(i32, Req); 8],
     next_req: i32,
     poll_s: f32,
@@ -291,10 +330,31 @@ pub struct App {
     cards: [Card; model::MAX_MSGS],
     events: [i32; model::MAX_EVENTS],
     event_subs: [i32; model::MAX_EVENTS],
+    event_tone: [Tone; model::MAX_EVENTS],
+    /// Where each event's ring label was when it was shown (NaN: no label).
+    label_deg: [f32; model::MAX_EVENTS],
     n_event_nodes: usize,
+    /// The ring's "now", in fractional minutes: it follows the day's clock smoothly.
+    ring_now: f32,
+    /// Where the ring was last placed, and whether it must be placed again anyway.
+    ring_placed: f32,
+    ring_force: bool,
+    /// What the ring last showed, so visibility is only set when it changes.
+    tick_vis: [bool; HOUR_TICKS],
+    event_vis: [bool; model::MAX_EVENTS],
+    cocoon_shown: bool,
+    fan: [FanCard; FAN],
+    /// The reading card's rise (0..1), and the message it shows.
+    read_t: f32,
+    read_shown: Option<usize>,
+    /// The cocoon facets' distance from the spawn.
+    cocoon_r: f32,
     clone_seq: u32,
     creates_this_tick: i32,
     dirty: bool,
+    /// A first day that hit the per-frame create limit: its next pass is still "first"
+    /// (cards appear in place, nothing falls or ticks).
+    first_pending: bool,
     open: Option<usize>,
     /// The About panel's page, when it is open.
     about: Option<usize>,
@@ -307,7 +367,16 @@ pub struct App {
     focus_left_s: f32,
     focus_running: bool,
     vip_s: f32,
+    /// Who the VIP line names, while it shows (it rides on the banner).
+    vip_from: S<24>,
+    /// Which card is up in front (the reading card or a draft), as its node.
+    read_node: i32,
+    /// When the action row last swapped (five actions <-> Approve, Deny, More): presses
+    /// on that row are ignored for a moment, so a double press on Reply can't Deny.
+    row_swap_at: f32,
     texts: [i32; MAX_TEXTS],
+    /// The offset each held text was SHOWN with: the client keeps it when only the words change.
+    text_off: [f32; MAX_TEXTS],
     n_texts: usize,
     text_refused: i32,
     last_net: i32,
@@ -316,6 +385,8 @@ pub struct App {
 const NO_NODES: Nodes = Nodes {
     mode: [0; 4],
     sign_in: 0,
+    about: 0,
+    about_next: 0,
     done: 0,
     later: 0,
     reply: 0,
@@ -327,29 +398,30 @@ const NO_NODES: Nodes = Nodes {
     more: 0,
     prep_close: 0,
     tasks: [0; 3],
+    txt_tasks: 0,
     txt_open: 0,
     txt_draft: 0,
     txt_stage: 0,
-    txt_low: 0,
+    txt_focus: 0,
+    txt_timer: 0,
     txt_status: 0,
-    txt_vip: 0,
     txt_next: 0,
     txt_window: 0,
     txt_quiet: 0,
+    txt_banner: 0,
     inbox: 0,
     pile_later: 0,
     pile_done: 0,
-    now_line: 0,
+    ticks: [0; HOUR_TICKS],
     panes: [0; 3],
-    veils: [0; 4],
-    plates: [0; 12],
-    about: 0,
-    about_next: 0,
-    txt_about: 0,
-    txt_banner: 0,
-    tpl_msg: [0; 6],
-    tpl_event: 0,
-    tpl_quiet: 0,
+    halo: 0,
+    now_bar: 0,
+    fan: [0; FAN],
+    fan_vip: [0; FAN],
+    cocoon: [0; L::COCOON_FACETS],
+    plates: [0; PLATES.len()],
+    band: [0; BAND_FACETS],
+    tpl: [0; style::TONES.len()],
     mr: false,
 };
 
@@ -372,10 +444,23 @@ static mut APP: App = App {
     cards: [EMPTY_CARD; model::MAX_MSGS],
     events: [0; model::MAX_EVENTS],
     event_subs: [0; model::MAX_EVENTS],
+    event_tone: [Tone::EventFuture; model::MAX_EVENTS],
+    label_deg: [f32::NAN; model::MAX_EVENTS],
     n_event_nodes: 0,
+    ring_now: -1.0,
+    ring_placed: -1.0e9,
+    ring_force: true,
+    tick_vis: [true; HOUR_TICKS],
+    event_vis: [true; model::MAX_EVENTS],
+    cocoon_shown: false,
+    fan: [EMPTY_FAN; FAN],
+    read_t: 1.0,
+    read_shown: None,
+    cocoon_r: L::COCOON_FROM_R,
     clone_seq: 0,
     creates_this_tick: 0,
     dirty: false,
+    first_pending: false,
     open: None,
     about: None,
     sample_clock_s: 0.0,
@@ -385,7 +470,11 @@ static mut APP: App = App {
     focus_left_s: FOCUS_S,
     focus_running: false,
     vip_s: 0.0,
+    vip_from: S::new(),
+    read_node: 0,
+    row_swap_at: -10.0,
     texts: [0; MAX_TEXTS],
+    text_off: [0.0; MAX_TEXTS],
     n_texts: 0,
     text_refused: 0,
     last_net: -1,
@@ -443,31 +532,68 @@ fn unsubscribe(sub: i32) {
     }
 }
 
+/// Show or hide a node only when that changes (`was` remembers).
+fn set_vis(node: i32, was: &mut bool, on: bool) {
+    if *was != on {
+        *was = on;
+        visible(node, on);
+    }
+}
+
+/// Ease in and out (0..1 -> 0..1).
+fn smooth(t: f32) -> f32 {
+    t * t * (3.0 - 2.0 * t)
+}
+
+fn lerp3(a: [f32; 3], b: [f32; 3], e: f32) -> [f32; 3] {
+    [a[0] + (b[0] - a[0]) * e, a[1] + (b[1] - a[1]) * e, a[2] + (b[2] - a[2]) * e]
+}
+
+fn lines_in(s: &[u8]) -> usize {
+    1 + s.iter().filter(|&&c| c == b'\n').count()
+}
+
 impl App {
     // --- world text, within the host's 32 -----------------------------------
+
+    /// THE one place text is put in the room: `place` decides where it sits on
+    /// its anchor (style::offset). The visual pack will style it here.
+    fn say(&mut self, node: i32, s: &[u8], place: Place) {
+        let off = style::offset(place, lines_in(s));
+        self.text(node, s, off);
+    }
+
+    fn say_str(&mut self, node: i32, s: &str, place: Place) {
+        self.say(node, s.as_bytes(), place);
+    }
 
     fn text(&mut self, node: i32, s: &[u8], offset_y: f32) {
         if node <= 0 || s.is_empty() {
             self.untext(node);
             return;
         }
+        // The client keeps a held text's first placement (and offset) when only its words
+        // change (KWorldTextPool.cpp): a new offset needs the text hidden and shown again
+        // (review v2, lens A, MED-2).
+        if let Some(i) = self.texts[..self.n_texts].iter().position(|&x| x == node) {
+            if (self.text_off[i] - offset_y).abs() > 1e-4 {
+                self.untext(node);
+            }
+        }
         let held = self.texts[..self.n_texts].contains(&node);
         if !held && self.n_texts >= MAX_TEXTS {
-            // Never ask the host for a 33rd text; the budget in DESIGN.md §4 keeps this at 0.
+            // Never ask the host for a 33rd text; the budget in DESIGN.md keeps this at 0.
             self.text_refused += 1;
             return;
         }
         let rc = unsafe { host::k_ui_show_world_text(node, s.as_ptr() as i32, s.len() as i32, offset_y) };
         if rc == 0 && !held {
             self.texts[self.n_texts] = node;
+            self.text_off[self.n_texts] = offset_y;
             self.n_texts += 1;
         } else if rc != 0 {
             self.text_refused += 1;
         }
-    }
-
-    fn text_str(&mut self, node: i32, s: &str, offset_y: f32) {
-        self.text(node, s.as_bytes(), offset_y);
     }
 
     fn untext(&mut self, node: i32) {
@@ -478,8 +604,13 @@ impl App {
             unsafe { host::k_ui_hide_world_text(node) };
             self.n_texts -= 1;
             self.texts[i] = self.texts[self.n_texts];
+            self.text_off[i] = self.text_off[self.n_texts];
             self.texts[self.n_texts] = 0;
         }
+    }
+
+    fn held(&self, node: i32) -> bool {
+        node > 0 && self.texts[..self.n_texts].contains(&node)
     }
 
     // --- clones --------------------------------------------------------------
@@ -514,6 +645,12 @@ impl App {
         }
     }
 
+    /// A clone of the template that wears `tone`.
+    fn clone_tone(&mut self, tone: Tone) -> i32 {
+        let tpl = self.n.tpl[style::tone_index(tone)];
+        self.clone_of(tpl)
+    }
+
     fn destroy(&mut self, node: i32, sub: i32) {
         unsubscribe(sub);
         if node > 0 {
@@ -524,13 +661,12 @@ impl App {
 
     // --- status --------------------------------------------------------------
 
-    /// A status message. Signed out, it goes on the stage beside the Sign in
-    /// button, where you are looking; signed in, on the status line under the window.
+    /// A status message, under the mode column (where Owner sign in is).
     fn status(&mut self, s: &str, hold: bool) {
         let n = self.n.txt_status;
         let mut l = Lines::new(26, 2);
         l.text(s);
-        self.text(n, l.as_bytes(), 0.0);
+        self.say(n, l.as_bytes(), Place::Float);
         if hold {
             self.status_hold_s = STATUS_HOLD_S;
         }
@@ -541,7 +677,9 @@ impl App {
             return;
         }
         let mut b: Buf<64> = Buf::new();
-        if !self.signed_in {
+        if self.mode == Mode::Triage && self.open.is_none() && self.about.is_none() {
+            b.push("Press a card in the fan to read it.");
+        } else if !self.signed_in {
             b.push("Sample day. Only the owner can sign in.");
         } else if unsafe { host::k_net_status() } != 1 {
             b.push("Network is off for this world");
@@ -554,7 +692,13 @@ impl App {
         let mut l = Lines::new(26, 2);
         l.text(s);
         let node = self.n.txt_status;
-        self.text(node, l.as_bytes(), 0.0);
+        self.say(node, l.as_bytes(), Place::Float);
+    }
+
+    /// "Now" for the ring: the day's clock plus the time since it was read.
+    fn clock_now(&self) -> f32 {
+        let extra = if self.signed_in { (self.since_update_s / 60.0).min(2.0) } else { self.sample_clock_s / 60.0 };
+        self.day.now_min as f32 + extra
     }
 }
 
@@ -562,12 +706,25 @@ impl App {
 // Lifecycle
 // ---------------------------------------------------------------------------
 
+fn find_letters<const N: usize>(prefix: &str) -> [i32; N] {
+    let mut out = [0; N];
+    for (k, slot) in out.iter_mut().enumerate() {
+        let mut b: Buf<24> = Buf::new();
+        b.push(prefix);
+        b.byte(b'A' + k as u8);
+        *slot = find(b.as_str());
+    }
+    out
+}
+
 #[no_mangle]
 pub extern "C" fn k_init() {
     let a = app();
     let n = &mut a.n;
     n.mode = [find("BtnModeMorning"), find("BtnModeFocus"), find("BtnModeTriage"), find("BtnModeWrap")];
     n.sign_in = find("BtnSignIn");
+    n.about = find("BtnAbout");
+    n.about_next = find("BtnAboutNext");
     n.done = find("BtnDone");
     n.later = find("BtnLater");
     n.reply = find("BtnReply");
@@ -579,32 +736,35 @@ pub extern "C" fn k_init() {
     n.more = find("BtnMore");
     n.prep_close = find("BtnPrepClose");
     n.tasks = [find("TaskA"), find("TaskB"), find("TaskC")];
+    n.txt_tasks = find("TxtTasks");
     n.txt_open = find("TxtOpen");
     n.txt_draft = find("TxtDraft");
     n.txt_stage = find("TxtStage");
-    n.txt_low = find("TxtStageLow");
+    n.txt_focus = find("TxtFocus");
+    n.txt_timer = find("TxtTimer");
     n.txt_status = find("TxtStatus");
-    n.txt_vip = find("TxtVip");
     n.txt_next = find("TxtNext");
     n.txt_window = find("TxtWindow");
     n.txt_quiet = find("TxtQuiet");
-    n.inbox = find("InboxTray");
+    n.txt_banner = find("TxtBanner");
+    n.inbox = find("InboxWell");
     n.pile_later = find("PileLater");
     n.pile_done = find("PileDone");
-    n.now_line = find("NowLine");
+    n.ticks = find_letters::<HOUR_TICKS>("HourTick");
     n.panes = [find("PaneDay"), find("PaneDusk"), find("PaneNight")];
-    n.veils = [find("VeilCal"), find("VeilWindow"), find("VeilTasks"), find("VeilDesk")];
+    n.halo = find("NowHalo");
+    n.now_bar = find("NowBar");
+    n.fan = find_letters::<FAN>("Fan");
+    n.fan_vip = find_letters::<FAN>("FanVip");
+    n.cocoon = find_letters::<{ L::COCOON_FACETS }>("Cocoon");
     for (k, name) in PLATES.iter().enumerate() {
         n.plates[k] = find(name);
     }
-    n.tpl_msg = [find("TplMsgGmail"), find("TplMsgSlack"), find("TplMsgGithub"), find("TplMsgLinear"), find("TplMsgVip"), find("TplMsgRead")];
-    n.tpl_event = find("TplEvent");
-    n.tpl_quiet = find("TplQuiet");
+    n.band = find_letters::<BAND_FACETS>("RingBand");
+    for (k, &t) in style::TONES.iter().enumerate() {
+        n.tpl[k] = find(style::template(t));
+    }
     n.mr = find("VariantMr") > 0;
-    n.about = find("BtnAbout");
-    n.about_next = find("BtnAboutNext");
-    n.txt_about = find("TxtAbout");
-    n.txt_banner = find("TxtBanner");
 
     let presses = [
         n.mode[0], n.mode[1], n.mode[2], n.mode[3], n.sign_in, n.done, n.later, n.reply, n.task, n.mute, n.focus_go, n.approve, n.deny, n.more,
@@ -613,10 +773,23 @@ pub extern "C" fn k_init() {
     for node in presses {
         subscribe_press(node);
     }
-    // Templates stay hidden; clones are shown as they are made.
-    let tpls = [n.tpl_msg[0], n.tpl_msg[1], n.tpl_msg[2], n.tpl_msg[3], n.tpl_msg[4], n.tpl_msg[5], n.tpl_event, n.tpl_quiet];
-    for t in tpls {
+    for node in n.fan {
+        subscribe_press(node);
+    }
+    // Templates stay hidden; clones are shown as they are made. So do the
+    // things that rise or close in only when their mode calls for them.
+    for t in n.tpl {
         visible(t, false);
+    }
+    for k in 0..FAN {
+        visible(n.fan[k], false);
+        visible(n.fan_vip[k], false);
+    }
+    for c in n.cocoon {
+        visible(c, false);
+    }
+    for b in n.band {
+        visible(b, false);
     }
     let ev = "OnNetResult";
     unsafe { host::k_event_subscribe_global(ev.as_ptr() as i32, ev.len() as i32, on_net_result as usize as i32) };
@@ -633,6 +806,8 @@ fn load_sample(first: bool) {
     if model::read_day(SAMPLE, &mut a.day) {
         a.have_day = true;
         a.open = None;
+        a.showing_prep = false;
+        a.focus_task = None;
         reconcile(first);
     }
 }
@@ -651,13 +826,13 @@ pub extern "C" fn k_tick(delta: f32) {
         }
     }
 
-    // The sample's clock moves the now line, a minute a minute.
+    // The sample's clock: a minute a minute. Events change colour as the day passes.
     if !a.signed_in {
         a.sample_clock_s += dt;
         if a.sample_clock_s >= 60.0 {
             a.sample_clock_s -= 60.0;
             a.day.now_min += 1;
-            place(a.n.now_line, [L::NOW_LINE_X, L::NOW_LINE_Y, L::cal_z(a.day.now_min)]);
+            event_nodes();
         }
     }
 
@@ -670,18 +845,51 @@ pub extern "C" fn k_tick(delta: f32) {
         }
     }
 
-    // Slide cards to where they live.
+    // The Day Ring turns: its "now" follows the clock, and every pill and tick
+    // moves with it, every frame.
+    turn_ring(dt);
+
+    // Cards fall or slide to where they live.
     for i in 0..a.cards.len() {
         let c = &mut a.cards[i];
         if !c.alive || c.node <= 0 || c.t >= 1.0 {
             continue;
         }
-        c.t = (c.t + dt / SLIDE_S).min(1.0);
-        let e = c.t * c.t * (3.0 - 2.0 * c.t);
-        let lift = 0.06 * 4.0 * e * (1.0 - e);
-        c.pos = [c.from[0] + (c.to[0] - c.from[0]) * e, c.from[1] + (c.to[1] - c.from[1]) * e + lift, c.from[2] + (c.to[2] - c.from[2]) * e];
+        if c.fall {
+            // Falling: gathering speed, then a small settle.
+            c.t = (c.t + dt / FALL_S).min(1.0);
+            let e = if c.t < 0.85 { let u = c.t / 0.85; u * u } else { 1.0 - 0.03 * smooth((c.t - 0.85) / 0.15) * (1.0 - (c.t - 0.85) / 0.15) };
+            c.pos = lerp3(c.from, c.to, e.min(1.0));
+        } else {
+            c.t = (c.t + dt / SLIDE_S).min(1.0);
+            let e = smooth(c.t);
+            let lift = 0.08 * 4.0 * e * (1.0 - e);
+            c.pos = lerp3(c.from, c.to, e);
+            c.pos[1] += lift;
+        }
         place(c.node, c.pos);
     }
+
+    // The fan's cards rise to reading height; the reading card rises in front.
+    for k in 0..FAN {
+        let f = &mut a.fan[k];
+        if f.id.is_empty() || f.t >= 1.0 {
+            continue;
+        }
+        f.t = (f.t + dt / RISE_S).min(1.0);
+        let to = L::fan_at(k, L::FAN_Y);
+        f.pos = lerp3(f.from, to, 1.0 - (1.0 - f.t) * (1.0 - f.t));
+        place(a.n.fan[k], f.pos);
+        place(a.n.fan_vip[k], [f.pos[0] * (L::FAN_R + 0.012) / L::FAN_R, f.pos[1], f.pos[2] * (L::FAN_R + 0.012) / L::FAN_R]);
+    }
+    if a.read_t < 1.0 {
+        a.read_t = (a.read_t + dt / RISE_S).min(1.0);
+        let e = 1.0 - (1.0 - a.read_t) * (1.0 - a.read_t);
+        place(a.read_node, L::at(L::READ_R, 0.0, L::RISE_FROM_Y + (L::READ_Y - L::RISE_FROM_Y) * e));
+    }
+
+    // Focus: the cocoon's facets close in, or open out and hide.
+    close_in(dt);
 
     // The focus timer.
     if a.mode == Mode::Focus && a.focus_running {
@@ -701,8 +909,7 @@ pub extern "C" fn k_tick(delta: f32) {
     if a.vip_s > 0.0 {
         a.vip_s -= dt;
         if a.vip_s <= 0.0 {
-            let n = a.n.txt_vip;
-            a.untext(n);
+            banner();
             show_plates();
         }
     }
@@ -732,6 +939,83 @@ pub extern "C" fn k_shutdown() {
     let a = app();
     a.token = S::new();
     a.signed_in = false;
+}
+
+/// Turn the Day Ring to the clock: pills, hour ticks and their labels.
+fn turn_ring(dt: f32) {
+    let a = app();
+    let mut target = a.clock_now();
+    // A poll's whole-minute clock lands a hair behind the smooth one: never step back by
+    // a little (a 0.25 Hz jitter otherwise), only by a real change (review v2, lens A, LOW-5).
+    if target < a.ring_now && a.ring_now - target < 2.0 {
+        target = a.ring_now;
+    }
+    if a.ring_now < 0.0 || (target - a.ring_now).abs() > 120.0 {
+        a.ring_now = target; // the first day, or a jump: no long spin
+    } else {
+        a.ring_now += (target - a.ring_now) * (dt * FOLLOW_PER_S).min(1.0);
+    }
+    let now = a.ring_now;
+    if !a.ring_force && (now - a.ring_placed).abs() < 0.002 {
+        return; // nothing has moved since the last frame
+    }
+    a.ring_force = false;
+    a.ring_placed = now;
+    for (k, &node) in a.n.ticks.iter().enumerate() {
+        let deg = L::ring_deg((L::RING_FIRST_MIN + k as i32 * 60) as f32, now);
+        let shown = deg.abs() <= L::RING_SHOW_DEG;
+        set_vis(node, &mut a.tick_vis[k], shown);
+        if shown {
+            place(node, L::ring_at(deg));
+        }
+    }
+    let mut reface = false;
+    for e in 0..a.n_event_nodes.min(a.day.n_events) {
+        let deg = L::ring_deg(a.day.events[e].start as f32, now);
+        let node = a.events[e];
+        let shown = deg.abs() <= L::RING_SHOW_DEG && a.mode != Mode::Focus && !(triage_clears(a) && deg.abs() < TRIAGE_CLEAR_DEG);
+        set_vis(node, &mut a.event_vis[e], shown);
+        if shown {
+            place(node, L::ring_at(deg));
+        }
+        let ld = a.label_deg[e];
+        if !ld.is_nan() && (deg - ld).abs() > LABEL_REFACE_DEG {
+            reface = true;
+        }
+    }
+    if reface {
+        ring_labels(true);
+        show_plates();
+    }
+}
+
+/// Focus: move the cocoon's facets toward where the mode wants them.
+fn close_in(dt: f32) {
+    let a = app();
+    let want_in = a.mode == Mode::Focus && a.about.is_none();
+    let target = if want_in { L::COCOON_R } else { L::COCOON_FROM_R };
+    if (a.cocoon_r - target).abs() < 0.002 {
+        if !want_in && a.cocoon_shown {
+            a.cocoon_shown = false;
+            for c in a.n.cocoon {
+                visible(c, false);
+            }
+        }
+        return;
+    }
+    a.cocoon_r += (target - a.cocoon_r) * (dt * FOLLOW_PER_S * 1.5).min(1.0);
+    if (a.cocoon_r - target).abs() < 0.002 {
+        a.cocoon_r = target;
+    }
+    if !a.cocoon_shown {
+        a.cocoon_shown = true;
+        for c in a.n.cocoon {
+            visible(c, true);
+        }
+    }
+    for (k, &c) in a.n.cocoon.iter().enumerate() {
+        place(c, L::cocoon_at(k, a.cocoon_r));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -787,6 +1071,10 @@ pub extern "C" fn on_press(_event_type: i32, node: i32, _p1: i32, _p2: i32) {
         press_task(t);
         return;
     }
+    let row = [n.done, n.later, n.reply, n.task, n.mute, n.approve, n.deny, n.more];
+    if row.contains(&node) && a.now_s - a.row_swap_at < ROW_SWAP_GUARD_S {
+        return; // the row just changed under the visitor's hand
+    }
     if node == n.approve || node == n.deny {
         if let Some(d) = a.day.pending_draft() {
             let id = a.day.drafts[d].id;
@@ -809,12 +1097,20 @@ pub extern "C" fn on_press(_event_type: i32, node: i32, _p1: i32, _p2: i32) {
         press_action(op);
         return;
     }
-    // A card?
+    // A card in the fan?
+    if let Some(k) = n.fan.iter().position(|&x| x == node) {
+        let id = a.fan[k].id;
+        if let Some(m) = a.day.msg_index(id.bytes()) {
+            open_msg(m);
+        }
+        return;
+    }
+    // A card on the arc?
     if let Some(i) = (0..a.cards.len()).find(|&i| a.cards[i].alive && a.cards[i].node == node) {
         press_card(i);
         return;
     }
-    // An event tile?
+    // An event pill?
     if let Some(e) = (0..a.n_event_nodes).find(|&e| a.events[e] == node) {
         if e < a.day.n_events && a.mode != Mode::Focus {
             if a.signed_in {
@@ -828,6 +1124,9 @@ pub extern "C" fn on_press(_event_type: i32, node: i32, _p1: i32, _p2: i32) {
                 a.prep.lines = ev.prep;
                 a.showing_prep = ev.n_prep > 0;
                 a.about = None;
+                if a.mode == Mode::Triage {
+                    a.mode = Mode::Morning; // prep shows on the stage
+                }
                 render();
             }
         }
@@ -837,11 +1136,17 @@ pub extern "C" fn on_press(_event_type: i32, node: i32, _p1: i32, _p2: i32) {
 fn press_card(card: usize) {
     let a = app();
     if a.mode == Mode::Focus {
-        return; // focus means focus: the desk is dimmed and does not answer
+        return; // focus means focus: the arc is hidden and does not answer
     }
     let id = a.cards[card].id;
     let Some(m) = a.day.msg_index(id.bytes()) else { return };
-    if a.day.msgs[m].pile != Pile::In {
+    open_msg(m);
+}
+
+/// Read a message: triage, with it on the reading card.
+fn open_msg(m: usize) {
+    let a = app();
+    if m >= a.day.n_msgs || a.day.msgs[m].pile != Pile::In {
         return;
     }
     a.mode = Mode::Triage;
@@ -849,6 +1154,7 @@ fn press_card(card: usize) {
     a.about = None;
     a.open = Some(m);
     if !a.day.msgs[m].read {
+        let id = a.day.msgs[m].id;
         a.day.msgs[m].read = true; // turned over now; the bridge confirms on the next poll
         act("turn", id.bytes());
         reconcile(false);
@@ -859,7 +1165,7 @@ fn press_card(card: usize) {
 fn press_action(op: &'static str) {
     let a = app();
     let Some(m) = a.open else {
-        a.status("Turn a card over first.", true);
+        a.status("Press a card to read it first.", true);
         return;
     };
     if m >= a.day.n_msgs {
@@ -1245,8 +1551,15 @@ pub extern "C" fn on_net_result(_event_type: i32, _node: i32, request_id: i32, s
                 a.day.sunset_min = scratch.sunset_min;
                 a.day.rev = scratch.rev;
                 a.day.same = true;
+                // Nothing changed but the clock: pills may still turn amber or dim.
+                event_nodes();
             } else if read {
+                // LOW-3: what is open or in focus follows its id, not its index, into the new day.
+                let open_id = a.open.filter(|&m| m < a.day.n_msgs).map(|m| a.day.msgs[m].id);
+                let focus_id = a.focus_task.filter(|&t| t < a.day.n_tasks).map(|t| a.day.tasks[t].id);
                 core::mem::swap(&mut a.day, scratch);
+                a.open = open_id.and_then(|id| a.day.msg_index(id.bytes()));
+                a.focus_task = focus_id.and_then(|id| (0..a.day.n_tasks).find(|&t| a.day.tasks[t].id.eq(id.bytes())));
             }
             if read {
                 a.since_update_s = 0.0;
@@ -1278,6 +1591,9 @@ pub extern "C" fn on_net_result(_event_type: i32, _node: i32, request_id: i32, s
         Req::Prep => {
             if status == 200 && model::read_prep(body, &mut a.prep) && a.mode != Mode::Focus {
                 a.showing_prep = true;
+                if a.mode == Mode::Triage {
+                    a.mode = Mode::Morning; // prep shows on the stage, which triage's fan covers
+                }
                 render();
             } else {
                 a.status("No prep for that one.", true);
@@ -1287,36 +1603,10 @@ pub extern "C" fn on_net_result(_event_type: i32, _node: i32, request_id: i32, s
     }
 }
 
+
 // ---------------------------------------------------------------------------
 // Reconcile: make the room match the day
 // ---------------------------------------------------------------------------
-
-fn look_for(m: &model::Msg) -> Look {
-    if m.read || m.pile == Pile::Done {
-        Look::Read
-    } else if m.vip {
-        Look::Vip
-    } else {
-        match m.src {
-            Src::Gmail => Look::Gmail,
-            Src::Slack => Look::Slack,
-            Src::Github => Look::Github,
-            _ => Look::Linear,
-        }
-    }
-}
-
-fn tpl_for(look: Look) -> i32 {
-    let t = &app().n.tpl_msg;
-    match look {
-        Look::Gmail => t[0],
-        Look::Slack => t[1],
-        Look::Github => t[2],
-        Look::Linear => t[3],
-        Look::Vip => t[4],
-        Look::Read => t[5],
-    }
-}
 
 fn tick_sound() {
     let a = app();
@@ -1348,10 +1638,11 @@ fn remember_known() {
     }
 }
 
-/// Bring every card, event tile and shelf item in line with `app().day`.
+/// Bring every card, event pill and shelf item in line with `app().day`.
 /// `first`: the first day since sign-in (cards appear in place, nothing ticks).
 fn reconcile(first: bool) {
     let a = app();
+    let first = first || a.first_pending;
 
     // 1. Cards whose message is gone.
     for c in 0..a.cards.len() {
@@ -1388,7 +1679,7 @@ fn reconcile(first: bool) {
         cards_of[m] = card_i.unwrap_or(usize::MAX);
         targets[m] = match msg.pile {
             Pile::In => {
-                // A card on the desk keeps its slot: nothing shuffles under your hand.
+                // A card on the arc keeps its slot: nothing shuffles under your hand.
                 match card_i.map(|c| a.cards[c].slot).filter(|&s| s != NO_SLOT && s < L::GRID_SLOTS) {
                     Some(s) => {
                         slots[m] = s;
@@ -1404,12 +1695,12 @@ fn reconcile(first: bool) {
             Pile::Later => {
                 let k = later_k;
                 later_k += 1;
-                (k < L::PILE_SHOWN).then(|| [L::PILE_LATER[0], L::PILE_LATER[1] + k as f32 * L::PILE_STEP_Y, L::PILE_LATER[2]])
+                (k < L::PILE_SHOWN).then(|| L::pile_at(L::PILE_LATER_DEG, k))
             }
             Pile::Done => {
                 let k = done_k;
                 done_k += 1;
-                (k < L::PILE_SHOWN).then(|| [L::PILE_DONE[0], L::PILE_DONE[1] + k as f32 * L::PILE_STEP_Y, L::PILE_DONE[2]])
+                (k < L::PILE_SHOWN).then(|| L::pile_at(L::PILE_DONE_DEG, k))
             }
             Pile::Quiet => {
                 let k = quiet_k;
@@ -1434,18 +1725,18 @@ fn reconcile(first: bool) {
             }
         }
     }
-    // Free desk slots go in that order; the next few wait on the inbox tray, the most
+    // Free arc slots go in that order; the next few wait in the inbox well, the most
     // important on top; the rest are counted ("+N more"), not drawn.
-    let mut on_tray = 0usize;
+    let mut in_well = 0usize;
     for &m in &order[..n_order] {
         if let Some(s) = used.iter().position(|&u| !u) {
             used[s] = true;
             slots[m] = s;
             targets[m] = Some(L::grid_slot(s));
-        } else if on_tray < L::TRAY_SHOWN {
-            let level = (L::TRAY_SHOWN - 1 - on_tray) as f32;
-            targets[m] = Some([L::INBOX[0], L::INBOX[1] + 0.008 + level * L::PILE_STEP_Y, L::INBOX[2]]);
-            on_tray += 1;
+        } else if in_well < L::TRAY_SHOWN {
+            let level = (L::TRAY_SHOWN - 1 - in_well) as f32;
+            targets[m] = Some([L::WELL[0], L::WELL[1] + 0.006 + level * L::PILE_STEP_Y, L::WELL[2]]);
+            in_well += 1;
         }
     }
 
@@ -1454,21 +1745,21 @@ fn reconcile(first: bool) {
         let msg = a.day.msgs[m];
         let card_i = if cards_of[m] == usize::MAX { None } else { Some(cards_of[m]) };
         let slot = slots[m];
-        // New = not in the last day this room drew. A VIP ticks even when the desk is full.
+        // New = not in the last day this room drew. A VIP ticks even when the arc is full.
         if !first && msg.pile == Pile::In && msg.vip && !known_contains(msg.id.bytes()) {
             vip_landed = Some(m);
         }
         match (card_i, targets[m]) {
             (Some(c), None) => {
-                // Counted, not drawn (a full pile, a full tray).
+                // Counted, not drawn (a full pile, a full well).
                 let (node, sub) = (a.cards[c].node, a.cards[c].sub);
                 a.destroy(node, sub);
                 a.cards[c] = EMPTY_CARD;
             }
             (None, None) => {}
             (None, Some(to)) => {
-                let look = look_for(&msg);
-                let node = a.clone_of(tpl_for(look));
+                let tone = style::card_tone(&msg);
+                let node = a.clone_tone(tone);
                 if node <= 0 {
                     continue; // next tick (dirty) or a cap
                 }
@@ -1477,23 +1768,23 @@ fn reconcile(first: bool) {
                     continue;
                 };
                 let sub = subscribe_press(node);
-                // A card that arrives while you are in the room lands where it lives:
-                // out of the inbox tray, into its slot. Nothing moves toward you.
-                let from = if first { to } else { L::INBOX };
-                a.cards[free] = Card { id: msg.id, node, look, slot, pos: from, from, to, t: if first { 1.0 } else { 0.0 }, alive: true, sub };
+                // A card that arrives while you are in the room falls onto its place
+                // from above, face-down. Nothing moves toward you.
+                let from = if first { to } else { [to[0], to[1] + L::DROP_H, to[2]] };
+                a.cards[free] = Card { id: msg.id, node, tone, slot, pos: from, from, to, t: if first { 1.0 } else { 0.0 }, fall: !first, alive: true, sub };
                 place(node, from);
             }
             (Some(c), Some(to)) => {
-                let look = look_for(&msg);
-                if a.cards[c].look != look {
+                let tone = style::card_tone(&msg);
+                if a.cards[c].tone != tone {
                     // Turned over (or became VIP): a new face, in the same place.
                     let (old, old_sub) = (a.cards[c].node, a.cards[c].sub);
-                    let node = a.clone_of(tpl_for(look));
+                    let node = a.clone_tone(tone);
                     if node > 0 {
                         a.destroy(old, old_sub);
                         a.cards[c].sub = subscribe_press(node);
                         a.cards[c].node = node;
-                        a.cards[c].look = look;
+                        a.cards[c].tone = tone;
                         place(node, a.cards[c].pos);
                     }
                 }
@@ -1503,49 +1794,126 @@ fn reconcile(first: bool) {
                     card.from = card.pos;
                     card.to = to;
                     card.t = 0.0;
+                    card.fall = false;
                 }
             }
         }
     }
     remember_known();
 
-    // 3. The calendar.
-    while a.n_event_nodes < a.day.n_events {
-        let tpl = a.n.tpl_event;
-        let node = a.clone_of(tpl);
-        if node <= 0 {
-            break;
-        }
-        a.event_subs[a.n_event_nodes] = subscribe_press(node);
-        a.events[a.n_event_nodes] = node;
-        a.n_event_nodes += 1;
-    }
-    while a.n_event_nodes > a.day.n_events {
-        a.n_event_nodes -= 1;
-        let (node, sub) = (a.events[a.n_event_nodes], a.event_subs[a.n_event_nodes]);
-        a.destroy(node, sub);
-        a.events[a.n_event_nodes] = 0;
-        a.event_subs[a.n_event_nodes] = 0;
-    }
-    for e in 0..a.n_event_nodes {
-        let ev = a.day.events[e];
-        place(a.events[e], [L::CAL_X, L::CAL_Y, L::cal_z(ev.start) + L::EVENT_HALF_W]);
-    }
+    // 3. The Day Ring's pills.
+    event_nodes();
+    a.first_pending = first && a.dirty;
 
     if let Some(m) = vip_landed {
         tick_sound();
-        let mut l = Lines::new(24, 2);
-        l.text("VIP:");
-        l.words(a.day.msgs[m].from.bytes());
-        let node = a.n.txt_vip;
-        a.text(node, l.as_bytes(), 0.0);
+        // The VIP line rides on the banner, the room's one notice band.
+        a.vip_from = a.day.msgs[m].from;
         a.vip_s = VIP_LINE_S;
+        banner();
+        show_plates();
     }
+}
+
+/// One pill per event, in its tone (past, now, later); a pill whose tone
+/// changes is swapped for one of the new tone, in the same place.
+fn event_nodes() {
+    let a = app();
+    let now = a.day.now_min;
+    while a.n_event_nodes > a.day.n_events {
+        a.n_event_nodes -= 1;
+        let k = a.n_event_nodes;
+        let (node, sub) = (a.events[k], a.event_subs[k]);
+        a.destroy(node, sub);
+        a.events[k] = 0;
+        a.event_subs[k] = 0;
+        a.label_deg[k] = f32::NAN;
+    }
+    for e in 0..a.day.n_events {
+        let tone = style::event_tone(&a.day.events[e], now);
+        let have = e < a.n_event_nodes;
+        if have && a.event_tone[e] == tone {
+            continue;
+        }
+        let node = a.clone_tone(tone);
+        if node <= 0 {
+            break; // the next tick (dirty) finishes
+        }
+        if have {
+            let (old, sub) = (a.events[e], a.event_subs[e]);
+            a.destroy(old, sub);
+        } else {
+            a.n_event_nodes = e + 1;
+        }
+        a.events[e] = node;
+        a.event_subs[e] = subscribe_press(node);
+        a.event_tone[e] = tone;
+        a.event_vis[e] = true; // a clone is shown as it is made
+        a.label_deg[e] = f32::NAN; // its label went with the old pill
+        let deg = L::ring_deg(a.day.events[e].start as f32, if a.ring_now < 0.0 { a.clock_now() } else { a.ring_now });
+        place(node, L::ring_at(deg));
+    }
+    a.ring_force = true;
+    // A swapped pill took its label with it: label again (review v2, lens A, MED-1).
+    ring_labels(false);
+    show_plates();
 }
 
 // ---------------------------------------------------------------------------
 // Render: what the room shows in the current mode
 // ---------------------------------------------------------------------------
+
+/// The Day Ring's labels: a few around now (the one just past, then the next),
+/// on two alternating rows. `reface`: show again any label whose event has
+/// moved round since, so it faces you again.
+/// Triage (not under About) clears the ring within TRIAGE_CLEAR_DEG of now.
+fn triage_clears(a: &App) -> bool {
+    a.mode == Mode::Triage && a.about.is_none()
+}
+
+fn ring_labels(reface: bool) {
+    let a = app();
+    let budget = if a.about.is_some() || a.mode == Mode::Focus {
+        0
+    } else if a.mode == Mode::Triage {
+        CAL_LABELS_TRIAGE
+    } else {
+        CAL_LABELS
+    };
+    let n_ev = a.day.n_events.min(a.n_event_nodes);
+    let now = a.day.now_min;
+    let next = (0..n_ev).find(|&e| a.day.events[e].end > now).unwrap_or(n_ev.saturating_sub(1));
+    let first = if budget >= 3 { next.saturating_sub(1) } else { next };
+    let first = first.min(n_ev.saturating_sub(budget));
+    for e in 0..a.n_event_nodes {
+        let node = a.events[e];
+        let now = if a.ring_now < 0.0 { a.clock_now() } else { a.ring_now };
+        let deg = if e < a.day.n_events { L::ring_deg(a.day.events[e].start as f32, now) } else { 0.0 };
+        let wanted = e < n_ev && e >= first && e < first + budget && deg.abs() <= L::RING_SHOW_DEG && !(triage_clears(a) && deg.abs() < TRIAGE_CLEAR_DEG);
+        if !wanted {
+            a.untext(node);
+            a.label_deg[e] = f32::NAN;
+            continue;
+        }
+        let drifted = !a.label_deg[e].is_nan() && (deg - a.label_deg[e]).abs() > LABEL_REFACE_DEG;
+        let keep_place = a.held(node) && !(reface && drifted);
+        if !keep_place {
+            a.untext(node); // shown again, so the client faces it toward you anew
+        }
+        let ev = a.day.events[e];
+        let mut b: Buf<128> = Buf::new();
+        text::clock(&mut b, ev.start);
+        let mut l = Lines::new(14, 2);
+        l.text(b.as_str());
+        l.newline();
+        l.words(ev.title.bytes());
+        // Held: only the words change (a renamed event), in place. Not held: placed and faced now.
+        a.say(node, l.as_bytes(), Place::Ring((e % 2) as u8));
+        if !keep_place {
+            a.label_deg[e] = deg;
+        }
+    }
+}
 
 fn show_timer() {
     let a = app();
@@ -1555,8 +1923,8 @@ fn show_timer() {
     b.byte(b':');
     b.int2(s % 60);
     b.push(if a.focus_running { "  focus" } else if s == 0 { "  time - take a break" } else { "  paused" });
-    let node = a.n.txt_low;
-    a.text(node, b.as_bytes(), 0.0);
+    let node = a.n.txt_timer;
+    a.say(node, b.as_bytes(), Place::Plaque(1));
 }
 
 fn counts() -> (i32, i32, i32, i32, i32) {
@@ -1593,108 +1961,212 @@ fn task_counts() -> (i32, i32, i32) {
     (todo, doing, done)
 }
 
+/// The messages triage fans out: the inbox's unread VIPs first, then the cards
+/// on the arc in order, then what waits in the well; never the one being read.
+fn fan_wanted() -> [usize; FAN] {
+    let a = app();
+    let mut out = [usize::MAX; FAN];
+    let mut k = 0;
+    let open = a.open;
+    let take = |m: usize, out: &mut [usize; FAN], k: &mut usize| {
+        if *k < FAN && Some(m) != open && !out[..*k].contains(&m) {
+            out[*k] = m;
+            *k += 1;
+        }
+    };
+    for m in 0..a.day.n_msgs {
+        let x = &a.day.msgs[m];
+        if x.pile == Pile::In && x.vip && !x.read {
+            take(m, &mut out, &mut k);
+        }
+    }
+    for s in 0..L::GRID_SLOTS {
+        if let Some(c) = a.cards.iter().find(|c| c.alive && c.slot == s) {
+            if let Some(m) = a.day.msg_index(c.id.bytes()) {
+                if a.day.msgs[m].pile == Pile::In {
+                    take(m, &mut out, &mut k);
+                }
+            }
+        }
+    }
+    for m in 0..a.day.n_msgs {
+        if a.day.msgs[m].pile == Pile::In {
+            take(m, &mut out, &mut k);
+        }
+    }
+    out
+}
+
+/// Where a message's card is now (for a fan card to rise from).
+fn card_pos(m: usize) -> [f32; 3] {
+    let a = app();
+    let id = a.day.msgs[m].id;
+    match a.cards.iter().find(|c| c.alive && c.id.eq(id.bytes())) {
+        Some(c) => [c.pos[0], L::RISE_FROM_Y, c.pos[2]],
+        None => [L::WELL[0], L::RISE_FROM_Y, L::WELL[2]],
+    }
+}
+
+/// Triage's fan: each of the five face-up cards shows the message it should,
+/// rising from that message's card when it changes.
+fn fan_sync(on: bool) {
+    let a = app();
+    let wanted = if on { fan_wanted() } else { [usize::MAX; FAN] };
+    for k in 0..FAN {
+        let (node, vip_node) = (a.n.fan[k], a.n.fan_vip[k]);
+        let m = wanted[k];
+        if m == usize::MAX {
+            if !a.fan[k].id.is_empty() {
+                a.fan[k] = EMPTY_FAN;
+                a.untext(node);
+                visible(node, false);
+                visible(vip_node, false);
+            }
+            continue;
+        }
+        let msg = a.day.msgs[m];
+        if !a.fan[k].id.eq(msg.id.bytes()) {
+            let from = card_pos(m);
+            a.fan[k] = FanCard { id: msg.id, pos: from, from, t: 0.0 };
+            place(node, from);
+            place(vip_node, from);
+            visible(node, true);
+            a.untext(node);
+        }
+        visible(vip_node, style::fan_frame(&msg));
+        let mut l = Lines::new(15, 2);
+        l.words(msg.from.bytes());
+        l.newline();
+        l.words(msg.subject.bytes());
+        a.say(node, l.as_bytes(), Place::Plaque(2));
+    }
+}
+
+/// Is message `m`'s card up in the fan (so its disc on the arc is hidden)?
+fn fanned(id: &[u8]) -> bool {
+    app().fan.iter().any(|f| !f.id.is_empty() && f.id.eq(id))
+}
+
+/// The banner, the room's one low notice band: the sample's line, and for
+/// 90 seconds after a VIP lands, who it is from.
+fn banner() {
+    let a = app();
+    let node = a.n.txt_banner;
+    let mut l = Lines::new(40, 2);
+    let mut any = false;
+    if !a.day.note.is_empty() {
+        let note = a.day.note;
+        l.words(note.bytes());
+        any = true;
+    }
+    if a.vip_s > 0.0 && !a.vip_from.is_empty() {
+        if any {
+            l.newline();
+        }
+        l.text("VIP:");
+        let from = a.vip_from;
+        l.words(from.bytes());
+        any = true;
+    }
+    if any {
+        a.say(node, l.as_bytes(), Place::Plaque(2));
+    } else {
+        a.untext(node);
+    }
+}
+
 pub fn render() {
     let a = app();
     let n = a.n;
     let mode = a.mode;
-    let on = true;
     let about_open = a.about.is_some();
+    let focus = mode == Mode::Focus && !about_open;
+    let triage = mode == Mode::Triage && !about_open;
+    a.ring_force = true; // the ring re-checks what it shows
+
+    // --- Triage: the fan, and the card being read.
+    let open = if triage { a.open.filter(|&m| m < a.day.n_msgs && a.day.msgs[m].pile == Pile::In) } else { None };
+    if mode == Mode::Triage && open.is_none() {
+        a.open = None;
+    }
+    fan_sync(triage);
+    // The card up in front: a waiting draft takes the reading card's place.
+    let draft = if triage { a.day.pending_draft() } else { None };
+    let front = if draft.is_some() { n.txt_draft } else if open.is_some() { n.txt_open } else { 0 };
+    if front != a.read_node && (front == n.txt_draft || a.read_node == n.txt_draft) {
+        a.row_swap_at = a.now_s;
+    }
+    if front != a.read_node || open != a.read_shown {
+        a.read_shown = open;
+        a.read_node = front;
+        if front > 0 {
+            a.read_t = 0.0;
+            place(front, L::at(L::READ_R, 0.0, L::RISE_FROM_Y));
+        }
+    }
+    // The empty well's ring would sit right behind the centre capsule's label (review v2, round 2).
+    visible(n.inbox, !(triage && front > 0));
+    visible(n.txt_open, front == n.txt_open && front > 0);
+    visible(n.txt_draft, front == n.txt_draft && front > 0);
+
+    // The banner sits under the now bar; in triage it moves up, clear of the fan.
+    place(n.txt_banner, L::at(L::BANNER_R, 0.0, if triage { L::BANNER_TRIAGE_Y } else { L::BANNER_Y }));
+
+    visible(n.now_bar, !triage && !focus); // focus: it would cross "Next: …" through the MR cocoon
+    // The halo hides when the banner (triage) or the cocoon (focus) would stack a
+    // third translucent layer on it (the art direction's guardrail).
+    visible(n.halo, !triage && !focus);
 
     // --- Buttons and groups.
     visible(n.sign_in, !a.signed_in);
     visible(n.about, true);
     visible(n.about_next, about_open);
     for b in n.mode {
-        visible(b, on);
+        visible(b, true);
     }
-    let triage_open = on && !about_open && mode == Mode::Triage && a.open.is_some();
     for b in [n.done, n.later, n.reply, n.task, n.mute] {
-        visible(b, triage_open);
+        visible(b, open.is_some() && draft.is_none());
     }
-    visible(n.focus_go, on && !about_open && mode == Mode::Focus);
-    let draft = if on && !about_open && mode == Mode::Triage { a.day.pending_draft() } else { None };
-    for b in [n.approve, n.deny, n.more] {
+    visible(n.focus_go, focus);
+    for b in [n.approve, n.deny] {
         visible(b, draft.is_some());
     }
-    visible(n.prep_close, on && !about_open && a.showing_prep);
-    for v in n.veils {
-        visible(v, on && mode == Mode::Focus);
-    }
+    visible(n.more, draft.is_some_and(|d| draft_pages(a.day.drafts[d].text.bytes()) > 1));
+    let staging = about_open || (!focus && !triage) || a.showing_prep;
+    visible(n.txt_stage, staging);
+    visible(n.prep_close, !about_open && a.showing_prep);
+    visible(n.txt_focus, focus);
+    visible(n.txt_timer, focus);
+    let tasks_on = !about_open && (mode == Mode::Morning || mode == Mode::Wrap);
+    visible(n.txt_tasks, tasks_on);
     for (k, &t) in n.tasks.iter().enumerate() {
-        let shown = on && !about_open && mode != Mode::Focus && mode != Mode::Triage && shown_task(k).is_some();
-        visible(t, shown);
+        visible(t, tasks_on && shown_task(k).is_some());
     }
-    visible(n.now_line, on);
+    // The arc's cards: hidden in focus (the room has closed in) and while up in the fan.
+    // In triage the well's waiting cards are put away too: the fan shows what matters,
+    // and the stack sat right behind the Reply capsule (review v2).
     for c in a.cards.iter() {
         if c.alive {
-            visible(c.node, on);
+            let in_well = c.slot == NO_SLOT && c.to[0] == L::WELL[0] && c.to[2] == L::WELL[2];
+            visible(c.node, !focus && !fanned(c.id.bytes()) && !(triage && in_well));
         }
     }
-    for e in 0..a.n_event_nodes {
-        visible(a.events[e], on);
-    }
-    // The window pane follows the bridge's clock against sunset.
-    let pane = if a.day.now_min < a.day.sunset_min - 45 {
-        0
-    } else if a.day.now_min < a.day.sunset_min + 30 {
-        1
-    } else {
-        2
-    };
+    // The window pane follows the clock against sunset.
+    let pane = style::pane(a.day.now_min, a.day.sunset_min);
     for (k, &p) in n.panes.iter().enumerate() {
-        visible(p, k == if on { pane } else { 2 });
+        visible(p, k == pane);
     }
-    place(n.now_line, [L::NOW_LINE_X, L::NOW_LINE_Y, L::cal_z(a.day.now_min)]);
 
     // --- Texts. Always: the mode column with About and Sign in, the banner, the status.
-    let all = [
-        n.done, n.later, n.reply, n.task, n.mute, n.focus_go, n.approve, n.deny, n.more, n.prep_close, n.tasks[0], n.tasks[1], n.tasks[2],
-        n.txt_open, n.txt_draft, n.txt_stage, n.txt_low, n.txt_next, n.txt_window, n.txt_quiet, n.inbox, n.pile_later, n.pile_done, n.txt_vip,
-    ];
     let si = n.sign_in;
     if a.signed_in {
         a.untext(si);
     } else {
-        a.text_str(si, "Owner sign in", 0.035);
+        a.say_str(si, "Owner sign in", Place::Puck);
     }
     let ab = n.about;
-    a.text_str(ab, if about_open { "Close about" } else { "About" }, 0.035);
-    {
-        let node = n.txt_banner;
-        if a.day.note.is_empty() {
-            a.untext(node);
-        } else {
-            let note = a.day.note;
-            a.text(node, note.bytes(), 0.0);
-        }
-    }
-    if let Some(p) = a.about {
-        // About: one short page, close to you, and nothing else on the walls.
-        for node in all {
-            a.untext(node);
-        }
-        for e in 0..a.n_event_nodes {
-            let node = a.events[e];
-            a.untext(node);
-        }
-        let mut l = Lines::new(30, 4);
-        l.text(ABOUT_PAGES[p % ABOUT_PAGES.len()]);
-        let ta = n.txt_about;
-        a.text(ta, l.as_bytes(), 0.0);
-        let mut b: Buf<16> = Buf::new();
-        b.push("Next ");
-        b.int((p % ABOUT_PAGES.len()) as i32 + 1);
-        b.push("/");
-        b.int(ABOUT_PAGES.len() as i32);
-        let nx = n.about_next;
-        a.text(nx, b.as_bytes(), 0.06);
-    } else {
-        let (ta, nx) = (n.txt_about, n.about_next);
-        a.untext(ta);
-        a.untext(nx);
-    }
-
-    // Mode bar: the current mode is marked.
+    a.say_str(ab, if about_open { "Close about" } else { "About" }, Place::Puck);
+    banner();
     let names = ["Morning", "Focus", "Triage", "Wrap-up"];
     let modes = [Mode::Morning, Mode::Focus, Mode::Triage, Mode::Wrap];
     for k in 0..4 {
@@ -1707,49 +2179,69 @@ pub fn render() {
             b.push(names[k]);
         }
         let node = a.n.mode[k];
-        a.text(node, b.as_bytes(), 0.035);
+        a.say(node, b.as_bytes(), Place::Puck);
     }
-    if about_open {
+
+    ring_labels(false);
+
+    let (inbox, vip, later, done, quiet) = counts();
+    let all = [
+        n.done, n.later, n.reply, n.task, n.mute, n.focus_go, n.approve, n.deny, n.more, n.prep_close, n.tasks[0], n.tasks[1], n.tasks[2], n.txt_tasks,
+        n.txt_open, n.txt_draft, n.txt_focus, n.txt_timer, n.txt_next, n.txt_window, n.txt_quiet, n.inbox, n.pile_later, n.pile_done,
+    ];
+    if let Some(p) = a.about {
+        // About: one short page on the stage, and nothing else around it.
+        for node in all {
+            a.untext(node);
+        }
+        let mut l = Lines::new(30, 4);
+        l.text(ABOUT_PAGES[p % ABOUT_PAGES.len()]);
+        let st = n.txt_stage;
+        a.say(st, l.as_bytes(), Place::Plaque(4));
+        let mut b: Buf<16> = Buf::new();
+        b.push("Next ");
+        b.int((p % ABOUT_PAGES.len()) as i32 + 1);
+        b.push("/");
+        b.int(ABOUT_PAGES.len() as i32);
+        let nx = n.about_next;
+        a.say(nx, b.as_bytes(), Place::Puck);
         a.live_status();
         show_plates();
         return;
     }
+    let nx = n.about_next;
+    a.untext(nx);
 
-    let (inbox, vip, later, done, quiet) = counts();
-
-    // Inbox tray and piles.
+    // The inbox well's count: what is in, how many VIPs, how many are not drawn.
     {
-        let mut b: Buf<64> = Buf::new();
-        b.push("Inbox ");
-        b.int(inbox);
-        if vip > 0 {
-            // Short lines, so the label stays narrow enough to clear Done and low
-            // enough to clear the mode column from a seated eye (review rounds 3-4, lens B).
-            b.push("\n");
-            b.int(vip);
-            b.push(" VIP");
-        }
-        // Counted but not drawn: past the desk and the tray's stack.
-        let hidden = (inbox as usize).saturating_sub(L::GRID_SLOTS + L::TRAY_SHOWN);
-        if hidden > 0 {
-            b.push("\n+");
-            b.int(hidden as i32);
-            b.push(" more");
-        }
         let node = a.n.inbox;
-        if mode == Mode::Focus {
+        // Also while a card or draft is up front in triage: the well is hidden then (review v2, round 3).
+        if focus || open.is_some() || (triage && front > 0) {
             a.untext(node);
         } else {
-            a.text(node, b.as_bytes(), 0.02);
+            let mut b: Buf<64> = Buf::new();
+            b.push("Inbox ");
+            b.int(inbox);
+            if vip > 0 {
+                b.push(", ");
+                b.int(vip);
+                b.push(" VIP");
+            }
+            let hidden = (inbox as usize).saturating_sub(L::GRID_SLOTS + L::TRAY_SHOWN);
+            if hidden > 0 {
+                b.push("\n+");
+                b.int(hidden as i32);
+                b.push(" more");
+            }
+            a.say(node, b.as_bytes(), Place::Pile);
         }
+        // The piles' counts, in triage, when there is something on them.
         let mut b: Buf<32> = Buf::new();
         b.push("Later ");
         b.int(later);
         let node = a.n.pile_later;
-        // An empty pile says nothing; its label would only crowd the inbox count
-        // from a seated eye (review round 3, lens B, MED-1).
-        if mode == Mode::Triage && later > 0 {
-            a.text(node, b.as_bytes(), 0.12);
+        if triage && later > 0 {
+            a.say(node, b.as_bytes(), Place::Pile);
         } else {
             a.untext(node);
         }
@@ -1757,40 +2249,44 @@ pub fn render() {
         b.push("Done ");
         b.int(done);
         let node = a.n.pile_done;
-        if mode == Mode::Triage && done > 0 {
-            a.text(node, b.as_bytes(), 0.12);
+        if triage && done > 0 {
+            a.say(node, b.as_bytes(), Place::Pile);
         } else {
             a.untext(node);
         }
     }
 
-    // The quiet shelf behind you.
+    // The quiet shelf behind you (not in focus: the room has closed in).
     {
-        let mut l = Lines::new(22, 2);
-        let mut b: Buf<32> = Buf::new();
-        b.push("Quiet shelf: ");
-        b.int(quiet);
-        l.text(b.as_str());
-        let mut names_shown = 0;
-        for m in &a.day.msgs[..a.day.n_msgs] {
-            if m.pile == Pile::Quiet && names_shown < 2 {
-                if names_shown == 0 {
-                    l.newline();
-                } else {
-                    l.text(",");
-                }
-                l.words(m.from.bytes());
-                names_shown += 1;
-            }
-        }
         let node = a.n.txt_quiet;
-        a.text(node, l.as_bytes(), 0.0);
+        if focus {
+            a.untext(node);
+        } else {
+            let mut l = Lines::new(22, 2);
+            let mut b: Buf<32> = Buf::new();
+            b.push("Quiet shelf: ");
+            b.int(quiet);
+            l.text(b.as_str());
+            let mut names_shown = 0;
+            for m in &a.day.msgs[..a.day.n_msgs] {
+                if m.pile == Pile::Quiet && names_shown < 2 {
+                    if names_shown == 0 {
+                        l.newline();
+                    } else {
+                        l.text(",");
+                    }
+                    l.words(m.from.bytes());
+                    names_shown += 1;
+                }
+            }
+            a.say(node, l.as_bytes(), Place::Plaque(2));
+        }
     }
 
-    // The window: weather, sunset, one headline. No caption in focus (dimmed) or triage (desk work, and the text budget).
+    // The window: weather, sunset, one headline (not in focus).
     {
         let node = a.n.txt_window;
-        if mode == Mode::Focus || mode == Mode::Triage {
+        if focus {
             a.untext(node);
         } else {
             let mut l = Lines::new(22, 3);
@@ -1801,35 +2297,14 @@ pub fn render() {
             l.text(b.as_str());
             l.newline();
             l.words(a.day.headline.bytes());
-            a.text(node, l.as_bytes(), 0.0);
+            a.say(node, l.as_bytes(), Place::Plaque(3));
         }
     }
 
-    // The calendar: up to CAL_LABELS labels around now (the one just past, then the next ones),
-    // at alternating heights; every tile stays pressable. None in focus.
-    let n_ev = a.day.n_events.min(a.n_event_nodes);
-    let next = (0..n_ev).find(|&e| a.day.events[e].end >= a.day.now_min).unwrap_or(n_ev.saturating_sub(1));
-    let first_label = next.saturating_sub(1).min(n_ev.saturating_sub(CAL_LABELS));
-    for e in 0..a.n_event_nodes {
-        let node = a.events[e];
-        if mode == Mode::Focus || e >= a.day.n_events || e < first_label || e >= first_label + CAL_LABELS {
-            a.untext(node);
-            continue;
-        }
-        let ev = a.day.events[e];
-        let mut b: Buf<128> = Buf::new();
-        text::clock(&mut b, ev.start);
-        let mut l = Lines::new(14, 2);
-        l.text(b.as_str());
-        l.newline();
-        l.words(ev.title.bytes());
-        let off = if e % 2 == 0 { 0.07 } else { 0.29 };
-        a.text(node, l.as_bytes(), off);
-    }
-    // In focus only the next event shows, above the strip.
+    // In focus, the next event is the only other thing you see.
     {
         let node = a.n.txt_next;
-        if mode == Mode::Focus {
+        if focus {
             let next = (0..a.day.n_events).find(|&e| a.day.events[e].start >= a.day.now_min);
             match next {
                 Some(e) => {
@@ -1839,18 +2314,17 @@ pub fn render() {
                     text::clock(&mut b, ev.start);
                     b.push(" ");
                     b.bytes(ev.title.bytes());
-                    a.text(node, b.as_bytes(), 0.0);
+                    a.say(node, b.as_bytes(), Place::Float);
                 }
-                None => a.text_str(node, "Nothing else today", 0.0),
+                None => a.say_str(node, "Nothing else today", Place::Float),
             }
         } else {
             a.untext(node);
         }
     }
 
-    // The stage and the line under it.
+    // The stage: the brief, prep or the wrap-up.
     let stage = a.n.txt_stage;
-    let low = a.n.txt_low;
     if a.showing_prep {
         let mut l = Lines::new(30, 4);
         for k in 0..a.prep.n {
@@ -1859,10 +2333,9 @@ pub fn render() {
             }
             l.words(a.prep.lines[k].bytes());
         }
-        a.text(stage, l.as_bytes(), 0.0);
+        a.say(stage, l.as_bytes(), Place::Plaque(4));
         let pc = a.n.prep_close;
-        a.text_str(pc, "Close", 0.06);
-        a.untext(low);
+        a.say_str(pc, "Close", Place::Puck);
     } else {
         let pc = a.n.prep_close;
         a.untext(pc);
@@ -1878,44 +2351,7 @@ pub fn render() {
                     }
                     l.words(a.day.brief[k].bytes());
                 }
-                a.text(stage, l.as_bytes(), 0.0);
-                let (todo, doing, tdone) = task_counts();
-                let mut b: Buf<96> = Buf::new();
-                b.int(inbox);
-                b.push(" messages");
-                if vip > 0 {
-                    b.push(", ");
-                    b.int(vip);
-                    b.push(" from VIPs");
-                }
-                b.push("\nTasks: ");
-                b.int(todo);
-                b.push(" to do, ");
-                b.int(doing);
-                b.push(" doing, ");
-                b.int(tdone);
-                b.push(" done");
-                a.text(low, b.as_bytes(), 0.0);
-            }
-            Mode::Focus => {
-                let mut l = Lines::new(24, 3);
-                l.text("Focus on:");
-                l.newline();
-                let task = a.focus_task.filter(|&i| i < a.day.n_tasks).or_else(|| shown_first_open());
-                match task {
-                    Some(i) => l.words(a.day.tasks[i].title.bytes()),
-                    None => l.text("press a pinned task in Morning"),
-                }
-                a.text(stage, l.as_bytes(), 0.0);
-                show_timer();
-            }
-            Mode::Triage => {
-                if a.open.is_none() && a.day.pending_draft().is_none() {
-                    a.text_str(stage, "Press a card to turn it over", 0.0);
-                } else {
-                    a.untext(stage);
-                }
-                a.untext(low);
+                a.say(stage, l.as_bytes(), Place::Plaque(4));
             }
             Mode::Wrap => {
                 let mut tasks_done = 0;
@@ -1942,56 +2378,80 @@ pub fn render() {
                     }
                 }
                 l.newline();
-                l.text("Press a task to roll it");
-                a.text(stage, l.as_bytes(), 0.0);
-                let mut l2 = Lines::new(32, 2);
-                l2.text("First tomorrow:");
-                l2.newline();
-                l2.words(a.day.first_tomorrow.bytes());
-                a.text(low, l2.as_bytes(), 0.0);
+                l.text("First tomorrow:");
+                l.words(a.day.first_tomorrow.bytes());
+                a.say(stage, l.as_bytes(), Place::Plaque(4));
             }
+            Mode::Focus | Mode::Triage => a.untext(stage),
         }
     }
 
-    // Focus start/pause.
+    // Focus: the task, its timer, and start or pause.
     {
-        let node = a.n.focus_go;
-        if mode == Mode::Focus {
+        let fnode = a.n.txt_focus;
+        let gnode = a.n.focus_go;
+        if focus {
+            let mut l = Lines::new(24, 3);
+            l.text("Focus on:");
+            l.newline();
+            let task = a.focus_task.filter(|&i| i < a.day.n_tasks).or_else(shown_first_open);
+            match task {
+                Some(i) => l.words(a.day.tasks[i].title.bytes()),
+                None => l.text("press a pinned task in Morning"),
+            }
+            a.say(fnode, l.as_bytes(), Place::Plaque(3));
+            show_timer();
             let label = if a.focus_running { "Pause" } else if a.focus_left_s <= 0.0 { "Again" } else { "Start" };
-            a.text_str(node, label, 0.06);
+            a.say_str(gnode, label, Place::Puck);
         } else {
-            a.untext(node);
+            let tnode = a.n.txt_timer;
+            a.untext(fnode);
+            a.untext(tnode);
+            a.untext(gnode);
         }
     }
 
-    // Task tiles (Morning: pinned; Wrap: what rolls).
-    for k in 0..3 {
-        let node = a.n.tasks[k];
-        let task = if mode == Mode::Morning || mode == Mode::Wrap { shown_task(k) } else { None };
-        match task {
-            Some(i) => {
-                let mut l = Lines::new(18, 2);
-                if mode == Mode::Wrap {
-                    l.text("Roll:");
-                }
-                l.words(a.day.tasks[i].title.bytes());
-                a.text(node, l.as_bytes(), 0.04);
-            }
-            None => a.untext(node),
-        }
-    }
-
-    // Triage: the opened card, its actions, and a waiting draft.
+    // Task tiles (Morning: pinned; Wrap: what rolls), under a line of counts.
     {
-        let open = if mode == Mode::Triage { a.open.filter(|&m| m < a.day.n_msgs && a.day.msgs[m].pile == Pile::In) } else { None };
-        if mode == Mode::Triage && open.is_none() {
-            a.open = None;
+        let hnode = a.n.txt_tasks;
+        if tasks_on {
+            let mut b: Buf<64> = Buf::new();
+            if mode == Mode::Wrap {
+                b.push("Roll to tomorrow: press one");
+            } else {
+                let (todo, doing, tdone) = task_counts();
+                b.int(todo);
+                b.push(" to do, ");
+                b.int(doing);
+                b.push(" doing, ");
+                b.int(tdone);
+                b.push(" done");
+            }
+            a.say(hnode, b.as_bytes(), Place::Plaque(1));
+        } else {
+            a.untext(hnode);
         }
+        for k in 0..3 {
+            let node = a.n.tasks[k];
+            let task = if tasks_on { shown_task(k) } else { None };
+            match task {
+                Some(i) => {
+                    let mut l = Lines::new(18, 2);
+                    l.words(a.day.tasks[i].title.bytes());
+                    a.say(node, l.as_bytes(), Place::Plaque(2));
+                }
+                None => a.untext(node),
+            }
+        }
+    }
+
+    // Triage: the card being read, its actions, and a waiting draft.
+    {
         let node = a.n.txt_open;
         match open {
             Some(m) => {
                 let msg = a.day.msgs[m];
-                let mut l = Lines::new(30, 4);
+                let mut l = Lines::new(24, 4);
                 l.words(msg.from.bytes());
                 if msg.vip {
                     l.text("(VIP)");
@@ -2000,14 +2460,14 @@ pub fn render() {
                 l.words(msg.subject.bytes());
                 l.newline();
                 l.words(msg.preview.bytes());
-                a.text(node, l.as_bytes(), 0.0);
+                a.say(node, l.as_bytes(), Place::Plaque(4));
             }
             None => a.untext(node),
         }
         let labels = [(a.n.done, "Done"), (a.n.later, "Later"), (a.n.reply, "Reply"), (a.n.task, "Task"), (a.n.mute, "Mute")];
         for (node, label) in labels {
-            if open.is_some() {
-                a.text_str(node, label, 0.04);
+            if open.is_some() && draft.is_none() {
+                a.say_str(node, label, Place::Puck);
             } else {
                 a.untext(node);
             }
@@ -2019,22 +2479,22 @@ pub fn render() {
                 // Pages of 3 lines x 26 characters under a "Draft to ..." line.
                 let pages = draft_pages(dr.text.bytes());
                 let page = a.draft_page % pages.max(1);
-                let mut l = Lines::new(26, 4);
+                let mut l = Lines::new(DRAFT_W, 4);
                 l.text("Draft to");
                 l.words(dr.to.bytes());
                 l.newline();
                 draft_page_into(dr.text.bytes(), page, &mut l);
-                a.text(tdraft, l.as_bytes(), 0.0);
+                a.say(tdraft, l.as_bytes(), Place::Plaque(4));
                 let (ap, dn, mo) = (a.n.approve, a.n.deny, a.n.more);
-                a.text_str(ap, "Approve", 0.05);
-                a.text_str(dn, "Deny", 0.05);
+                a.say_str(ap, "Approve", Place::Puck);
+                a.say_str(dn, "Deny", Place::Puck);
                 if pages > 1 {
                     let mut b: Buf<16> = Buf::new();
                     b.push("More ");
                     b.int(page as i32 + 1);
                     b.push("/");
                     b.int(pages as i32);
-                    a.text(mo, b.as_bytes(), 0.05);
+                    a.say(mo, b.as_bytes(), Place::Puck);
                 } else {
                     a.untext(mo);
                 }
@@ -2053,36 +2513,23 @@ pub fn render() {
     show_plates();
 }
 
-/// MR plates, in the order of `Nodes::plates` (mirrors PLATES in tools/build_glb.mjs).
-const PLATES: [&str; 12] = [
-    "PlateStage", "PlateCal", "PlateOpen", "PlateDraft", "PlateTasks", "PlateModes", "PlateWindow", "PlateVip", "PlateQuiet", "PlateBanner", "PlateAbout",
-    "PlateInbox",
-];
-
-/// MR only: show each dark plate only while a text it frames is showing.
+/// Show the ring's glass band while any ring label shows, and (MR only) each
+/// dark plate only while the floating text it frames is showing.
 /// (World text is always white; a light real wall behind it is unreadable.)
 fn show_plates() {
     let a = app();
     let n = a.n;
+    let held = |node: i32| a.held(node);
+    // The ring's glass band (both worlds): shown while a ring label shows.
+    let ring = (0..a.n_event_nodes).any(|e| held(a.events[e]));
+    for b in n.band {
+        visible(b, ring);
+    }
     if !n.mr {
         return;
     }
-    let held = |node: i32| node > 0 && a.texts[..a.n_texts].contains(&node);
-    let events = (0..a.n_event_nodes).any(|e| held(a.events[e]));
-    let wanted = [
-        held(n.txt_stage) || held(n.txt_low) || held(n.prep_close),
-        events || held(n.txt_next),
-        held(n.txt_open) || held(n.done),
-        held(n.txt_draft),
-        n.tasks.iter().any(|&t| held(t)),
-        n.mode.iter().any(|&m| held(m)) || held(n.about) || held(n.sign_in),
-        held(n.txt_window) || held(n.txt_status),
-        held(n.txt_vip),
-        held(n.txt_quiet),
-        held(n.txt_banner),
-        held(n.txt_about) || held(n.about_next),
-        held(n.inbox),
-    ];
+    // Text on glass panels and capsules needs no plate: only the text that floats does.
+    let wanted = [held(n.txt_status), held(n.inbox), held(n.pile_later), held(n.pile_done)];
     for k in 0..PLATES.len() {
         visible(n.plates[k], wanted[k]);
     }
@@ -2095,7 +2542,7 @@ fn shown_first_open() -> Option<usize> {
         .or_else(|| (0..d.n_tasks).find(|&i| d.tasks[i].pin && d.tasks[i].state == TaskState::Open))
 }
 
-const DRAFT_W: usize = 26;
+const DRAFT_W: usize = 24;
 const DRAFT_LINES: usize = 3;
 
 /// How many 3-line pages a draft takes at 26 characters a line.
@@ -2182,7 +2629,7 @@ mod tests {
     fn draft_page_fits_a_world_text() {
         let long = b"Keep the conduit wording as drafted. The shorter version drops the card-data sentence we need. Thanks! And one more sentence to push it onto a second page for sure.";
         for p in 0..draft_pages(long) {
-            let mut l = Lines::new(26, 4);
+            let mut l = Lines::new(DRAFT_W, 4);
             l.text("Draft to Counsel (sample)");
             l.newline();
             draft_page_into(long, p, &mut l);
@@ -2194,18 +2641,30 @@ mod tests {
     }
 
     #[test]
-    fn calendar_maps_the_working_day() {
-        assert!((L::cal_z(7 * 60) - -2.1).abs() < 1e-5);
-        assert!((L::cal_z(19 * 60) - 2.1).abs() < 1e-4);
-        assert!((L::cal_z(13 * 60) - 0.0).abs() < 1e-4);
-        assert_eq!(L::cal_z(3 * 60), L::cal_z(7 * 60), "before 7 clamps to the start");
+    fn the_ring_maps_the_working_day() {
+        // At 10:00, 13:00 is three hours to the right; 7:00 three hours to the left.
+        assert!((L::ring_deg(13.0 * 60.0, 600.0) - 45.0).abs() < 1e-4);
+        assert!((L::ring_deg(7.0 * 60.0, 600.0) + 45.0).abs() < 1e-4);
+        // The working day fits inside what the ring shows around any hour in it.
+        assert!(L::ring_deg(19.0 * 60.0, 13.0 * 60.0) <= L::RING_SHOW_DEG);
     }
 
     #[test]
-    fn grid_slots_are_on_the_desk() {
+    fn arc_slots_are_low_and_in_front() {
         for i in 0..L::GRID_SLOTS {
             let p = L::grid_slot(i);
-            assert!(p[0] > 0.42 && p[0] < 1.12 && p[2].abs() < 0.95, "slot {i} {p:?}");
+            let r = (p[0] * p[0] + p[2] * p[2]).sqrt();
+            assert!((r - L::ARC_R).abs() < 1e-4 && p[0] > 0.5 && p[1] < 0.9, "slot {i} {p:?}");
         }
+    }
+
+    #[test]
+    fn the_fan_and_cocoon_stay_inside_their_rings() {
+        for k in 0..FAN {
+            let p = L::fan_at(k, L::FAN_Y);
+            assert!(((p[0] * p[0] + p[2] * p[2]).sqrt() - L::FAN_R).abs() < 1e-4);
+        }
+        // The mode column (1.45 m) and the focus card (1.45 m) sit inside the cocoon.
+        assert!(L::COCOON_R > 1.45 + 0.4);
     }
 }
