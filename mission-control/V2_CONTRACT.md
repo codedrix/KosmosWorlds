@@ -325,3 +325,18 @@ renamed, no layout change. The `nodes.json` contract and every behaviour in §1�
      (ref-1 beside the arc and the seal; ref-2 beside the arc with the floor ring and the watcher);
    - LOOK at all of them and iterate until legibility is at least as good as before. White text must
      stay readable on smoked glass over the Lobby's concrete.
+10. **As built (the art pass), and the review fixes that follow it.** These replace the targets above
+    where they differ:
+    - **Glass opacity is 0.82, not about 0.6**, so white text reads at least as well as before. The
+      review judged this sound.
+    - **Button fills are opaque**, to keep every pixel at two translucent layers or fewer.
+    - **The floor ring and grid sit on the hall floor** past the dais steps, because the ledge hides the
+      dais from the eye. The ring is pinned to the floor and never follows the arc handles.
+    - **Halos:** one behind the seal ring, and one behind each cube whose job needs you. Need halos never
+      overlap each other, and never overlap the floor decal as seen from the eye. The two-layer rule
+      holds everywhere.
+    - **Texture colours are written in sRGB**: the palette's #5fe6ff cyan and #f3a83a amber.
+    - **Watchers don't see the floor ring**, because their mirrored copy would put it under the floor.
+    - **The seal rings turn 6° a second**, in plane, one host call a frame.
+    - **`merge_glb.mjs` merges textures** with their indices shifted. It refuses any texture or image
+      extension that carries its own `source` index.
