@@ -19,8 +19,7 @@ H Puck need
 T TxPuck registry: run npm test
 U BtnPuckApprove 1
 U BtnPuckDeny 1
-U BtnSignOut 1
-T TxTicker 3 working  |  1 needs you\n2 done today  |  17:44
+T TxTicker 3 working  |  1 needs you\n2 done today  |  21:50
 U RailA 1
 T TxRailA registry: Run all tests\nNEEDS YOU  4m 12s
 U RailSelA 1
@@ -75,4 +74,5 @@ U BtnSummary 0
 U BtnReply 0
 T TxWatch off
 U BtnWatch 1
+U BtnSignOut 1
 T TxPageSpot Page panel (DB-043)\nA pinned web page will\nshow here.

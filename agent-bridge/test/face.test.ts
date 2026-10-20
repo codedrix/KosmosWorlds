@@ -99,8 +99,7 @@ test("a wrong passphrase is refused; the right one gives a token and the cubes",
   assert.ok(ok.hidden.has("TxPuck"));
   assert.equal(ok.visible.get("BtnPuckApprove"), false);
   for (const n of ARC_TEXT_NODES) assert.ok(ok.hidden.has(n), `${n}: the arc is folded`);
-  for (const n of ARC_BUTTON_NODES) if (n !== "BtnSignOut") assert.ok(!ok.visible.has(n), `${n}: folded arc buttons keep their last U record`);
-  assert.equal(ok.visible.get("BtnSignOut"), true, "Sign out is offered folded too (8.7)");
+  for (const n of ARC_BUTTON_NODES) assert.ok(!ok.visible.has(n), `${n}: folded arc buttons keep their last U record (Sign out included: folded, Close on the ledge leaves)`);
   assert.equal(ok.texts, 0);
 });
 
@@ -237,7 +236,8 @@ test("a redacted command: the puck says desk only and offers only Deny", async (
   assert.ok(a && a.exact === false);
   const s = await view();
   assert.equal(s.visible.get("BtnPuckApprove"), false);
-  assert.equal(s.text.get("TxPuck"), "web: open its cube", "a redacted command is never offered on the puck");
+  assert.equal(s.text.get("TxPuck"), "web: approve at the desk", "a redacted command: the cube can't approve it either, so the puck says the desk");
+  assert.equal(s.visible.get("BtnPuckDeny"), true, "Deny stays");
   assert.ok(!s.raw.includes(fakeKey), "the key never leaves the PC");
   b.bridge.store.decide(a.id, "deny");
   await p;
@@ -332,11 +332,16 @@ test("8.10: the page doesn't jump when the ask plate appears", async () => {
   sink.setStatus("stopped");
 });
 
-test("8.7: Sign out works from the cubes, folded", async () => {
+test("8.7: Sign out lives on the chrome bar: offered unfolded, never folded", async () => {
   await view();
   const folded = await press("BtnFold");
   assert.equal(folded.mode, "cubes");
-  assert.equal(folded.visible.get("BtnSignOut"), true);
+  assert.ok(!folded.visible.has("BtnSignOut"), "folded, the face doesn't offer it (Close on the ledge leaves)");
+  const stale = await press("BtnSignOut");
+  assert.ok(stale.events.includes("stale"), "a folded press on it means nothing");
+  assert.ok(b.bridge.auth.signedIn);
+  const arc = await press("CubePlus");
+  assert.equal(arc.visible.get("BtnSignOut"), true, "unfolded, it is on the chrome bar");
   const out = await press("BtnSignOut");
   assert.equal(out.mode, "lock");
   assert.ok(out.events.includes("signed_out"));

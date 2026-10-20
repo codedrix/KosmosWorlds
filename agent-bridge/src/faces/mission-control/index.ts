@@ -15,8 +15,9 @@
  *          done today); centre = one job's conversation (header, 10 lines or 5 above the ask
  *          plate, quick replies, reply, fold, stop, status), or with no job open the start-a-job
  *          set (presets, New task, project); the chrome bar = group watch and sign-out; right =
- *          the page spot only (DB-043, a placeholder). The ledge and the puck stay, and Sign out
- *          is offered folded too.
+ *          the page spot only (DB-043, a placeholder). The ledge and the puck stay. Sign out
+ *          lives on the chrome bar, so it is offered unfolded only; folded, the owner leaves with
+ *          Close on the ledge (a world node, V2_CONTRACT 8.7).
  *
  * Ops: `view` (long poll), `press`, `signin` (the passphrase fallback), `watch` (a group member's
  * read-only arc) and `pair` (mint, then a long poll on the pairing id).
@@ -594,9 +595,6 @@ export class MissionControlFace implements Face {
     body.buzz(store.approvalsEver);
     this.renderLedge(body, actions, ctx);
     this.renderPuck(body, actions, ctx);
-    // Sign out is offered folded and unfolded (V2_CONTRACT 8.7).
-    body.visible("BtnSignOut", true);
-    actions.set("BtnSignOut", "signout");
     if (mode === "arc") {
       const job = this.state.focus ? store.jobs.get(this.state.focus) : undefined;
       this.renderArc(body, actions, ctx, job, this.state, this.statusLine(ctx));
@@ -670,14 +668,16 @@ export class MissionControlFace implements Face {
     const job = store.jobs.get(a.jobId);
     const proj = toWallAscii(shortProject(job?.project ?? "?"));
     // ONE line, "<project>: <verb> <command>" (V2_CONTRACT 8.5). Approvable only when that whole
-    // line fits the puck (width, the host's byte limit, one line) and nothing was redacted: the ask
-    // plate's "you approve what you read". Otherwise it says to open the cube; Deny stays.
+    // line fits the puck (width, the host's byte limit, one line) and the approval is exact: the ask
+    // plate's "you approve what you read". An exact command too long for the line says to open the
+    // cube; one that isn't exact (redacted, multi-line, outside the project, runs code by itself)
+    // can't be approved from the headset at all, so it says so. Deny stays in both cases.
     const line = `${proj}: ${puckVerb(a)} ${a.command}`;
     const approvable = a.exact && !line.includes("\n") && estimateWidthM(line) <= W.puck && line.length <= WORLD_TEXT_MAX_BYTES;
     if (approvable) {
       s.text("TxPuck", line);
     } else {
-      const tail = ": open its cube";
+      const tail = a.exact ? ": open its cube" : ": approve at the desk";
       s.text("TxPuck", `${clipWidth(proj, Math.max(0.1, W.puck - estimateWidthM(tail)))}${tail}`);
     }
     s.visible("BtnPuckApprove", approvable);
@@ -749,11 +749,13 @@ export class MissionControlFace implements Face {
       this.renderConversation(s, actions, job, store.pendingFor(job.id), paging, now);
     }
 
-    // ---- the chrome bar under the centre: group watch (Sign out is the owner render's) ----
+    // ---- the chrome bar under the centre: group watch and sign out (a watcher's copy hides both) ----
     const code = ctx.bridge.watch.current;
     s.text("TxWatch", clipWidth(code ? `code ${code.slice(0, 3)} ${code.slice(3)}` : "off", W.watch));
     s.visible("BtnWatch", true);
     actions.set("BtnWatch", "watch");
+    s.visible("BtnSignOut", true);
+    actions.set("BtnSignOut", "signout");
 
     // ---- right: the page spot (DB-043's dock; a placeholder until that panel ships) ----
     s.text("TxPageSpot", label(wrapAll(["Page panel (DB-043)", "A pinned web page will show here."], W.pageSpot)));
