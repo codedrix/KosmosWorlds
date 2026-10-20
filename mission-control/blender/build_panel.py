@@ -144,6 +144,7 @@ ARM_TOP = 0.64
 PUCK_PLATE = (0.86, 0.12)     # width, height (holds one 8 cm line of W.puck 0.80)
 PUCK_TAB = (0.22, 0.10)
 PUCK_TAB_OFFSET = 0.21
+PLATE_BACK = 0.09           # the label plate's offset behind the puck's centre (disc radius 0.075)
 
 built = {}
 
@@ -593,8 +594,10 @@ def build_puck():
     # puck is just the puck.
     need = [torus("_PuckNeedRing", v, (px, py, top), 0.068, 0.009, MATS["glowNeed"]),
             cylinder("_PuckNeedTop", v, (px, py, top + 0.001), 0.048, 0.002, MATS["glowNeed"], vertices=32),
-            box("_PuckPlate", fr, (0.0, 0, plate_z), (0.012, pw, ph), MATS["backing"], bevel=0.006),
-            box("_PuckPlatePost", fr, (0.0, 0, (pz + plate_z - ph / 2) / 2 + 0.006), (0.01, 0.012, plate_z - ph / 2 - pz), MATS["metal"])]
+            # The plate sits a little behind the puck, and its post rises from the armrest behind
+            # the disc (PLATE_BACK > the disc's radius), so nothing pokes through the amber top.
+            box("_PuckPlate", fr, (PLATE_BACK, 0, plate_z), (0.012, pw, ph), MATS["backing"], bevel=0.006),
+            box("_PuckPlatePost", fr, (PLATE_BACK + 0.012, 0, (ARM_TOP + plate_z - ph / 2) / 2), (0.01, 0.012, plate_z - ph / 2 - ARM_TOP), MATS["metal"])]
     node("PuckNeed", join("PuckNeed", need, (px, py, pz)), "show")
     # Approve and Deny: larger tabs beside the puck (Approve to its right as the owner sees it),
     # each tilted back to face the eye, the words merged in.
@@ -607,7 +610,7 @@ def build_puck():
         tfr = Matrix.Translation((x, y, pz + 0.01)) @ Matrix.Rotation(math.atan2(y, x), 4, "Z") @ Matrix.Rotation(tilt, 4, "Y")
         button(name, tfr, (0, 0, 0), tw, th, words, MATS[m], text_size=0.045, depth=0.025)
     # TxPuck: one line on the plate (bottom-aligned on its anchor, flat, facing the eye).
-    anchor("TxPuck", fr, (-0.01, 0, plate_z - 0.04))
+    anchor("TxPuck", fr, (PLATE_BACK - 0.009, 0, plate_z - 0.04))
 
 
 # ---------------------------------------------------------------------------
