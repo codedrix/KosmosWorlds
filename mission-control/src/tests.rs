@@ -68,7 +68,10 @@ fn reset() {
         M_ARC = false;
         ARC_SHOWN = false;
         PICKED = NONE;
-        PRESSED_CUBE = NONE;
+        PENDING_PRESS_ID = 0;
+        COMMIT_CUBE = NONE;
+        RAIL_SWITCH = false;
+        REPLY_ID = 0;
         LAST_PATH = "";
     }
     k_init();
@@ -109,6 +112,10 @@ fn run(secs: f32) {
 }
 fn snap(s: &str) {
     apply_snapshot(s.as_bytes());
+}
+/// The bridge's answer to the last press (or call) the world sent.
+fn reply(s: &str) {
+    apply_reply(unsafe { host::LAST_FETCH_ID }, s.as_bytes());
 }
 fn close3(a: [f32; 3], b: [f32; 3]) -> bool {
     (0..3).all(|k| (a[k] - b[k]).abs() < 1e-3)
@@ -385,7 +392,7 @@ fn a_cube_unfolds_the_arc_and_fold_reverses_it() {
     assert!(sent.ends_with("press CubeB\n"), "{sent}");
     let origin = placed(idx("CubeB"));
 
-    snap(&full_arc_snapshot());
+    reply(&full_arc_snapshot());
     assert!(unsafe { ARC_SHOWN });
     assert!(!vis("CubeB") && !vis("CubeBCalm"), "the picked cube became the arc");
     assert!(vis("CubeA"), "the other cubes stay");
@@ -694,12 +701,12 @@ fn a_face_button_is_not_pressed_while_its_group_moves() {
 fn the_fold_goes_to_the_cube_of_the_job_on_show() {
     sign_in_to_cubes();
     press("CubeA");
-    snap(&full_arc_snapshot());
+    reply(&full_arc_snapshot());
     run(0.55);
     assert!(!vis("CubeA") && vis("CubeB"));
     // Another cube pressed with the arc open: the arc moves to that job, and that cube hides.
     press("CubeB");
-    snap(&full_arc_snapshot());
+    reply(&full_arc_snapshot());
     assert!(vis("CubeA") && !vis("CubeB"), "the picked cube follows the job on show");
     snap("AB1\nM cubes\n");
     assert!(close3(unsafe { FOLD_TO }, placed(idx("CubeB"))), "the fold goes into CubeB");
@@ -707,7 +714,7 @@ fn the_fold_goes_to_the_cube_of_the_job_on_show() {
     assert!(vis("CubeB"));
     // The job's cube goes away while the arc is open: the fold goes to the ledge's centre.
     press("CubeA");
-    snap(&full_arc_snapshot());
+    reply(&full_arc_snapshot());
     run(0.55);
     snap("AB1\nU CubeA 0\nH CubeA off\nM cubes\n");
     assert!(close3(unsafe { FOLD_TO }, placed(idx("McLedge"))), "the ledge's centre");
@@ -732,6 +739,172 @@ fn the_handles_move_the_arc_only() {
 }
 
 #[test]
+fn closing_retries_the_sign_out_until_the_host_takes_it() {
+    sign_in_to_cubes();
+    unsafe { host::REFUSE = 2; } // the first try (in Close) and the next tick's are refused
+    let (n, attempts) = (fetches(), unsafe { host::ATTEMPTS });
+    press("McClose");
+    assert_eq!(mode(), Mode::Closing, "parked, still holding the token for the sign-out");
+    assert!(unsafe { TOKEN_LEN } > 0);
+    assert!(!vis("McLedge") && !vis("Puck") && !vis("McClose"), "everything parks at once");
+    let p = pos("McLedge");
+    assert!((p[1] - (3.0 - PARK_DROP_M)).abs() < 1.0, "parked: {p:?}");
+    assert_eq!(fetches(), n, "refused, nothing sent yet");
+    k_tick(DT);
+    assert_eq!(mode(), Mode::Closing);
+    k_tick(DT);
+    assert_eq!(mode(), Mode::Closed, "the third try went out");
+    assert_eq!(fetches(), n + 1);
+    assert_eq!(unsafe { host::ATTEMPTS }, attempts + 3);
+    assert_eq!(unsafe { LAST_PATH }, PATH_PRESS);
+    let len = build_request(Some(idx("BtnSignOut")), &[]);
+    let sent = unsafe { String::from_utf8(REQ_BUF[..len].to_vec()).unwrap() };
+    assert!(!sent.contains("tok "), "the token is gone after the sign-out went out: {sent}");
+    assert_eq!(unsafe { TOKEN_LEN }, 0);
+    let attempts = unsafe { host::ATTEMPTS };
+    run(3.0);
+    press("BtnTests");
+    assert_eq!(unsafe { host::ATTEMPTS }, attempts, "Closed makes no call at all");
+
+    // A host that never takes it: after about 5 s the token is dropped anyway, and then silence.
+    sign_in_to_cubes();
+    unsafe { host::REFUSE = 1_000_000; }
+    press("McSeal"); // the seal closes too
+    assert_eq!(mode(), Mode::Closing);
+    run(CLOSING_MAX_S - 0.2);
+    assert_eq!(mode(), Mode::Closing, "still trying");
+    run(0.4);
+    assert_eq!(mode(), Mode::Closed);
+    assert_eq!(unsafe { TOKEN_LEN }, 0);
+    let attempts = unsafe { host::ATTEMPTS };
+    run(3.0);
+    assert_eq!(unsafe { host::ATTEMPTS }, attempts, "no call after Closed");
+    unsafe { host::REFUSE = 0; }
+}
+
+#[test]
+fn a_cube_press_commits_only_through_a_reply_that_takes_it() {
+    sign_in_to_cubes();
+    press("CubeA");
+    reply(&full_arc_snapshot());
+    run(0.55);
+    assert!(!vis("CubeA"));
+    // Stale: the bridge answers the current render with E stale; nothing changes.
+    press("CubeB");
+    reply(&(full_arc_snapshot() + "E stale\n"));
+    assert!(!vis("CubeA") && vis("CubeB"), "a stale press changes nothing");
+    assert!(close3(unsafe { FOLD_TO }, placed(idx("CubeA"))));
+    // Lost: no answer (status 0), then a poll; nothing changes.
+    press("CubeB");
+    on_net_result(0, 0, unsafe { host::LAST_FETCH_ID }, 0);
+    snap(&full_arc_snapshot());
+    assert!(!vis("CubeA") && vis("CubeB"), "a lost press changes nothing");
+    // A poll that lands before the press's own reply does not commit it either...
+    press("CubeB");
+    snap(&full_arc_snapshot());
+    assert!(!vis("CubeA") && vis("CubeB"));
+    // ...the reply that takes it does.
+    reply(&full_arc_snapshot());
+    assert!(vis("CubeA") && !vis("CubeB"));
+    assert!(close3(unsafe { FOLD_TO }, placed(idx("CubeB"))));
+    close_panel();
+    // Folded: a refused cube press leaves the unfold to the ledge's centre.
+    sign_in_to_cubes();
+    press("CubeB");
+    reply(&(full_arc_snapshot() + "E refused\n"));
+    assert!(close3(pos("McCenterFrame"), placed(idx("McLedge"))), "unfolds from the ledge's centre");
+    assert!(vis("CubeB"));
+    close_panel();
+}
+
+#[test]
+fn a_rail_press_folds_to_the_ledge_centre() {
+    sign_in_to_cubes();
+    press("CubeA");
+    reply(&full_arc_snapshot());
+    run(0.55);
+    assert!(!vis("CubeA"));
+    // The left panel moves the arc to another job; the face doesn't name that job's cube.
+    press("RailB");
+    reply(&full_arc_snapshot());
+    assert!(vis("CubeA"), "the cube the arc came from shows again");
+    assert_eq!(unsafe { PICKED }, NONE);
+    snap("AB1\nM cubes\n");
+    assert!(close3(unsafe { FOLD_TO }, placed(idx("McLedge"))), "the fold goes to the ledge's centre");
+    // A refused rail press changes nothing.
+    run(0.5);
+    press("CubeA");
+    reply(&full_arc_snapshot());
+    run(0.55);
+    press("RailB");
+    reply(&(full_arc_snapshot() + "E stale\n"));
+    assert!(!vis("CubeA"));
+    close_panel();
+}
+
+/// Every point of an arc part on a grid (independent of `arc_clear`'s separating axes).
+fn part_points(p: &[f32; 7], a: [f32; 3]) -> Vec<[f32; 3]> {
+    let yaw = p[6].to_radians();
+    let (u, v) = ([yaw.cos(), yaw.sin()], [-yaw.sin(), yaw.cos()]);
+    let mut out = Vec::new();
+    let steps = |n: usize| (0..=n).map(move |k| -1.0 + 2.0 * k as f32 / n as f32);
+    for sd in steps(2) {
+        for sw in steps(40) {
+            for sh in steps(30) {
+                let dx = p[3] * sd * u[0] + p[4] * sw * v[0];
+                let dy = p[3] * sd * u[1] + p[4] * sw * v[1];
+                out.push([p[0] + dx - a[0], p[1] + dy - a[2], p[2] + p[5] * sh + a[1]]);
+            }
+        }
+    }
+    out
+}
+
+#[test]
+fn no_reachable_handle_setting_puts_the_arc_into_the_ledge_or_the_puck() {
+    sign_in_to_cubes();
+    snap(&full_arc_snapshot());
+    run(0.6);
+    // Breadth-first over every setting the six handles can reach from the start.
+    let key = |a: [f32; 3]| ((a[0] * 100.0).round() as i32, (a[1] * 100.0).round() as i32, (a[2] * 100.0).round() as i32);
+    let mut seen = std::collections::HashSet::new();
+    let mut queue = vec![[0.0f32; 3]];
+    seen.insert(key([0.0; 3]));
+    let handles = ["McMoveCloser", "McMoveFarther", "McMoveUp", "McMoveDown", "McMoveLeft", "McMoveRight"];
+    let mut reached = Vec::new();
+    while let Some(a) = queue.pop() {
+        reached.push(a);
+        for h in handles {
+            unsafe { ADJUST = a; }
+            press(h);
+            let b = unsafe { ADJUST };
+            if seen.insert(key(b)) {
+                queue.push(b);
+            }
+        }
+    }
+    assert!(reached.len() > 500, "the handles still reach a lot: {}", reached.len());
+    for a in &reached {
+        for p in ARC_PARTS.iter() {
+            for q in part_points(p, *a) {
+                for k in KEEP_OUT.iter() {
+                    let inside = (0..3).all(|i| q[i] > k[i] && q[i] < k[i + 3]);
+                    assert!(!inside, "ADJUST {a:?} puts {q:?} inside {k:?}");
+                }
+            }
+        }
+    }
+    // Each extreme on its own is still reachable.
+    let has = |t: [f32; 3]| reached.iter().any(|a| key(*a) == key(t));
+    assert!(has([MOVE_NEAR, 0.0, 0.0]) && has([-MOVE_FAR, 0.0, 0.0]));
+    assert!(has([0.0, -MOVE_UPDOWN, 0.0]) && has([0.0, MOVE_UPDOWN, 0.0]));
+    assert!(has([0.0, 0.0, MOVE_SIDE]) && has([0.0, 0.0, -MOVE_SIDE]));
+    // The review's corner (all the way near, all the way sideways, one step down) is not.
+    assert!(!has([MOVE_NEAR, -MOVE_STEP_M, MOVE_SIDE]));
+    close_panel();
+}
+
+#[test]
 fn music_alternates_tracks_like_the_old_program() {
     unsafe { host::AUDIO_PLAYS = 0; }
     music::init();
@@ -752,3 +925,4 @@ fn numbers_parse() {
     assert_eq!(t.as_str(), "a\nb\\c");
     assert!(ease(0.0).abs() < 1e-6 && (ease(1.0) - 1.0).abs() < 1e-6 && (ease(0.5) - 0.5).abs() < 1e-6);
 }
+

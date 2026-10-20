@@ -47,14 +47,19 @@ package.
      handles.
    **Fold** reverses it: the words go at once, the arc folds back into the cube of the job on show
    (or the ledge's centre if that cube is gone), then hides. The picked cube is hidden while the arc
-   is open; pressing another cube moves the arc to that job and makes it the picked cube.
+   is open; pressing another cube moves the arc to that job and makes it the picked cube. Choosing a
+   job from the left panel's rails folds to the ledge's centre (the face doesn't name that job's
+   cube) and shows the cube the arc came from again. A cube or rail press changes the origin only
+   once the bridge's own reply takes it: a stale, refused or lost press changes nothing.
 4. **The decision puck**, on a stem from the throne's LEFT armrest at hand height. When a job needs
    the owner it glows amber, a small dark plate above it shows one line
    (`registry: run npm test`, or `<project>: open its cube` when the whole command doesn't fit),
    and **Approve** / **Deny** tabs sit beside it: two buzzes and the chime. It approves without
    opening the arc, only when the whole command is shown.
 5. **Leaving** is one press away whenever signed in: **CLOSE** on the ledge, or the seal on the seat
-   again (it toggles). Both sign out and park everything. A sign-out from the bridge, or a token the
+   again (it toggles). Both park everything at once; the world keeps the token only to send the
+   sign-out, retrying on the next frames until the headset takes the call (at most about 5 s), then
+   drops it and is Closed. A sign-out from the bridge, or a token the
    bridge no longer knows (expiry, a restart, the kill switch), closes everything the same way: the
    ring never comes up blank.
 6. **Watchers** (Group watch, a 6-digit code typed at the Watch post) see the **arc only**, turned
@@ -85,8 +90,12 @@ and when its groups show.
 - **Requests:** `AB1`, then `tok <token>` or (no token yet) `pair <id>`, then `v`, `press`, `---`.
   A mint carries neither. A watcher's carries only `watch <code>` and `v`.
 - **The handles** move the arc only (the ledge and the puck belong to the throne): 15 cm steps,
-  up to 0.5 m nearer (the ask plate then stops 12 cm behind the ledge), 1.0 m farther, 0.6 m up or
-  down, 1.2 m sideways.
+  up to 0.5 m nearer, 1.0 m farther, 0.6 m up or down, 1.2 m sideways. A step that would bring any
+  arc part (the panels, the ask plate, the bar) into the ledge or the puck is refused
+  (`arc_clear`, a separating-axis test against keep-out boxes); a host test walks every setting
+  the handles can reach and checks the clearance point by point.
+- **Closing** is a short stage: parked and hidden at once, holding the token only for the sign-out
+  press, retried until the host takes it or `CLOSING_MAX_S` (5 s) passes. Closed makes no call.
 - `k_node_find` sees meshes only on device, so every node the program finds is a mesh.
 
 ## Geometry (`blender/build_panel.py`, contract sections 2 and 8)
@@ -99,7 +108,7 @@ degrees and set on the seat (STAND 14.8, 0, 1.46). Seat and arms measured from t
 |---|---|
 | Seal ring | 1.10 m ahead at eye height, 0.50 m across; code inside, hint and buttons below |
 | Ledge | 0.90 m ahead, top 0.80 m, 1.80 m wide; CLOSE, A, B, C, D, + at 0.33 m steps |
-| Puck | viewer (0.15, +0.95, 1.00) on a stem from the left arm; the label plate (0.86 x 0.12) right above it facing the eye; Approve / Deny tabs (0.22 x 0.10) beside it, tilted to the eye |
+| Puck | viewer (0.15, +0.95, 1.00) on a stem from the left arm; the label plate (0.86 x 0.12) above it, 9 cm behind its centre, facing the eye, on a post from the armrest behind the disc; Approve / Deny tabs (0.22 x 0.10) beside it, tilted to the eye |
 | Centre panel | 1.70 m, azimuth 0, z 0.79 to 2.19, 1.32 m wide; ask plate 8 cm in front (z 0.815 to 1.36) |
 | Chrome bar | under the centre panel, top 0.765 m, 0.10 m tall, 1.56 m wide, same plane |
 | Side panels | 1.80 m at +-36 degrees, 0.85 m wide, z 0.95 to 2.16, each turned (yaw only) to face the eye |
@@ -112,7 +121,7 @@ above the bar.
 | Path | What it is |
 |---|---|
 | `V2_CONTRACT.md`, `nodes.json` | the contract and the node list (both owned by the bridge lane; a host test pins the node list) |
-| `src/lib.rs`, `src/tests.rs`, `Cargo.toml`, `build.rs` | the Lobby's program (the music plus Mission Control) and its 22 host tests |
+| `src/lib.rs`, `src/tests.rs`, `Cargo.toml`, `build.rs` | the Lobby's program (the music plus Mission Control) and its 26 host tests |
 | `world.wasm` | the built program; it becomes the Lobby's `module.wasm`; it rebuilds byte-identical from a fresh checkout |
 | `mc_assembly.glb` | every node (parked), merged into the Lobby's `scene.glb` |
 | `lobby-manifest.patch.json` | what the package changes in the Lobby's manifest |

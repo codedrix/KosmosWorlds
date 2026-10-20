@@ -112,6 +112,9 @@ mod host {
     pub const MAX_H: usize = 256;
     pub static mut CALLS: u32 = 0;
     pub static mut FETCHES: i32 = 0;
+    /// Fetches the host should refuse next (-6, "too fast"), and every attempt, refused or not.
+    pub static mut REFUSE: i32 = 0;
+    pub static mut ATTEMPTS: i32 = 0;
     pub static mut LAST_FETCH_ID: i32 = 0;
     pub static mut PROMPTS: i32 = 0;
     pub static mut AUDIO_PLAYS: i32 = 0;
@@ -128,6 +131,8 @@ mod host {
         unsafe {
             CALLS = 0;
             FETCHES = 0;
+            REFUSE = 0;
+            ATTEMPTS = 0;
             LAST_FETCH_ID = 0;
             PROMPTS = 0;
             CHIMES = 0;
@@ -170,7 +175,17 @@ mod host {
     pub unsafe fn k_audio_play_ex(_n: i32, _p: i32, _l: i32, _v: f32, _pi: f32, _lo: i32) -> i32 { c(); AUDIO_PLAYS += 1; 0 }
     pub unsafe fn k_audio_stop(_s: i32) -> i32 { c(); 0 }
     pub unsafe fn k_log(_lv: i32, _p: i32, _l: i32) -> i32 { c(); 0 }
-    pub unsafe fn k_net_fetch(_m: i32, _u: i32, _ul: i32, _b: i32, _bl: i32, _f: i32, r: i32) -> i32 { c(); FETCHES += 1; LAST_FETCH_ID = r; 0 }
+    pub unsafe fn k_net_fetch(_m: i32, _u: i32, _ul: i32, _b: i32, _bl: i32, _f: i32, r: i32) -> i32 {
+        c();
+        ATTEMPTS += 1;
+        if REFUSE > 0 {
+            REFUSE -= 1;
+            return -6;
+        }
+        FETCHES += 1;
+        LAST_FETCH_ID = r;
+        0
+    }
     pub unsafe fn k_net_read(_r: i32, _o: i32, _c: i32) -> i32 { c(); -7 }
     pub unsafe fn k_net_status() -> i32 { c(); 1 }
 }
@@ -298,6 +313,8 @@ const MOVE_FAR: f32 = 1.0;
 const MOVE_UPDOWN: f32 = 0.6;
 const MOVE_SIDE: f32 = 1.2;
 const CHIME: &str = "chime.wav";
+/// The Closing stage retries the sign-out for at most this long, then drops the token.
+const CLOSING_MAX_S: f32 = 5.0;
 
 /// Animation lengths (contract section 6), seconds.
 const SEAL_RISE_S: f32 = 0.6;
@@ -308,8 +325,6 @@ const UNFOLD_S: f32 = 0.5;
 const FOLD_S: f32 = 0.4;
 /// The smallest scale a tween starts or ends at.
 const SCALE_MIN: f32 = 0.02;
-/// A cube press older than this is not taken as the unfold's origin (the ledge centre is).
-const PRESS_ORIGIN_S: f32 = 10.0;
 
 const SEAL_QUESTION: &str = "Mission Control passphrase (it shows on screen as you type)";
 const WATCH_QUESTION: &str = "Watch code: the 6 digits the owner shared with the group";
@@ -425,6 +440,8 @@ enum Mode {
     Closed,
     Owner,
     Watcher,
+    /// Parked and hidden, holding the token only to send the sign-out (close_panel).
+    Closing,
 }
 
 /// The owner's stages: the seal up (pairing or typing), then the lock animation (the ring
@@ -498,14 +515,24 @@ static mut TURNED: bool = false;
 
 static mut TWEENS: [Tween; N_GROUPS] = [NO_TWEEN; N_GROUPS];
 static mut HOLD_UNTIL: f32 = 0.0;
+static mut CLOSING_UNTIL: f32 = 0.0;
 /// The arc as the snapshot wants it (`M arc`), and as the world shows it.
 static mut M_ARC: bool = false;
 static mut ARC_SHOWN: bool = false;
 /// The cube the arc unfolded from (hidden while the arc is open), and the point it folds to.
 static mut PICKED: usize = NONE;
 static mut FOLD_TO: [f32; 3] = [0.0; 3];
-static mut PRESSED_CUBE: usize = NONE;
-static mut PRESSED_AT: f32 = -100.0;
+/// A cube or rail press waiting for its own reply (request id and node). Only a reply that
+/// takes the press (no `E stale`, `refused`, `signed_out` or `busy`) commits it: a refused or
+/// lost press changes nothing (correctness review 2, LOW-2).
+static mut PENDING_PRESS_ID: i32 = 0;
+static mut PENDING_PRESS_NODE: usize = NONE;
+/// The reply being applied (its request id), 0 for a poll.
+static mut REPLY_ID: i32 = 0;
+/// A taken cube press: the unfold's origin, or (arc open) the new picked cube.
+static mut COMMIT_CUBE: usize = NONE;
+/// A taken rail press: the arc moved to a job whose cube the face doesn't name.
+static mut RAIL_SWITCH: bool = false;
 
 static mut TOKEN: [u8; 96] = [0; 96];
 static mut TOKEN_LEN: usize = 0;
@@ -662,6 +689,15 @@ pub extern "C" fn k_tick(delta: f32) {
     if mode() == Mode::Closed {
         return; // closed: no polling, no network status, nothing
     }
+    if mode() == Mode::Closing {
+        // Only the sign-out, retried until the host takes it or time runs out.
+        if unsafe { NOW_S >= CLOSING_UNTIL } {
+            finish_close();
+        } else {
+            try_sign_out();
+        }
+        return;
+    }
     let due = unsafe {
         STATUS_ACC += d;
         if STATUS_ACC >= STATUS_POLL_S {
@@ -717,6 +753,9 @@ pub extern "C" fn on_press(_event_type: i32, node: i32, _p1: i32, _p2: i32) {
     let Some(i) = (0..N_ALL).find(|&i| unsafe { HANDLES[i] } == node) else {
         return;
     };
+    if mode() == Mode::Closing {
+        return; // parked, signing out: nothing to press for these few seconds
+    }
     // A face button whose group is still moving is not pressed (contract 8.10): its words are
     // held back until the tween ends, so the owner never approves what is not yet readable.
     if is_face_button(i) && unsafe { TWEENS[group(i) as usize].active } {
@@ -740,6 +779,7 @@ pub extern "C" fn on_press(_event_type: i32, node: i32, _p1: i32, _p2: i32) {
             Mode::Closed => open_sheet(WATCH_QUESTION, REQ_PROMPT_WATCH),
             Mode::Watcher => close_panel(),
             Mode::Owner => local_status("You are the owner here: the watch code is for your group."),
+            Mode::Closing => {}
         },
         "McClose" | "McSealCancel" => close_panel(),
         "McMoveCloser" => nudge(0, MOVE_STEP_M),
@@ -756,12 +796,6 @@ pub extern "C" fn on_press(_event_type: i32, node: i32, _p1: i32, _p2: i32) {
         }
         _ if is_face_button(i) => match mode() {
             Mode::Owner if signed_in() => {
-                if node_name(i).starts_with("Cube") {
-                    unsafe {
-                        PRESSED_CUBE = i;
-                        PRESSED_AT = NOW_S;
-                    }
-                }
                 if let Some(slot) = prompt_slot(i) {
                     let q = unsafe { &PROMPT_Q[slot][..PROMPT_Q_LEN[slot]] };
                     let q = core::str::from_utf8(q).unwrap_or("Type here");
@@ -867,7 +901,9 @@ fn open_panel(m: Mode) {
         M_ARC = false;
         ARC_SHOWN = false;
         PICKED = NONE;
-        PRESSED_CUBE = NONE;
+        PENDING_PRESS_ID = 0;
+        COMMIT_CUBE = NONE;
+        RAIL_SWITCH = false;
         TWEENS = [NO_TWEEN; N_GROUPS];
     }
     turn_for_watcher(m == Mode::Watcher);
@@ -875,15 +911,18 @@ fn open_panel(m: Mode) {
     refresh_network(true);
 }
 
+/// Closes: everything parks at once. Signed in, the world keeps the token ONLY to send the
+/// sign-out, in a short Closing stage that retries on the following ticks until the host takes
+/// the call, or CLOSING_MAX_S passes (security review 2, LOW-1); then it drops the token and is
+/// Closed, which makes no call at all.
 fn close_panel() {
-    if signed_in() {
-        // Sign out on the way out (best effort): the bridge also ends idle sign-ins itself.
-        send_press(idx("BtnSignOut"), &[]);
-    }
+    let sign_out = signed_in();
     unsafe {
-        MODE = Mode::Closed;
+        MODE = if sign_out { Mode::Closing } else { Mode::Closed };
         STAGE = Stage::Seal;
-        TOKEN_LEN = 0;
+        if !sign_out {
+            TOKEN_LEN = 0;
+        }
         PAIR_LEN = 0;
         MINT_IN_FLIGHT = false;
         WATCH_CODE = [0; 6];
@@ -906,6 +945,35 @@ fn close_panel() {
     // Park every node where it was authored, at its own size.
     for i in 0..N_ALL {
         put(i);
+    }
+    if sign_out {
+        unsafe { CLOSING_UNTIL = NOW_S + CLOSING_MAX_S; }
+        try_sign_out();
+    }
+}
+
+/// Closing: one sign-out press with the held token; once the host takes it, Closed.
+fn try_sign_out() {
+    if mode() != Mode::Closing {
+        return;
+    }
+    let len = build_request(Some(idx("BtnSignOut")), &[]);
+    let id = unsafe {
+        let id = NEXT_PRESS_ID;
+        NEXT_PRESS_ID = if NEXT_PRESS_ID >= 7999 { REQ_PRESS_FIRST } else { NEXT_PRESS_ID + 1 };
+        id
+    };
+    if fetch(PATH_PRESS, len, id) == 0 {
+        finish_close();
+    }
+}
+
+/// The end of Closing: the token is gone and nothing calls out again.
+fn finish_close() {
+    unsafe {
+        TOKEN = [0; 96];
+        TOKEN_LEN = 0;
+        MODE = Mode::Closed;
     }
 }
 
@@ -993,20 +1061,24 @@ fn update_arc() {
         return;
     }
     if want {
-        // Unfold from the pressed cube (or CubePlus), else from the ledge's centre.
-        let (pc, at) = unsafe { (PRESSED_CUBE, PRESSED_AT) };
-        let pick = if pc != NONE && unsafe { NOW_S } - at <= PRESS_ORIGIN_S { pc } else { NONE };
+        // Unfold from the cube whose press the bridge took (or CubePlus), else from the ledge's
+        // centre (the M change came from elsewhere, or before the press's own reply).
+        let pick = unsafe { COMMIT_CUBE };
         let from = if pick != NONE { placed(pick) } else { placed(idx("McLedge")) };
         unsafe {
             ARC_SHOWN = true;
             PICKED = pick;
             FOLD_TO = from;
-            PRESSED_CUBE = NONE;
+            COMMIT_CUBE = NONE;
+            RAIL_SWITCH = false;
         }
         start_tween(G_ARC, 1.0, UNFOLD_S, from);
     } else {
         retarget_fold();
-        unsafe { ARC_SHOWN = false; }
+        unsafe {
+            ARC_SHOWN = false;
+            COMMIT_CUBE = NONE;
+        }
         let from = unsafe { FOLD_TO };
         start_tween(G_ARC, -1.0, FOLD_S, from);
     }
@@ -1017,12 +1089,23 @@ fn update_arc() {
 /// the arc is open moves the arc to that job, so it becomes the picked cube; a picked cube the
 /// face no longer shows (its job ended) gives the fold the ledge's centre instead.
 fn retarget_fold() {
-    let (pc, at, picked) = unsafe { (PRESSED_CUBE, PRESSED_AT, PICKED) };
-    if pc != NONE && unsafe { NOW_S } - at <= PRESS_ORIGIN_S && pc != picked {
+    let (pc, rail, picked) = unsafe { (COMMIT_CUBE, RAIL_SWITCH, PICKED) };
+    unsafe {
+        COMMIT_CUBE = NONE;
+        RAIL_SWITCH = false;
+    }
+    if pc != NONE && pc != picked {
         unsafe {
             PICKED = pc;
             FOLD_TO = placed(pc);
-            PRESSED_CUBE = NONE;
+        }
+        sync_all();
+    } else if rail && pc == NONE {
+        // A rail moved the arc to another job: the face doesn't name that job's cube, so the
+        // fold goes to the ledge's centre and the cube the arc came from shows again.
+        unsafe {
+            PICKED = NONE;
+            FOLD_TO = placed(idx("McLedge"));
         }
         sync_all();
     } else if picked != NONE && unsafe { !WANT[picked] } {
@@ -1054,7 +1137,7 @@ fn turn_for_watcher(turn: bool) {
 /// One of the handle buttons: axis 0 toward/away, 1 up/down, 2 right/left (the viewer's).
 /// The handles move the arc only: the ledge and the puck belong to the throne.
 fn nudge(axis: usize, by: f32) {
-    if mode() == Mode::Closed {
+    if mode() == Mode::Closed || mode() == Mode::Closing {
         return;
     }
     let (lo, hi) = match axis {
@@ -1062,14 +1145,81 @@ fn nudge(axis: usize, by: f32) {
         1 => (-MOVE_UPDOWN, MOVE_UPDOWN),
         _ => (-MOVE_SIDE, MOVE_SIDE),
     };
-    unsafe {
-        ADJUST[axis] = clamp(ADJUST[axis] + by, lo, hi);
+    let mut next = unsafe { ADJUST };
+    next[axis] = clamp(next[axis] + by, lo, hi);
+    // The owner's arc never moves into the ledge or the puck (correctness review 2, LOW-5): a
+    // step that would is refused. A watcher's copy stands in the hall, far from both.
+    if mode() == Mode::Owner && !arc_clear(next) {
+        local_status("That way the arc would run into the ledge or the puck.");
+        return;
     }
+    unsafe { ADJUST = next; }
     for i in 0..N_ALL {
         if group(i) == G_ARC && presented(i) {
             put(i);
         }
     }
+}
+
+/// The arc's solid parts in the viewer frame (origin at the owner's feet, +x ahead, +y the
+/// owner's left, metres), as blender/build_panel.py builds them: centre (x, y, z), half extents
+/// (depth along the part's own facing, width, height), yaw in degrees. The words and buttons
+/// lie inside these depths.
+const ARC_PARTS: [[f32; 7]; 5] = [
+    [1.705, 0.0, 1.49, 0.05, 0.66, 0.70, 0.0],     // centre panel, z 0.79-2.19
+    [1.606, 0.0, 1.0875, 0.025, 0.62, 0.2725, 0.0], // ask plate with its buttons, z 0.815-1.36
+    [1.7075, 0.0, 0.715, 0.03, 0.78, 0.05, 0.0],   // chrome bar with its buttons, z 0.665-0.765
+    [1.4562, 1.0580, 1.555, 0.05, 0.425, 0.605, 36.0], // left panel, 1.80 m at 36 degrees
+    [1.4562, -1.0580, 1.555, 0.05, 0.425, 0.605, -36.0], // right panel
+];
+/// What the arc must keep out of (viewer-frame boxes, min xyz then max xyz), 2-3 cm to spare:
+/// the ledge with its cubes and CLOSE, and the puck with its stem, plate and tabs.
+const KEEP_OUT: [[f32; 6]; 2] = [
+    [0.77, -0.93, 0.755, 1.03, 0.93, 0.94], // the cubes top out at 0.922, CLOSE at 0.89
+    [-0.33, 0.79, 0.61, 0.63, 1.17, 1.235],
+];
+
+/// True when no arc part, shifted by the handle adjustment `a` (toward, up, right), overlaps a
+/// keep-out box. Separating axes: z, then x, y and the part's two horizontal axes.
+fn arc_clear(a: [f32; 3]) -> bool {
+    for p in ARC_PARTS.iter() {
+        let c = [p[0] - a[0], p[1] - a[2], p[2] + a[1]];
+        let yaw = p[6] * core::f32::consts::PI / 180.0;
+        let (sn, cs) = (sin_taylor(yaw), cos_taylor(yaw));
+        let u = [cs, sn]; // the part's facing (depth)
+        let v = [-sn, cs]; // the part's width
+        for k in KEEP_OUT.iter() {
+            let kc = [(k[0] + k[3]) / 2.0, (k[1] + k[4]) / 2.0, (k[2] + k[5]) / 2.0];
+            let ke = [(k[3] - k[0]) / 2.0, (k[4] - k[1]) / 2.0, (k[5] - k[2]) / 2.0];
+            if (c[2] - kc[2]).abs() >= p[5] + ke[2] {
+                continue; // apart in height
+            }
+            let d = [c[0] - kc[0], c[1] - kc[1]];
+            let mut apart = false;
+            for n in [[1.0f32, 0.0], [0.0, 1.0], u, v] {
+                let r1 = p[3] * (u[0] * n[0] + u[1] * n[1]).abs() + p[4] * (v[0] * n[0] + v[1] * n[1]).abs();
+                let r2 = ke[0] * n[0].abs() + ke[1] * n[1].abs();
+                if (d[0] * n[0] + d[1] * n[1]).abs() >= r1 + r2 {
+                    apart = true;
+                    break;
+                }
+            }
+            if !apart {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// sin and cos without libm (no_std): Taylor series, plenty for |x| <= pi.
+fn sin_taylor(x: f32) -> f32 {
+    let x2 = x * x;
+    x * (1.0 - x2 / 6.0 * (1.0 - x2 / 20.0 * (1.0 - x2 / 42.0 * (1.0 - x2 / 72.0))))
+}
+fn cos_taylor(x: f32) -> f32 {
+    let x2 = x * x;
+    1.0 - x2 / 2.0 * (1.0 - x2 / 12.0 * (1.0 - x2 / 30.0 * (1.0 - x2 / 56.0 * (1.0 - x2 / 90.0))))
 }
 
 fn clamp(v: f32, lo: f32, hi: f32) -> f32 {
@@ -1092,7 +1242,7 @@ fn clamp(v: f32, lo: f32, hi: f32) -> f32 {
 /// floor, and every other group left parked.
 fn place(g: u8, p: [f32; 3], s: f32) -> [f32; 3] {
     match mode() {
-        Mode::Closed => p,
+        Mode::Closed | Mode::Closing => p,
         Mode::Watcher if g != G_ARC => p,
         m => {
             let (d, a) = unsafe { (DELTA, ADJUST) };
@@ -1257,7 +1407,7 @@ fn group_on(g: u8) -> bool {
         return true;
     }
     match mode() {
-        Mode::Closed => false,
+        Mode::Closed | Mode::Closing => false,
         Mode::Watcher => g == G_ARC,
         Mode::Owner => match stage() {
             Stage::Seal | Stage::Hold => g == G_SEAL,
@@ -1363,7 +1513,8 @@ fn build_request(press: Option<usize>, text: &[u8]) -> usize {
     let buf = unsafe { &mut *core::ptr::addr_of_mut!(REQ_BUF) };
     let mut w = Writer { buf, n: 0 };
     w.push(b"AB1\n");
-    let owner = mode() == Mode::Owner;
+    // Closing sends one thing: the sign-out press, with the token it still holds.
+    let owner = mode() == Mode::Owner || mode() == Mode::Closing;
     if mode() == Mode::Watcher {
         w.push(b"watch ");
         w.push(unsafe { &*core::ptr::addr_of!(WATCH_CODE) });
@@ -1460,6 +1611,13 @@ fn send_press(i: usize, text: &[u8]) {
     };
     let rc = fetch(PATH_PRESS, len, id);
     if rc == 0 {
+        let n = node_name(i);
+        if n.starts_with("Cube") || n.starts_with("Rail") {
+            unsafe {
+                PENDING_PRESS_ID = id;
+                PENDING_PRESS_NODE = i;
+            }
+        }
         local_status("Sending...");
     } else if rc == -6 {
         local_status("Too fast: wait a second and press again.");
@@ -1477,7 +1635,10 @@ pub extern "C" fn on_net_result(_event_type: i32, _node: i32, request_id: i32, s
     if request_id == REQ_PAIR_MINT {
         unsafe { MINT_IN_FLIGHT = false; }
     }
-    if mode() == Mode::Closed {
+    if status != 200 && request_id == unsafe { PENDING_PRESS_ID } {
+        unsafe { PENDING_PRESS_ID = 0; } // a press that got no answer changes nothing
+    }
+    if mode() == Mode::Closed || mode() == Mode::Closing {
         return; // a late answer after Close changes nothing
     }
     if status != 200 {
@@ -1513,7 +1674,20 @@ pub extern "C" fn on_net_result(_event_type: i32, _node: i32, request_id: i32, s
         return;
     }
     let body = unsafe { core::slice::from_raw_parts(ptr, got as usize) };
+    apply_reply(request_id, body);
+}
+
+/// Applies an answer to request `id`: a pending cube or rail press commits only through its own
+/// reply, and only when that reply took it.
+pub fn apply_reply(id: i32, body: &[u8]) {
+    unsafe { REPLY_ID = id; }
     apply_snapshot(body);
+    unsafe {
+        if id != 0 && id == PENDING_PRESS_ID {
+            PENDING_PRESS_ID = 0;
+        }
+        REPLY_ID = 0;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1528,6 +1702,7 @@ pub fn apply_snapshot(body: &[u8]) {
     let watcher = mode() == Mode::Watcher;
     let mut lost_token = false;
     let mut got_token = false;
+    let mut press_refused = false;
     for line in lines {
         if line.is_empty() {
             continue;
@@ -1573,8 +1748,12 @@ pub fn apply_snapshot(body: &[u8]) {
             b'E' => {
                 if !watcher {
                     match name {
-                        b"signed_out" if unsafe { TOKEN_LEN } > 0 => lost_token = true,
+                        b"signed_out" if unsafe { TOKEN_LEN } > 0 => {
+                            lost_token = true;
+                            press_refused = true;
+                        }
                         b"paired" | b"pair_expired" | b"pair_refused" => unsafe { PAIR_LEN = 0 },
+                        b"stale" | b"refused" | b"busy" => press_refused = true,
                         _ => {}
                     }
                 }
@@ -1642,6 +1821,14 @@ pub fn apply_snapshot(body: &[u8]) {
             return;
         } else if got_token && stage() == Stage::Seal {
             begin_lock();
+        }
+        let (reply, pending, node) = unsafe { (REPLY_ID, PENDING_PRESS_ID, PENDING_PRESS_NODE) };
+        if reply != 0 && reply == pending && !press_refused && node != NONE {
+            if node_name(node).starts_with("Cube") {
+                unsafe { COMMIT_CUBE = node; }
+            } else {
+                unsafe { RAIL_SWITCH = true; }
+            }
         }
     }
     sync_all();
@@ -1747,7 +1934,7 @@ fn buzz() {
 /// THE ONE text-placement function: world text on anchor `i` (deduplicated, clipped to the
 /// host's 128 bytes). DB-045 replaces this body; nothing else places words.
 fn show(i: usize, text: &str) {
-    if i >= N_TEXT || mode() == Mode::Closed {
+    if i >= N_TEXT || mode() == Mode::Closed || mode() == Mode::Closing {
         return;
     }
     let h = unsafe { HANDLES[i] };
@@ -1817,7 +2004,7 @@ fn paint_slot(k: usize, st: u8) {
 /// The world's own line, shown at once and overwritten by the bridge's next record: the seal
 /// hint while nobody is signed in, the status line after.
 fn local_status(s: &str) {
-    if mode() == Mode::Closed {
+    if mode() == Mode::Closed || mode() == Mode::Closing {
         return;
     }
     let i = if mode() == Mode::Owner && unsafe { TOKEN_LEN } == 0 { idx("TxSealHint") } else { idx("TxStatus") };
