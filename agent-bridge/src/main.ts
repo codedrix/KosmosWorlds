@@ -186,7 +186,7 @@ async function main(): Promise<void> {
         approved: "Approved. The headset signs in on its next check (about a second).",
         wrong: "That is not the code on any waiting ring. Read it off your own ring and try again.",
         cancelled: "Five wrong codes: every waiting pairing was cancelled. Press the seal again.",
-        none: "No pairing is waiting (it may have expired, or another headset replaced it).",
+        none: "No pairing is waiting (it may have expired, been used, or been cancelled after five wrong codes).",
         refused: "The bridge refused the file.",
       };
       console.log(words[outcome] ?? "The bridge took it; see its console for the answer.");

@@ -135,8 +135,8 @@ only the world touches, the hue variants among them). Modes:
 |---|---|---|
 | `lock` | anonymous | every text `X`, every button and panel `U 0`, every hue `off`; a refused sign-in or the stop may show in `TxSealHint`; `BtnSealType` while the passphrase fallback is on |
 | `pair` | the headset holding a pairing id | `TxSeal` (the code, `KXT WMP`), `TxSealHint`, `H SealRing armed`, `BtnSealType` |
-| `cubes` | the owner, arc folded | the ledge (`CubeA..D` with `H calm/need/idle` and `TxCubeX` = the short project name; a cube keeps its job while the job runs, a new job takes the first free cube; empty slots `U 0` and `H off`; `CubePlus`), the puck, and `BtnSignOut`; every arc text `X` (the other arc buttons keep their last `U`, so the world can fold them; the press map no longer knows them) |
-| `arc` | the owner, arc open | the ledge, the puck, `BtnSignOut`, and the arc. Left = jobs only: `TxTicker` (two lines), the rail (`RailA..D`, two-line rows), `TxDone` (one line). Centre = header, the conversation (10 lines, or the 5 above the ask plate while an approval shows), page, the ask plate, quick replies, reply, fold, stop, status; with NO job open, the start-a-job set instead (`BtnTests`, `BtnPrs`, `BtnToday`, `BtnNotes`, `BtnNewTask`, `BtnProject`, `TxProject`), hidden (`U 0`, `X`) while a job is open. The chrome bar: `BtnWatch` with `TxWatch` (`off` or `code 123 456`), `BtnSignOut`. Right = `TxPageSpot` only (a placeholder naming DB-043's page panel). At most 29 labels |
+| `cubes` | the owner, arc folded | the ledge (`CubeA..D` with `H calm/need/idle` and `TxCubeX` = the short project name; a cube keeps its job while the job runs, a new job takes the first free cube; empty slots `U 0` and `H off`; `CubePlus`) and the puck; every arc text `X` (the arc buttons, `BtnSignOut` among them, keep their last `U`, so the world can fold them; the press map no longer knows them). Folded, the owner leaves with Close on the ledge, a world node (contract 8.7) |
+| `arc` | the owner, arc open | the ledge, the puck and the arc. Left = jobs only: `TxTicker` (two lines), the rail (`RailA..D`, two-line rows), `TxDone` (one line). Centre = header, the conversation (10 lines, or the 5 above the ask plate while an approval shows), page, the ask plate, quick replies, reply, fold, stop, status; with NO job open, the start-a-job set instead (`BtnTests`, `BtnPrs`, `BtnToday`, `BtnNotes`, `BtnNewTask`, `BtnProject`, `TxProject`), hidden (`U 0`, `X`) while a job is open. The chrome bar: `BtnWatch` with `TxWatch` (`off` or `code 123 456`), `BtnSignOut`. Right = `TxPageSpot` only (a placeholder naming DB-043's page panel). At most 29 labels |
 
 Press actions: `cube:<jobId>` opens the arc on that job; `cube:none` (`CubePlus`) opens it with no job;
 `fold` (`BtnFold`) returns to `cubes`; `rail:<id>`, presets, `new`, `project`, `stop`, `approve`/`deny`/
@@ -144,7 +144,9 @@ Press actions: `cube:<jobId>` opens the arc on that job; `cube:none` (`CubePlus`
 `BtnPuckDeny` are `approve:<id>` and `deny:<id>` for the OLDEST pending approval. `TxPuck` is ONE
 line, `<project>: <verb> <command>` (`registry: run npm test`); Approve shows only when the approval
 is `exact` and that whole line fits `W.puck` (and the host's 128 bytes): the ask plate's "you approve
-what you read". Otherwise `TxPuck` reads `<project>: open its cube` and only Deny shows. Colour is
+what you read". An exact command too long for the line reads `<project>: open its cube`; an approval
+that isn't exact (redacted, multi-line, outside the project, runs code by itself) reads
+`<project>: approve at the desk`, since the cube can't approve it either. Only Deny shows in both. Colour is
 chosen in one function (`paint`) and leaves the PC only as `H`. A render's version changes whenever
 what it shows OR what any press means changes (the oldest pending approval's id included), so two
 approvals that read the same never share a press map. When an approval appears or clears while the
@@ -192,7 +194,8 @@ owner is paged back, the page that still shows the last line on show is kept.
   `npm run approve -- <code>` writes `PAIR_APPROVE` (letters only, at most 32 bytes) in the bridge's
   home, which the serve loop reads and deletes within a second, beside the STOP check, and answers
   through `PAIR_RESULT`. `npm run approve` with no code says whether one is waiting and how old it is
-  (from `PAIR_PENDING`, which holds the mint time only). A file that isn't a plain file, or is over 32
+  (from `PAIR_PENDING`, which holds the newest mint time and how many pairings wait, never a code or
+  an id). A file that isn't a plain file, or is over 32
   bytes, is removed unread; `serve` clears all three files at start.
 - **The typed code** is normalised (letters only, upper case) and compared in constant time against
   every waiting pairing; five wrong codes in a row cancel every waiting pairing.

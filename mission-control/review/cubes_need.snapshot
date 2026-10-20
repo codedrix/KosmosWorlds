@@ -19,7 +19,6 @@ H Puck need
 T TxPuck registry: run npm test
 U BtnPuckApprove 1
 U BtnPuckDeny 1
-U BtnSignOut 1
 X TxTicker
 X TxStatus
 X TxProject
