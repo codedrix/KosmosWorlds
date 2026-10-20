@@ -273,3 +273,52 @@ for DB-045. This revision fixes what today's API can fix.
     - A watcher sees no TxProject.
     - When the ask plate appears, paging keeps the line you were reading on screen. The page number
       itself changes, because a page above the plate holds 5 lines, not 10.
+
+## 9. The art pass: holographic glass (the CEO, 2026-10-19)
+
+The CEO, on the v2 renders: "It looks like very early-2000s forms when we have the ability to improve
+that and change that, especially because this is specifically for the lobby world." He sent two references:
+- `E:\wt\work-in-vr-design\references\ceo-ref-1-glass-wall.webp`: a dark glass wall, thin light bars
+  on its top and bottom edges, hairline cyan frames, concentric HUD rings;
+- `E:\wt\work-in-vr-design\references\ceo-ref-2-floating-panels.webp`: floating dark glass windows at
+  several depths, bright thin edges, fine grid interiors, and a projected ring on the floor.
+
+The full art direction is `E:\wt\work-in-vr-design\ART_DIRECTION_HOLO_GLASS.md`, and its guardrails are
+binding. Everything is authored geometry, materials and bundle textures: no new host function, no node
+renamed, no layout change. The `nodes.json` contract and every behaviour in §1–§8 are unchanged.
+
+1. **Panels** (the centre panel, the side panels, the ask plate, the browser spot, the chrome bar):
+   - smoked glass about 1 cm thick, no bevels or chunky boxes;
+   - `alphaMode: BLEND`, near-black navy, opacity about 0.6, unlit or low-roughness;
+   - a 2–3 mm emissive cyan (`#5fe6ff`) light bar along each panel's top and bottom edge;
+   - small corner brackets, and hairline dividers in place of today's grey row slabs;
+   - abstract interior detail only (a hairline grid and tick scales in the margins), never fake readable
+     data. Every readable word stays real world text.
+2. **Buttons:** outlined glass rectangles or capsules (a thin cyan outline over a dark glass fill, with
+   the words merged in, one mesh as today). Approve stays green and Deny red, as outlined-and-filled glass.
+   Amber only for "needs you". The amber need tab (BtnReply's amber face) follows the same rule.
+3. **Cubes:** clear glass, an inner glowing core (the existing calm/need/idle variants become the cores)
+   and thin emissive edge lines. CubePlus is outlined glass with a "+" in light lines.
+4. **Puck:** a glass disc with a thin emissive ring. The need variant has an amber ring. The label plate
+   is smoked glass with a light bar, and the tabs are outlined glass.
+5. **Seal:** segmented HUD rings, thin emissive arcs with tick marks, never solid tori. The armed variant
+   is cyan and the locked variant amber. The rings may turn slowly and steadily in `k_tick` (never
+   oscillating near 0.2 Hz). Keep the reviewed composition of seal_ring.jpg.
+6. **Floor:** a projected ring and grid under the arc (a floor decal: a texture with alpha) on the dais
+   in front of the throne, part of the arc group, so it shows only while the arc is open.
+7. **Halos:** at most one or two soft halos in view, as authored additive-gradient quads (a texture with
+   an alpha falloff): one behind the seal ring, and one behind the active job's cube or the ask plate.
+   Emission strength stays ≤ 1.0 (LDR, no bloom).
+8. **Guardrails:**
+   - no pixel sees more than two stacked translucent layers. Check the arc from the eye: glass panel
+     over floor decal over glass is three, so the decal must sit where no panel overlaps it from the eye;
+   - textures within the content limits (≤ 2048², PNG, total small);
+   - the glass never imitates Kosmos's own chrome (the menu, the system sheets, the amber Kosmos logo);
+   - the host-call budget is unchanged (the seal spin adds about one call per tick).
+9. **Renders:**
+   - every existing view, re-rendered with flat emissive, no bloom, at eye height, from the real
+     snapshots;
+   - plus `art_sheet.jpg`: a side-by-side sheet, each reference beside the render that answers it
+     (ref-1 beside the arc and the seal; ref-2 beside the arc with the floor ring and the watcher);
+   - LOOK at all of them and iterate until legibility is at least as good as before. White text must
+     stay readable on smoked glass over the Lobby's concrete.
