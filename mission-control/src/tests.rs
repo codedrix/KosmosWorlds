@@ -1039,3 +1039,151 @@ fn numbers_parse() {
     assert!(ease(0.0).abs() < 1e-6 && (ease(1.0) - 1.0).abs() < 1e-6 && (ease(0.5) - 0.5).abs() < 1e-6);
 }
 
+
+/// Every handle setting the six handles can reach from the start (breadth-first), each one
+/// reached by pressing a handle, as the owner would.
+fn reach_every_handle_setting(mut each: impl FnMut([f32; 3])) -> usize {
+    let key = |a: [f32; 3]| ((a[0] * 100.0).round() as i32, (a[1] * 100.0).round() as i32, (a[2] * 100.0).round() as i32);
+    let mut seen = std::collections::HashSet::new();
+    let mut queue = vec![[0.0f32; 3]];
+    seen.insert(key([0.0; 3]));
+    let handles = ["McMoveCloser", "McMoveFarther", "McMoveUp", "McMoveDown", "McMoveLeft", "McMoveRight"];
+    let mut n = 0;
+    while let Some(a) = queue.pop() {
+        n += 1;
+        for hd in handles {
+            // Back to setting a, as if reached by presses (the program syncs the ring on each).
+            unsafe { ADJUST = a; }
+            sync_node(FLOOR_I);
+            press(hd);
+            let b = unsafe { ADJUST };
+            each(b);
+            if seen.insert(key(b)) {
+                queue.push(b);
+            }
+        }
+    }
+    n
+}
+
+#[test]
+fn the_floor_ring_stays_on_the_hall_floor_whatever_the_handles_do() {
+    sign_in_to_cubes();
+    snap(&full_arc_snapshot());
+    run(0.6);
+    assert!(vis("McFloorRing"), "the ring shows with the arc open and the handles at rest");
+    let home = pos("McFloorRing");
+    assert!(close3(home, placed(FLOOR_I)));
+    let centre = pos("McCenterFrame");
+    let (mut shown, mut hidden) = (0, 0);
+    let n = reach_every_handle_setting(|a| {
+        assert!(close3(pos("McFloorRing"), home), "ADJUST {a:?} moved the floor ring to {:?}", pos("McFloorRing"));
+        assert!(close3(placed(FLOOR_I), home), "ADJUST {a:?} would place the floor ring elsewhere");
+        assert_eq!(vis("McFloorRing"), floor_clear(a), "ADJUST {a:?}: the ring shows exactly when nothing stacks over it");
+        if vis("McFloorRing") { shown += 1 } else { hidden += 1 }
+    });
+    assert!(n > 500, "the handles still reach a lot: {n}");
+    assert!(shown > 100 && hidden > 0, "shown {shown}, hidden {hidden}");
+    // The handles do move the rest of the arc.
+    unsafe { ADJUST = [0.0; 3]; }
+    press("McMoveUp");
+    assert!(pos("McCenterFrame")[1] > centre[1] + 0.1 && close3(pos("McFloorRing"), home));
+    press("McMoveDown");
+    // It still folds and unfolds with the arc.
+    let mut fold = String::from("AB1\nV 10\nM cubes\n");
+    fold += "U CubeA 1\n";
+    snap(&fold);
+    run(0.2);
+    assert!(scale("McFloorRing") < 1.0, "the ring folds with the arc");
+    run(0.6);
+    assert!(!vis("McFloorRing"), "folded away");
+    close_panel();
+    // A watcher's mirrored copy never shows it.
+    unsafe { MODE = Mode::Watcher; }
+    assert!(held_back(FLOOR_I));
+    unsafe { MODE = Mode::Closed; }
+}
+
+/// Mirrors blender/build_panel.py's ledge: LEDGE_X, the cube slots, CUBE, the need halo
+/// (radially 9 cm behind each cube's centre, HALO_W wide, z HALO_Z0 to HALO_Z1).
+const T_LEDGE_X: f32 = 0.90;
+const T_SLOTS: [f32; 4] = [0.495, 0.165, -0.165, -0.495];
+const T_CUBE: f32 = 0.12;
+const T_CUBE_Z: [f32; 2] = [0.802, 0.922];
+const T_HALO_BACK: f32 = 0.09;
+const T_HALO_W: f32 = 0.24;
+const T_HALO_Z: [f32; 2] = [0.71, 0.93];
+
+fn decal_samples() -> Vec<[f32; 2]> {
+    let mut v = Vec::new();
+    let (nx, ny) = (40, 120);
+    for i in 0..=nx {
+        for j in 0..=ny {
+            let x = FLOOR_X0 + (FLOOR_X1 - FLOOR_X0) * i as f32 / nx as f32;
+            let y = -FLOOR_HALF_W + 2.0 * FLOOR_HALF_W * j as f32 / ny as f32;
+            v.push([x, y]);
+        }
+    }
+    v
+}
+
+/// Where the eye's sightline to floor point `f` crosses the vertical plane `dot(p, b) = d`
+/// (b a horizontal unit vector): (lateral offset along b's left normal, height), if in front.
+fn cross(f: [f32; 2], b: [f32; 2], d: f32) -> Option<(f32, f32)> {
+    let along = f[0] * b[0] + f[1] * b[1];
+    if along <= d {
+        return None;
+    }
+    let t = d / along;
+    let lateral = t * (f[0] * -b[1] + f[1] * b[0]);
+    Some((lateral, EYE_Z + t * (FLOOR_Z_VIEW - EYE_Z)))
+}
+
+#[test]
+fn no_sightline_to_the_floor_ring_crosses_two_other_translucent_layers() {
+    let samples = decal_samples();
+    // The ledge is fixed to the throne: no cube's glass and no need halo lies over the decal.
+    for &y in T_SLOTS.iter() {
+        let rc = (T_LEDGE_X * T_LEDGE_X + y * y).sqrt();
+        let b = [T_LEDGE_X / rc, y / rc];
+        for f in &samples {
+            if let Some((lat, z)) = cross(*f, b, rc + T_HALO_BACK) {
+                assert!(!(lat.abs() <= T_HALO_W / 2.0 && z >= T_HALO_Z[0] && z <= T_HALO_Z[1]),
+                    "the need halo of slot {y} lies over decal point {f:?}");
+            }
+            for d in [rc - T_CUBE / 2.0, rc, rc + T_CUBE / 2.0] {
+                if let Some((lat, z)) = cross(*f, b, d) {
+                    // half the diagonal: conservative for a cube turned to face the eye
+                    assert!(!(lat.abs() <= T_CUBE * 0.71 && z >= T_CUBE_Z[0] && z <= T_CUBE_Z[1]),
+                        "cube glass at slot {y} lies over decal point {f:?}");
+                }
+            }
+        }
+    }
+    // The arc moves with the handles: wherever the ring shows, the ask plate (glass over the
+    // centre panel's glass) never lies over it. Checked by casting each sightline, independently
+    // of floor_clear's algebra, at both faces of the plate.
+    sign_in_to_cubes();
+    snap(&full_arc_snapshot());
+    run(0.6);
+    let p = ARC_PARTS[1];
+    let mut checked = 0;
+    reach_every_handle_setting(|a| {
+        if !vis("McFloorRing") {
+            return;
+        }
+        checked += 1;
+        let (yl, yr) = (p[1] - a[2] - p[4], p[1] - a[2] + p[4]);
+        let (zb, zt) = (p[2] - p[5] + a[1], p[2] + p[5] + a[1]);
+        for xp in [p[0] - p[3] - a[0], p[0] + p[3] - a[0]] {
+            for f in &samples {
+                if let Some((lat, z)) = cross(*f, [1.0, 0.0], xp) {
+                    assert!(!(lat >= yl && lat <= yr && z >= zb && z <= zt),
+                        "ADJUST {a:?}: the ask plate lies over decal point {f:?}");
+                }
+            }
+        }
+    });
+    assert!(checked > 100, "checked {checked} settings with the ring shown");
+    close_panel();
+}

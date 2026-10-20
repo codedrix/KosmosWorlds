@@ -36,6 +36,10 @@ const G = structuredClone(L.json), S = O.json;
 for (const k of ['animations', 'skins']) if (S[k]?.length) throw new Error(`orb has ${k}`);
 if (S.extensionsRequired?.length) throw new Error('orb requires extensions: ' + S.extensionsRequired.join(','));
 for (const im of S.images || []) if (im.bufferView === undefined || im.uri !== undefined) throw new Error('orb image is not embedded: ' + (im.name || '?'));
+// A source index inside an extension (KHR_texture_basisu, EXT_texture_webp, EXT_texture_avif...) would be
+// copied un-offset and point at a Lobby image: refused (security review 4, LOW-1).
+for (const t of [...(S.textures || []), ...(S.images || [])]) for (const [k, v] of Object.entries(t.extensions || {}))
+  if (v && typeof v === 'object' && 'source' in v) throw new Error('orb texture or image has a source index inside the extension ' + k + '; merge_glb does not remap extension indices');
 if (G.buffers.length !== 1 || S.buffers.length !== 1) throw new Error('expected one buffer each');
 
 const base = pad4(L.bin.length);

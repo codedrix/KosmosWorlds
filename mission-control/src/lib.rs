@@ -354,6 +354,12 @@ pub const NODES_WORLD: [&str; 33] = [
     "CubeANeed", "CubeAIdle", "CubeBCalm", "CubeBNeed", "CubeBIdle", "CubeCCalm", "CubeCNeed", "CubeCIdle", "CubeDCalm",
     "CubeDNeed", "CubeDIdle", "PuckCalm", "PuckNeed", "SealRingArmed", "SealRingLocked",
 ];
+/// The world's private nodes: meshes the program finds and places but the bridge never names
+/// (not in nodes.json; the face can't show, hide or colour them). `McFloorRing` is the projected
+/// floor ring and grid (contract 9.6 and 9.10): in the arc group, so it shows, unfolds and folds
+/// with the arc, but pinned to the hall floor: the handles never move it (correctness review 4,
+/// MEDIUM-1).
+pub const NODES_PRIVATE: [&str; 1] = ["McFloorRing"];
 /// The `hue` bases and their states (nodes.json `hue`). Each state is a pre-built variant
 /// node `<base><State>` in NODES_WORLD.
 pub const HUE_BASES: [&str; 6] = ["CubeA", "CubeB", "CubeC", "CubeD", "Puck", "SealRing"];
@@ -375,7 +381,9 @@ const N_TEXT: usize = NODES_TEXT.len();
 const N_BUTTON: usize = NODES_BUTTON.len();
 const N_SHOW: usize = NODES_SHOW.len();
 const N_FACE: usize = N_TEXT + N_BUTTON + N_SHOW;
-const N_ALL: usize = N_FACE + NODES_WORLD.len();
+const N_ALL: usize = N_FACE + NODES_WORLD.len() + NODES_PRIVATE.len();
+/// The floor ring's node index (the first private node).
+const FLOOR_I: usize = N_FACE + NODES_WORLD.len();
 
 /// The groups the world shows and moves together (contract section 3).
 const G_FIXTURE: u8 = 0;
@@ -392,8 +400,10 @@ fn node_name(i: usize) -> &'static str {
         NODES_BUTTON[i - N_TEXT]
     } else if i < N_FACE {
         NODES_SHOW[i - N_TEXT - N_BUTTON]
-    } else {
+    } else if i < FLOOR_I {
         NODES_WORLD[i - N_FACE]
+    } else {
+        NODES_PRIVATE[i - FLOOR_I]
     }
 }
 
@@ -1204,10 +1214,73 @@ fn nudge(axis: usize, by: f32) {
     }
     unsafe { ADJUST = next; }
     for i in 0..N_ALL {
-        if group(i) == G_ARC && presented(i) {
+        if group(i) == G_ARC && presented(i) && i != FLOOR_I {
             put(i);
         }
     }
+    // The floor ring stays where it is; a move may only show or hide it.
+    sync_node(FLOOR_I);
+}
+
+/// The floor decal's footprint on the hall floor (viewer frame, as blender/build_panel.py builds
+/// `McFloorRing`): x from FLOOR_X0 to FLOOR_X1, y within +-FLOOR_HALF_W, at FLOOR_Z_VIEW. From the
+/// eye it starts past every cube and need halo (their sightlines land short of FLOOR_X0) and ends
+/// before the ask plate's (which lands at about 6.09 m with the handles at rest).
+pub const FLOOR_X0: f32 = 4.65;
+pub const FLOOR_X1: f32 = 6.05;
+pub const FLOOR_HALF_W: f32 = 1.8;
+pub const FLOOR_Z_VIEW: f32 = 0.035 - 1.46;
+/// The owner's eye in the viewer frame.
+pub const EYE_Z: f32 = 1.6;
+
+/// True when, with the handle adjustment `a`, no sightline from the eye to the floor decal
+/// passes through the ask plate (which always sits on the centre panel: plate glass + panel
+/// glass + decal would be three translucent layers). Both faces of the plate's box are tested
+/// (the near face reaches the floor sooner, the far face spreads wider). Nothing else in the
+/// arc stacks over the decal: the chrome bar and the centre panel share a plane and don't
+/// overlap, and the side panels' sightlines land beyond 8 m.
+fn floor_clear(a: [f32; 3]) -> bool {
+    let p = ARC_PARTS[1];
+    let yc = p[1] - a[2];
+    let (yl, yr) = (yc - p[4], yc + p[4]);
+    let (zb, zt) = (p[2] - p[5] + a[1], p[2] + p[5] + a[1]);
+    plane_clear(p[0] - p[3] - a[0], yl, yr, zb, zt) && plane_clear(p[0] + p[3] - a[0], yl, yr, zb, zt)
+}
+
+/// True when no sightline from the eye to the floor decal crosses the rectangle at depth `xp`
+/// spanning y [yl, yr] and height [zb, zt] (viewer frame).
+fn plane_clear(xp: f32, yl: f32, yr: f32, zb: f32, zt: f32) -> bool {
+    if xp <= 0.0 {
+        return false;
+    }
+    if zb >= EYE_Z {
+        return true; // above the eye: its sightlines never reach the floor
+    }
+    let drop = EYE_Z - FLOOR_Z_VIEW;
+    let x_lo = xp * drop / (EYE_Z - zb);
+    let x_hi = if zt >= EYE_Z { f32::MAX } else { xp * drop / (EYE_Z - zt) };
+    let xa = if x_lo > FLOOR_X0 { x_lo } else { FLOOR_X0 };
+    let mut xb = if x_hi < FLOOR_X1 { x_hi } else { FLOOR_X1 };
+    if xa >= xb {
+        return true;
+    }
+    // A floor point (X, Y) is behind the rectangle when Y * xp / X lies in [yl, yr]. Meeting
+    // the decal's +-FLOOR_HALF_W needs yl * X / xp <= FLOOR_HALF_W and yr * X / xp >=
+    // -FLOOR_HALF_W; each holds for every X or only up to a bound, so the overlap, if any,
+    // starts at the smallest X.
+    if yl > 0.0 {
+        let b = FLOOR_HALF_W * xp / yl;
+        if b < xb {
+            xb = b;
+        }
+    }
+    if yr < 0.0 {
+        let b = FLOOR_HALF_W * xp / -yr;
+        if b < xb {
+            xb = b;
+        }
+    }
+    xa >= xb
 }
 
 /// The arc's solid parts in the viewer frame (origin at the owner's feet, +x ahead, +y the
@@ -1290,6 +1363,11 @@ fn clamp(v: f32, lo: f32, hi: f32) -> f32 {
 /// handle adjustments); for a watcher, the arc turned to face the hall and lowered to its
 /// floor, and every other group left parked.
 fn place(g: u8, p: [f32; 3], s: f32) -> [f32; 3] {
+    place_with(g, p, s, true)
+}
+
+/// `place`, with the arc's handle adjustment applied or not (the floor ring never takes it).
+fn place_with(g: u8, p: [f32; 3], s: f32, adjust: bool) -> [f32; 3] {
     match mode() {
         Mode::Closed | Mode::Closing => p,
         Mode::Watcher if g != G_ARC => p,
@@ -1301,7 +1379,7 @@ fn place(g: u8, p: [f32; 3], s: f32) -> [f32; 3] {
             if watcher {
                 q = [2.0 * WATCH_PIVOT_X - q[0], q[1] - WATCH_LOWER_M, -q[2]];
             }
-            let arc = g == G_ARC;
+            let arc = g == G_ARC && adjust;
             for k in 0..3 {
                 q[k] += right[k] * s;
                 if arc {
@@ -1319,7 +1397,7 @@ fn placed(i: usize) -> [f32; 3] {
     if is_fixture(i) {
         return p;
     }
-    place(group(i), p, unsafe { SHIFT[i] })
+    place_with(group(i), p, unsafe { SHIFT[i] }, i != FLOOR_I)
 }
 
 fn ease(k: f32) -> f32 {
@@ -1492,6 +1570,12 @@ fn group_on(g: u8) -> bool {
 ///     over the centre panel's bottom rows (the left panel lists the jobs instead).
 fn held_back(i: usize) -> bool {
     let g = group(i);
+    // The floor ring: never in a watcher's mirrored copy (it would lie under the floor), and
+    // hidden while the handles hold the arc where the ask plate and the centre panel would
+    // stack over it from the eye (a third translucent layer; correctness review 4, MEDIUM-2).
+    if i == FLOOR_I && (mode() == Mode::Watcher || !floor_clear(unsafe { ADJUST })) {
+        return true;
+    }
     if i < N_TEXT && unsafe { TWEENS[g as usize].active } {
         return true;
     }
