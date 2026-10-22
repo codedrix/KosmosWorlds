@@ -2,7 +2,11 @@
 
 A test room for host API level 5, world text input. The CEO approved it on 2026-10-21: "go ahead and do the type test, MickNerks, and we can test it. After we test it and it works, please destroy that world." On 2026-10-22 he ruled: "The remaining checks can be done during the level 6 headset session."
 
-**This world is meant to be destroyed once the level-5 checks pass.** It is unlisted. 1.0.0 was published from an untracked folder; this folder now holds its source (built from the first commit, every asset and the manifest match the published 1.0.0; only the bundle container differs, in its `validation.validated_at` build stamp) and 1.1.0.
+**This world is meant to be destroyed once the level-5 checks pass.** It is unlisted. 1.0.0 was published from an untracked folder; this folder now holds its source (built from the first commit, every asset and the manifest match the published 1.0.0; only the bundle container differs, in its `validation.validated_at` build stamp), 1.1.0 and 1.1.1.
+
+## 1.1.1: the outline fits the buttons
+
+On Build 1134 the pointing outline around every button reached well below it. It boxes the whole node a press goes to (`KPointingGlow.cpp`), and in 1.1.0 each plaque's mesh carried an invisible keel under it, there only to centre the text (the client prints text at the anchor mesh's bounds centre, bottom-aligned). 1.1.1 moves each plaque's text to its own invisible node, `<plaque>Text`: two 2 mm studs wholly inside the plaque's body, whose bounds sit half a text block below the plaque's centre. The node a laser presses is now just the plaque, so the outline fits it, and the text lands exactly where 1.1.0 put it. No card's behaviour or pass words change. 1.1.1 replaces 1.1.0 at the same address.
 
 ## 1.1.0: the checks 1.0.0 could not show
 
@@ -70,7 +74,7 @@ The world needs only level 5: it runs on Build 1013 and on the level-6 cook.
 
 ## Publish (unlisted) -- only when the cook is ready, after review
 
-The bundle to publish is `release/type-test-1.1.0.worldbundle` (the bundler is not byte-reproducible, so the reviewed bytes are kept). The commands are in the PR. 1.1.0 replaces 1.0.0 at the same address. As for 1.0.0, publishing a level-5 test world before the `deployed` bump is the CEO's call (the runbook's section 6.5 warning).
+The bundle to publish is `release/type-test-1.1.1.worldbundle` (the bundler is not byte-reproducible, so the reviewed bytes are kept). The commands are in the PR. 1.1.1 replaces 1.1.0 at the same address (1.1.0 was published unlisted on 2026-10-22). As for 1.0.0, publishing a level-5 test world before the `deployed` bump is the CEO's call (the runbook's section 6.5 warning).
 
 ## Destroy (after the CEO's checks pass)
 

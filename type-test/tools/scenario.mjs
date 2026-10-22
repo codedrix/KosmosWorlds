@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * scenario.mjs -- Type Test 1.1.0 against the mock host: every card, the first
+ * scenario.mjs -- Type Test 1.1.1 against the mock host: every card, the first
  * row's press -> Enter -> re-arm -> navigate flow, the text pool, and the
  * privacy rule (a typed marker never reaches a world text).
  *
  * @kosmos-system  Content (KosmosWorlds) -- Type Test (temporary)
- * @kosmos-owner   Type Test 1.1.0, KOS-699 (builder vp-w1)
+ * @kosmos-owner   Type Test 1.1.1, KOS-699 (builder vp-w1)
  *
  * Usage (from the repo root):
  *   node type-test/tools/scenario.mjs [--glb <scene.glb>] [--wasm <world.wasm>] [--snapshot <out.json>]
@@ -43,7 +43,46 @@ const ok = (cond, msg) => {
     console.error(`  FAIL ${msg}`);
   } else console.log(`  ok   ${msg}`);
 };
-const has = (h, node, s) => ok((h.textOf(node) ?? "").includes(s), `${node} shows ${JSON.stringify(s)}  [${JSON.stringify(h.textOf(node))}]`);
+// 1.1.1: a plaque's text is shown on its anchor, "<plaque>Text" (build_glb.mjs plaque()).
+const has = (h, node, s) => ok((h.textOf(node + "Text") ?? "").includes(s), `${node}Text shows ${JSON.stringify(s)}  [${JSON.stringify(h.textOf(node + "Text"))}]`);
+
+/**
+ * 1.1.1: the outline fits the plaque. For every plaque with a text anchor, in the
+ * GLB this run loads: the plaque's mesh reaches no lower or wider than its body
+ * (primitive 0; no keel), the anchor sits at the plaque's own place and turn,
+ * and the anchor's box lies wholly inside the body, behind its front face.
+ * Positions are read in each mesh's local frame, dequantised when the optimizer
+ * stored them as normalised integers.
+ */
+function checkAnchors(glbPath) {
+  console.log(`\n== text anchors in ${path.basename(glbPath)} ==`);
+  const b = fs.readFileSync(glbPath);
+  const json = JSON.parse(b.subarray(20, 20 + b.readUInt32LE(12)).toString("utf8"));
+  const box = (prim) => {
+    const a = json.accessors[prim.attributes.POSITION];
+    const k = a.normalized ? { 5120: 127, 5121: 255, 5122: 32767, 5123: 65535 }[a.componentType] : 1;
+    return { min: a.min.map((v) => v / k), max: a.max.map((v) => v / k) };
+  };
+  const union = (boxes) => ({ min: [0, 1, 2].map((i) => Math.min(...boxes.map((x) => x.min[i]))), max: [0, 1, 2].map((i) => Math.max(...boxes.map((x) => x.max[i]))) });
+  const byName = new Map(json.nodes.map((n) => [n.name, n]));
+  const xf = (n) => JSON.stringify([n.translation ?? [0, 0, 0], n.rotation ?? [0, 0, 0, 1], n.scale ?? [1, 1, 1]]);
+  let anchors = 0;
+  for (const anc of json.nodes) {
+    if (!anc.name?.endsWith("Text") || anc.mesh === undefined) continue;
+    const base = byName.get(anc.name.slice(0, -4));
+    if (!base || base.mesh === undefined) continue;
+    anchors++;
+    const prims = json.meshes[base.mesh].primitives.map(box);
+    const body = prims[0], all = union(prims);
+    const a = union(json.meshes[anc.mesh].primitives.map(box));
+    const eps = 1e-4;
+    const noKeel = Math.abs(all.min[1] - body.min[1]) < eps && Math.abs(all.max[1] - body.max[1]) < eps && Math.abs(all.min[2] - body.min[2]) < eps && Math.abs(all.max[2] - body.max[2]) < eps;
+    const inside = [0, 1, 2].every((i) => a.min[i] > body.min[i] - eps && a.max[i] < body.max[i] + eps) && a.min[0] > body.min[0];
+    if (!noKeel || !inside || xf(base) !== xf(anc)) ok(false, `${base.name}: no keel ${noKeel}, anchor inside ${inside}, same place ${xf(base) === xf(anc)}`);
+  }
+  ok(anchors === 23, `${anchors} plaques (want 23): each mesh is just its body and bars, and each text anchor lies inside its plaque`);
+}
+checkAnchors(GLB);
 
 function run(level) {
   console.log(`\n== level ${level} client ==`);
@@ -58,6 +97,8 @@ function run(level) {
   has(h, "TxtTitle", "This headset reports level " + level);
   has(h, "TxtChecks", "Level 5 checks, part 2");
   has(h, "BtnEnd", "World closes it");
+  const pressed = ["BtnPlain", "BtnPassword", "BtnEnd", "BtnAudit", "TxtTitle", "TxtNav", "TxtPlainResult", "TxtPassStatus", "TxtEnd", "TxtChecks"];
+  ok(pressed.every((n) => h.textOf(n) == null), "no text is shown on a pressed node, only on the anchors");
   if (SNAP0 && level === 6) fs.writeFileSync(SNAP0, JSON.stringify(h.scene(), null, 1));
 
   // --- the first row (1.0.0's flow, unchanged): plain, Enter, the password field opens by itself.

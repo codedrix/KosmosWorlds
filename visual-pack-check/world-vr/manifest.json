@@ -5,7 +5,7 @@
     "name": "Visual Pack Check",
     "author": "micknerks",
     "description": "A temporary test room for host API level 6: styled text and plates, colour, glow and fade, pictures from the bundle, and pointing (hover). Every check shows its return codes.",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "spawn_point": {
       "x": 0,
       "y": 0,

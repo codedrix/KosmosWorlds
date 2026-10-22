@@ -560,3 +560,25 @@ fn every_card_line_fits_its_plaque() {
     assert!(worst.0 <= checks::CARD_WIDTH_M * 0.97, "{:.3} m: {:?}", worst.0, worst.1);
     assert!(label_w <= checks::BUTTON_WIDTH_M * 0.97, "a label is {label_w:.3} m");
 }
+
+/// 1.1.1: every plaque the script shows text on has its own anchor, named
+/// "<plaque>Text", and text goes only to anchors, never to a pressed node.
+#[test]
+fn text_anchors_are_named_after_their_plaques() {
+    for (plaque, text) in NODES.iter().zip(TEXT_NODES.iter()) {
+        assert_eq!(*text, std::format!("{plaque}Text"));
+        assert!(!OTHER_NODES.contains(text) && !NODES.contains(text), "{text} is a pressed node");
+    }
+    for (i, (btn, txt, _, _)) in CARDS.iter().enumerate() {
+        assert_eq!(checks::CARD_TEXT_NODES[i].0, std::format!("{btn}Text"));
+        assert_eq!(checks::CARD_TEXT_NODES[i].1, std::format!("{txt}Text"));
+        assert!(checks::CHECK_TEXT_NODES.contains(&checks::CARD_TEXT_NODES[i].0));
+        assert!(checks::CHECK_TEXT_NODES.contains(&checks::CARD_TEXT_NODES[i].1));
+    }
+    assert_eq!(checks::HEADER_TEXT_NODE, std::format!("{}Text", checks::HEADER_NODE));
+    assert!(checks::CHECK_TEXT_NODES.contains(&checks::HEADER_TEXT_NODE));
+    assert_eq!(checks::CHECK_TEXT_NODES.len(), 2 * CARDS.len() + 1);
+    for n in checks::CHECK_TEXT_NODES {
+        assert!(!checks::CHECK_NODES.contains(&n), "{n} is a pressed node");
+    }
+}

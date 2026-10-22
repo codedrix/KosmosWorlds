@@ -82,6 +82,24 @@ pub const CARDS: [(&str, &str, Kind, &str); 7] = [
 ];
 /// The header plaque behind the visitor.
 pub const HEADER_NODE: &str = "TxtChecks";
+/// 1.1.1: each card's text anchors (lib.rs TEXT_NODES says why), in CARDS order:
+/// the button's label anchor, then the result plaque's.
+pub const CARD_TEXT_NODES: [(&str, &str); 7] = [
+    ("BtnEndText", "TxtEndText"),
+    ("BtnTwiceText", "TxtTwiceText"),
+    ("BtnOneText", "TxtOneText"),
+    ("BtnLimitsText", "TxtLimitsText"),
+    ("BtnPinText", "TxtPinText"),
+    ("BtnDigitsText", "TxtDigitsText"),
+    ("BtnAuditText", "TxtAuditText"),
+];
+/// The header plaque's text anchor.
+pub const HEADER_TEXT_NODE: &str = "TxtChecksText";
+/// Every text anchor this module finds (for build_glb.mjs's node contract).
+pub const CHECK_TEXT_NODES: [&str; 15] = [
+    "BtnEndText", "TxtEndText", "BtnTwiceText", "TxtTwiceText", "BtnOneText", "TxtOneText", "BtnLimitsText", "TxtLimitsText",
+    "BtnPinText", "TxtPinText", "BtnDigitsText", "TxtDigitsText", "BtnAuditText", "TxtAuditText", "TxtChecksText",
+];
 /// Every node this module finds (for build_glb.mjs's node contract).
 pub const CHECK_NODES: [&str; 15] = [
     "BtnEnd", "TxtEnd", "BtnTwice", "TxtTwice", "BtnOne", "TxtOne", "BtnLimits", "TxtLimits",
@@ -93,7 +111,11 @@ pub const HEADER_TEXT: &str = "Level 5 checks, part 2\nLeft: closing, refusals\n
 #[derive(Clone, Copy)]
 pub struct Card {
     pub kind: Kind,
+    /// The button: presses, and the node the card's field is opened on.
     pub node: i32,
+    /// The button's text anchor, which carries its label.
+    pub label: i32,
+    /// The result plaque's text anchor.
     pub txt: i32,
     /// The open session's request id (0: none of this card's).
     pub req: i32,
@@ -133,6 +155,7 @@ impl Card {
         Card {
             kind,
             node: 0,
+            label: 0,
             txt: 0,
             req: 0,
             open: false,
@@ -162,7 +185,9 @@ impl Card {
 
 pub struct Checks {
     pub cards: [Card; 7],
+    /// The header plaque (presses) and its text anchor (its text).
     pub header: i32,
+    pub header_text: i32,
     pub header_dirty: bool,
     pub labels_dirty: bool,
 }
@@ -180,6 +205,7 @@ impl Checks {
                 Card::new(Kind::Audit),
             ],
             header: 0,
+            header_text: 0,
             header_dirty: true,
             labels_dirty: true,
         }
@@ -249,11 +275,14 @@ pub fn init(a: &mut App) {
         fill_start(&mut *core::ptr::addr_of_mut!(START));
     }
     a.checks.header = find(HEADER_NODE);
+    a.checks.header_text = find(HEADER_TEXT_NODE);
     let ev = "OnInteract";
-    for (i, (btn, txt, _, _)) in CARDS.iter().enumerate() {
+    for (i, (btn, _, _, _)) in CARDS.iter().enumerate() {
         let node = find(btn);
         a.checks.cards[i].node = node;
-        a.checks.cards[i].txt = find(txt);
+        // Text goes on the anchors; presses stay on the button and the plaque.
+        a.checks.cards[i].label = find(CARD_TEXT_NODES[i].0);
+        a.checks.cards[i].txt = find(CARD_TEXT_NODES[i].1);
         if node <= 0 {
             a.init_error = if node == 0 { -1 } else { node };
             continue;
@@ -308,7 +337,7 @@ pub fn press(a: &mut App, i: usize) {
             let req = next_req(a);
             let r = begin_raw(node, 0, SMALL_CAP, &[], req);
             let c = &mut a.checks.cards[i];
-            *c = Card { node: c.node, txt: c.txt, ..Card::new(kind) };
+            *c = Card { node: c.node, label: c.label, txt: c.txt, ..Card::new(kind) };
             c.begin = Some(r);
             if r == 0 {
                 c.req = req;
@@ -354,7 +383,7 @@ pub fn press(a: &mut App, i: usize) {
                 let req = next_req(a);
                 let r = begin_raw(node, 0, SMALL_CAP, &[], req);
                 let c = &mut a.checks.cards[i];
-                *c = Card { node: c.node, txt: c.txt, ..Card::new(kind) };
+                *c = Card { node: c.node, label: c.label, txt: c.txt, ..Card::new(kind) };
                 c.begin = Some(r);
                 c.first_s = now;
                 if r == 0 {
@@ -378,7 +407,7 @@ pub fn press(a: &mut App, i: usize) {
             let req = next_req(a);
             let r = begin_raw(node, 0, LIMIT_PLAIN, &start[..START_BYTES], req);
             let c = &mut a.checks.cards[i];
-            *c = Card { node: c.node, txt: c.txt, ..Card::new(kind) };
+            *c = Card { node: c.node, label: c.label, txt: c.txt, ..Card::new(kind) };
             c.probes = [Some(probes[0]), Some(probes[1]), Some(probes[2]), Some(probes[3])];
             c.begin = Some(r);
             if r == 0 {
@@ -407,7 +436,7 @@ pub fn press(a: &mut App, i: usize) {
             let req = next_req(a);
             let r = begin_raw(node, flags, cap, &[], req);
             let c = &mut a.checks.cards[i];
-            *c = Card { node: c.node, txt: c.txt, ..Card::new(kind) };
+            *c = Card { node: c.node, label: c.label, txt: c.txt, ..Card::new(kind) };
             c.begin = Some(r);
             if r == 0 {
                 c.req = req;
@@ -733,13 +762,13 @@ pub fn render(a: &mut App) -> bool {
     if a.checks.labels_dirty {
         let mut ok = true;
         for (i, (_, _, _, label)) in CARDS.iter().enumerate() {
-            ok &= show(a.checks.cards[i].node, label) == 0;
+            ok &= show(a.checks.cards[i].label, label) == 0;
         }
         a.checks.labels_dirty = !ok;
         failed |= !ok;
     }
     if a.checks.header_dirty {
-        a.checks.header_dirty = show(a.checks.header, HEADER_TEXT) != 0;
+        a.checks.header_dirty = show(a.checks.header_text, HEADER_TEXT) != 0;
         failed |= a.checks.header_dirty;
     }
     for i in 0..CARDS.len() {
