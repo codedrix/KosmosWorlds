@@ -1,0 +1,39 @@
+{
+  "kosmos_version": "1.0",
+  "world": {
+    "id": "visual-pack-check",
+    "name": "Visual Pack Check",
+    "author": "micknerks",
+    "description": "A temporary test room for host API level 6: styled text and plates, colour, glow and fade, pictures from the bundle, and pointing (hover). Every check shows its return codes.",
+    "version": "1.0.0",
+    "spawn_point": {
+      "x": 0,
+      "y": 0,
+      "z": 1.1
+    },
+    "sky": "day"
+  },
+  "capabilities": [
+    "scene_read",
+    "scene_write",
+    "transform",
+    "events",
+    "ui_basic",
+    "world_navigate"
+  ],
+  "requires": {
+    "host_api": 6
+  },
+  "assets": {
+    "gltf": "world.glb",
+    "wasm": "world.wasm",
+    "images": [
+      "media/pic-1-png-rgb.png",
+      "media/pic-2-png-grey.png",
+      "media/pic-3-jpeg-baseline.jpg",
+      "media/pic-4-jpeg-progressive.jpg",
+      "media/pic-5-jpeg-grey.jpg",
+      "media/pic-6-png-rgb.png"
+    ]
+  }
+}

@@ -1,0 +1,25 @@
+[package]
+name = "visual_pack_check"
+version = "1.0.0"
+edition = "2021"
+description = "Visual Pack Check: the level-6 (DB-045 visual pack) device-checkpoint world (world://visual-pack-check.micknerks and its -mr twin)."
+license = "MIT"
+# build.rs supplies --import-memory and --export-table (see its header).
+build = "build.rs"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# No dependencies. The world declares its host imports itself (src/host.rs) with
+# the signatures of the client's host-api-levels.json at feat/device-p2-2026-10
+# a1936d8 (current_level 6). The Creator SDK (main 872d0ee) has the visual pack
+# behind its `visual` feature but not level 5's k_ui_text_*, and a checkpoint world
+# must be able to send the host values the SDK refuses to (an alpha other than
+# 0xFF, a size of 9 mm), so raw externs are the honest tool here.
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
