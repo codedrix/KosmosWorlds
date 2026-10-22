@@ -24,7 +24,7 @@ test("the Lobby ritual signs in with one call: the passphrase as text, no snapsh
   assert.equal(s.mode, "cubes");
   assert.equal(b.bridge.watch.current, null, "watching is off by default");
   const arc = await op("press", { tok, v, press: "CubePlus" });
-  assert.equal(arc.text.get("TxWatch"), "off");
+  assert.equal(arc.text.get("TxWatch"), "Not shared");
 });
 
 test("watching: off by default; the owner turns it on; a watcher gets a read-only copy", async () => {
@@ -35,7 +35,7 @@ test("watching: off by default; the owner turns it on; a watcher gets a read-onl
   await op("view", { tok });
   const on = await op("press", { tok, v, press: "BtnWatch" });
   assert.equal(on.mode, "arc");
-  const m = /code (\d{3}) (\d{3})/.exec(on.text.get("TxWatch") ?? "");
+  const m = /^Code (\d{3}) (\d{3})\ntype it at the Watch post$/.exec(on.text.get("TxWatch") ?? "");
   assert.ok(m, on.text.get("TxWatch"));
   const code = `${m[1]}${m[2]}`;
 
@@ -127,7 +127,7 @@ test("a new sign-in always starts with watching off", async () => {
   assert.equal(b.bridge.watch.current, null, "the old code is gone");
   assert.equal(again.mode, "cubes");
   const arc = await op("press", { tok, v, press: "CubePlus" });
-  assert.equal(arc.text.get("TxWatch"), "off");
+  assert.equal(arc.text.get("TxWatch"), "Not shared");
   const w = await op("watch", { watch: code });
   assert.ok(w.events.includes("watch_refused"));
 });

@@ -113,7 +113,8 @@ export function hueVariant(base: string, state: HueState): string {
 
 /**
  * Width of one line on each panel, metres (contract section 2, narrowed for the v2.1 panels of
- * section 8: side panels 0.85 m wide, the chrome bar leaves TxWatch 0.50 m).
+ * section 8: side panels 0.85 m wide). TxWatch: 0.66 m, two lines, on the 1.4.0 chrome bar
+ * (CLARITY_PASS.md section C: "Code 123 456" over "type it at the Watch post").
  */
 export const W = {
   ticker: 0.78,
@@ -129,7 +130,7 @@ export const W = {
   puck: 0.8,
   seal: 0.45,
   sealHint: 1.0,
-  watch: 0.5,
+  watch: 0.66,
 } as const;
 
 /** The conversation's left edge, relative to the conversation anchors' centre line. */
@@ -140,7 +141,7 @@ export const CONV_LEFT_M = -0.6;
  * and SealRing are coloured only through `H`). Listed here so nodes.json stays the one list the
  * Blender script builds and the world script finds.
  *   McSeal        the seal on the throne seat: pressing it starts the pairing
- *   McWatchJoin   the Watch button by the throne (visible to every visitor)
+ *   McWatchJoin   the Watch post by the throne ("GROUP WATCH", visible to every visitor)
  *   McClose       closes the panel (signs out first)
  *   McMove*       the handle buttons: closer, farther, left, right, up, down
  *   Mc*Frame      the arc's static frames (moved and hidden with the arc)

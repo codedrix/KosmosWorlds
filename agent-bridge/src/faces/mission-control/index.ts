@@ -107,8 +107,77 @@ const STATUS_WORD: Record<Job["status"], string> = {
   stopped: "STOPPED",
 };
 
-const SEAL_HINT = ["At the PC, type this code", "to approve. It lasts 2 minutes."];
-const PASSPHRASE_QUESTION = "Mission Control passphrase (it shows on screen as you type)";
+/**
+ * The ring's two lines: the code is the PC way to sign in, so they say exactly where it is typed
+ * (CLARITY_PASS.md section B). "It lasts 2 minutes" was dropped: it does not fit two lines of
+ * W.sealHint, and the expiry message already explains a lapsed code.
+ */
+export const SEAL_HINT = ["Sign in from your PC: type this code", "in the window where npm start runs."];
+/** The typing sheet's question. MUST equal the world's SEAL_QUESTION (mission-control/src/lib.rs). */
+export const PASSPHRASE_QUESTION = "Mission Control passphrase (shows as you type)";
+
+/**
+ * The face's fixed words, in the visitor's words (CLARITY_PASS.md sections B and C). Each one-line
+ * entry fits its panel's W width unclipped, and each seal message wraps to at most two lines of
+ * W.sealHint (test/face.test.ts checks both), so the headset never shows a cut sentence.
+ */
+export const WORDS = {
+  /** Signed in, no jobs at all (the rail is empty): the cold arrival's one first step. */
+  startHere: ["Start here", "Pick a task below, or press + New task."],
+  /** Jobs exist (the rail has rows), but none is open. */
+  noJobOpen: ["No job open", "Pick a job on the left, or start one below."],
+  /** A watcher's copy with no job open: a watcher is never drawn the start-a-job set. */
+  watcherNoJob: ["No job open", "Waiting for the owner to start one."],
+  /** The rail's first slot while the rail is empty. */
+  noJobsYet: "No jobs yet",
+  /** TxWatch while nobody is invited to watch. */
+  watchOff: "Not shared",
+  /** TxWatch's second line while a code is live (the first is "Code 123 456"). */
+  watchWhere: "type it at the Watch post",
+  /** TxWatch on a watcher's own copy. */
+  watchReadOnly: "read-only",
+  /** The page spot's placeholder (one line of W.pageSpot; the heading reads "Web page (coming soon)"). */
+  pageSpot: "A page you pin goes here.",
+  /** Status-line notes (one line of W.status). */
+  signedInSeal: "Signed in at the seal.",
+  signedIn: "Signed in.",
+  stale: "That changed first. Look, then press again.",
+  nothingStarted: "Nothing typed, so nothing was started.",
+  nothingSent: "Nothing typed, so nothing was sent.",
+  watchOn: "Shared with your group.",
+  watchClosed: "Not shared any more.",
+  unknownButton: "that button does nothing here",
+  /** The ask plate's reason when the command can't be approved from the headset (W.ask). */
+  askAtPc: "Approve this one on your PC, not here.",
+  /** The puck's tails (W.puck, after the project word). */
+  puckOpenCube: ": open its cube",
+  puckAtPc: ": approve on your PC",
+  /** Seal messages (wrapped to at most two lines of W.sealHint). */
+  stopped: "Stopped from your PC. To restart, run there: npm run unkill",
+  pairRate: "Too many codes just now. Wait a few seconds, then press the seal.",
+  pairOff: "Signing in with a code is off on your PC.",
+  pairExpired: "That code expired. Press the seal for a new one.",
+  passWrong: "That passphrase is wrong.",
+  passHardLocked: "Locked after too many wrong tries. On your PC, run: npm run unlock",
+  passTooFast: "Too fast. Wait two seconds and try again.",
+  passNotSet: "No passphrase is set. On your PC, run: npm run set-passphrase",
+  passOff: "Passphrase sign-in is off. Type the code on your PC.",
+  /** A watcher's refusals (TxStatus, one line of W.status). */
+  watchWrong: "That group watch code is wrong.",
+  watchNobody: "Nobody is sharing Mission Control now.",
+  watchOwnerGone: "The owner has left Mission Control.",
+  watchTooMany: "Too many wrong codes. Wait a minute.",
+} as const;
+
+/** TxWatch's lines: "Code 123 456" (grouped 3 + 3) and where it is typed, or "Not shared". */
+export function watchLines(code: string | null | undefined): string[] {
+  return code ? [`Code ${code.slice(0, 3)} ${code.slice(3)}`, WORDS.watchWhere] : [WORDS.watchOff];
+}
+
+/** The status line's everyday words (one line of W.status; maxJobs is 1..4, config.ts). */
+export function statusWords(running: number, maxJobs: number): string {
+  return `${running}/${maxJobs} jobs running  |  stop all: npm run kill (PC)`;
+}
 
 export function formatElapsed(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000));
@@ -197,7 +266,7 @@ export class MissionControlFace implements Face {
   async handle(op: string, req: WorldRequest, ctx: FaceContext): Promise<FaceReply> {
     if (op === "view") return this.view(req, ctx);
     if (op === "press") return this.press(req, ctx);
-    // The passphrase fallback ("Use passphrase" under the ring): the passphrase as the text.
+    // The passphrase fallback ("Or type passphrase here" under the ring): the passphrase as the text.
     if (op === "signin") return this.signIn(req, ctx);
     if (op === "watch") return this.watchView(req, ctx);
     if (op === "pair") return this.pair(req, ctx);
@@ -213,9 +282,9 @@ export class MissionControlFace implements Face {
       const m = ctx.pair.mint();
       if (!m.ok) {
         const why: Record<string, string> = {
-          rate: "Too many pairings just now. Wait a few seconds, then press the seal again.",
-          stopped: "Stopped on the PC. At the desk: npm run unkill",
-          off: "Pairing is off on the PC.",
+          rate: WORDS.pairRate,
+          stopped: WORDS.stopped,
+          off: WORDS.pairOff,
         };
         return this.reply(this.renderPairEnd(ctx, why[m.reason] ?? "Refused.").event("pair_refused"));
       }
@@ -237,15 +306,15 @@ export class MissionControlFace implements Face {
       st = { state: "expired" };
     }
     if (st.state === "pending") return this.reply(this.renderSeal(ctx, st.code).event("pair_wait"));
-    if (ctx.killed) return this.reply(this.renderPairEnd(ctx, "Stopped on the PC. At the desk: npm run unkill").event("pair_refused"));
-    return this.reply(this.renderPairEnd(ctx, "That code expired. Press the seal for a new one.").event("pair_expired"));
+    if (ctx.killed) return this.reply(this.renderPairEnd(ctx, WORDS.stopped).event("pair_refused"));
+    return this.reply(this.renderPairEnd(ctx, WORDS.pairExpired).event("pair_expired"));
   }
 
   /** The approved pairing's answer: K, E paired, the ring locked, then the owner's cubes. */
   private paired(ctx: FaceContext, token: string): FaceReply {
     this.state = { mode: "cubes", pageBack: 0, seenLines: 0 };
     this.anonNotice = null;
-    this.note("Signed in at the seal.");
+    this.note(WORDS.signedInSeal);
     const body = this.renderWith({ ...ctx, authed: true }, true);
     const out = new Snapshot().version(body.versionNumber).token(token).event("paired");
     paint(out, "SealRing", { kind: "seal", stage: "locked" });
@@ -270,10 +339,10 @@ export class MissionControlFace implements Face {
     }
     if (verdict !== "ok") {
       const why: Record<string, string> = {
-        wrong: "That watch code is wrong.",
-        off: "Nobody is sharing Mission Control right now.",
-        owner_gone: "The owner has left Mission Control.",
-        too_many: "Too many wrong codes. Wait a minute.",
+        wrong: WORDS.watchWrong,
+        off: WORDS.watchNobody,
+        owner_gone: WORDS.watchOwnerGone,
+        too_many: WORDS.watchTooMany,
       };
       const s = new Snapshot().version(0).mode("lock");
       s.text("TxStatus", why[verdict] ?? "Refused.");
@@ -313,7 +382,12 @@ export class MissionControlFace implements Face {
     for (const n of WATCHER_HIDDEN) body.visible(n, false);
     body.hide("TxProject");
     const pressed = this.lastPress ? [clipWidth(`pressed: ${pressLabel(this.lastPress.node)} ${formatElapsed(Date.now() - this.lastPress.at)} ago`, W.status)] : [];
-    body.text("TxWatch", clipWidth("read-only", W.watch));
+    body.text("TxWatch", clipWidth(WORDS.watchReadOnly, W.watch));
+    // No job open: the owner's "start one below" points at buttons a watcher is never drawn.
+    if (!job) {
+      body.forget("TxHeader");
+      body.text("TxHeader", label(WORDS.watcherNoJob.map((l) => clipWidth(l, W.header))));
+    }
     body.text("TxStatus", label([clipWidth("Watching Mission Control", W.status), ...pressed]));
     const key = body.contentKey();
     if (key !== this.watchKey) {
@@ -371,7 +445,7 @@ export class MissionControlFace implements Face {
     const map = req.v !== undefined ? maps.get(req.v) : undefined;
     const action = node && map ? map.get(node) : undefined;
     if (!action) {
-      if (live) this.note("That changed before your press arrived. Look again.");
+      if (live) this.note(WORDS.stale);
       return this.reply(this.render(ctx).event("stale"));
     }
 
@@ -405,7 +479,7 @@ export class MissionControlFace implements Face {
         break;
       case "new":
         if (!text) {
-          this.note("Nothing typed, so nothing was started.");
+          this.note(WORDS.nothingStarted);
           break;
         }
         result = await a.startTask(text, project);
@@ -436,7 +510,7 @@ export class MissionControlFace implements Face {
         break;
       case "reply":
         if (!text) {
-          this.note("Nothing typed, so nothing was sent.");
+          this.note(WORDS.nothingSent);
           break;
         }
         result = await a.send(arg ?? "", text);
@@ -445,10 +519,10 @@ export class MissionControlFace implements Face {
       case "watch":
         if (ctx.bridge.watch.current) {
           ctx.bridge.watch.close();
-          this.note("Group watching is off.");
+          this.note(WORDS.watchClosed);
         } else {
           ctx.bridge.watch.open();
-          this.note("Share the watch code with your group; they type it at the Watch button.");
+          this.note(WORDS.watchOn);
         }
         break;
       case "pageup":
@@ -458,7 +532,7 @@ export class MissionControlFace implements Face {
         this.state.pageBack = Math.max(0, this.state.pageBack - 1);
         break;
       default:
-        result = { ok: false, why: "unknown button" };
+        result = { ok: false, why: WORDS.unknownButton };
     }
     if (!result.ok) this.note(`Not done: ${result.why ?? "refused"}.`);
     const snap = this.render(ctx);
@@ -475,19 +549,19 @@ export class MissionControlFace implements Face {
     if (r.ok) {
       this.state = { mode: "cubes", pageBack: 0, seenLines: 0 };
       this.anonNotice = null;
-      this.note("Signed in.");
+      this.note(WORDS.signedIn);
       // The token rides in the reply that follows sign-in; it is never logged.
       const snap = this.renderWith({ ...ctx, authed: true }, true);
       snap.token(r.token);
       return this.reply(snap);
     }
     const why: Record<string, string> = {
-      wrong: "That passphrase is wrong.",
-      locked: ctx.killed ? "Stopped on the PC. At the desk: npm run unkill" : `Too many wrong tries. Wait ${Math.ceil((r.retryAfterS ?? 900) / 60)} minutes.`,
-      hard_locked: "Locked after too many wrong tries. Unlock it at the PC: npm run unlock.",
-      too_fast: "Too fast. Wait two seconds and try again.",
-      not_set: "No passphrase is set. At the PC: npm run set-passphrase.",
-      off: "Passphrase sign-in is off. Approve the ring's code at the PC.",
+      wrong: WORDS.passWrong,
+      locked: ctx.killed ? WORDS.stopped : `Too many wrong tries. Wait ${Math.ceil((r.retryAfterS ?? 900) / 60)} minutes.`,
+      hard_locked: WORDS.passHardLocked,
+      too_fast: WORDS.passTooFast,
+      not_set: WORDS.passNotSet,
+      off: WORDS.passOff,
     };
     const text = why[r.reason] ?? "Sign-in refused.";
     const event = r.reason === "off" ? "passphrase_off" : "refused";
@@ -542,7 +616,7 @@ export class MissionControlFace implements Face {
     return body.version(this.anonVersion);
   }
 
-  /** "Use passphrase" under the ring: shown only while the passphrase fallback is on. */
+  /** "Or type passphrase here" under the ring (the headset way): shown only while the passphrase fallback is on. */
   private sealTypeButton(s: Snapshot, actions: ActionMap, ctx: FaceContext): void {
     const on = ctx.bridge.config.passphraseSignIn && !ctx.killed;
     s.visible("BtnSealType", on);
@@ -562,7 +636,7 @@ export class MissionControlFace implements Face {
     for (const n of [...BUTTON_NODES, ...SHOW_NODES]) if (n !== "BtnSealType") s.visible(n, false);
     for (const n of HUE_BASES) paint(s, n, { kind: "empty" });
     const n = this.anonNotice;
-    if (ctx.killed) s.text("TxSealHint", label(wrapAll(["Stopped on the PC.", "At the desk: npm run unkill"], W.sealHint)));
+    if (ctx.killed) s.text("TxSealHint", label(wrapWidth(WORDS.stopped, W.sealHint)));
     else if (n && Date.now() - n.at < NOTICE_MS) s.text("TxSealHint", label(wrapWidth(n.text, W.sealHint)));
     else s.hide("TxSealHint");
     this.sealTypeButton(s, actions, ctx);
@@ -630,7 +704,7 @@ export class MissionControlFace implements Face {
     const n = this.state.notice;
     if (n && Date.now() - (this.state.noticeAt ?? 0) < NOTICE_MS) return clipWidth(n, W.status);
     const running = ctx.bridge.store.running().length;
-    return clipWidth(`${running}/${ctx.bridge.config.maxJobs} jobs  |  stop at the PC: npm run kill`, W.status);
+    return clipWidth(statusWords(running, ctx.bridge.config.maxJobs), W.status);
   }
 
   /** The ledge: one cube per running job (up to four) and the "+" cube. */
@@ -687,7 +761,7 @@ export class MissionControlFace implements Face {
     if (approvable) {
       s.text("TxPuck", line);
     } else {
-      const tail = a.exact ? ": open its cube" : ": approve at the desk";
+      const tail = a.exact ? WORDS.puckOpenCube : WORDS.puckAtPc;
       s.text("TxPuck", `${clipWidth(proj, Math.max(0.1, W.puck - estimateWidthM(tail)))}${tail}`);
     }
     s.visible("BtnPuckApprove", approvable);
@@ -719,7 +793,9 @@ export class MissionControlFace implements Face {
       if (!j) {
         s.visible(`Rail${slot}`, false);
         s.visible(`RailSel${slot}`, false);
-        s.hide(`TxRail${slot}`);
+        // An empty rail says so in its first slot (words only: there is nothing to press).
+        if (i === 0 && rail.length === 0) s.text(`TxRail${slot}`, clipWidth(WORDS.noJobsYet, W.rail));
+        else s.hide(`TxRail${slot}`);
         return;
       }
       s.visible(`Rail${slot}`, true);
@@ -736,7 +812,9 @@ export class MissionControlFace implements Face {
     s.text("TxStatus", status);
 
     if (!job) {
-      s.text("TxHeader", label([clipWidth("No job open", W.header), clipWidth("Pick one on the left, or start one below.", W.header)]));
+      // No jobs at all: the one first step. Jobs on the rail but none open: pick one or start one.
+      const words = rail.length === 0 ? WORDS.startHere : WORDS.noJobOpen;
+      s.text("TxHeader", label(words.map((l) => clipWidth(l, W.header))));
       CONV_SLOTS.forEach((slot) => s.hide(`TxConv${slot}`));
       s.hide("TxPage");
       for (const n of ["BtnPageUp", "BtnPageDown", "BtnStop", "BtnReply", ...Object.keys(QUICK_BUTTONS)]) s.visible(n, false);
@@ -761,14 +839,14 @@ export class MissionControlFace implements Face {
 
     // ---- the chrome bar under the centre: group watch and sign out (a watcher's copy hides both) ----
     const code = ctx.bridge.watch.current;
-    s.text("TxWatch", clipWidth(code ? `code ${code.slice(0, 3)} ${code.slice(3)}` : "off", W.watch));
+    s.text("TxWatch", label(watchLines(code).map((l) => clipWidth(l, W.watch))));
     s.visible("BtnWatch", true);
     actions.set("BtnWatch", "watch");
     s.visible("BtnSignOut", true);
     actions.set("BtnSignOut", "signout");
 
     // ---- right: the page spot (DB-043's dock; a placeholder until that panel ships) ----
-    s.text("TxPageSpot", label(wrapAll(["Page panel (DB-043)", "A pinned web page will show here."], W.pageSpot)));
+    s.text("TxPageSpot", clipWidth(WORDS.pageSpot, W.pageSpot));
   }
 
   private renderConversation(s: Snapshot, actions: ActionMap, job: Job, a: Approval | undefined, paging: Paging, now: number): void {
@@ -856,7 +934,7 @@ export class MissionControlFace implements Face {
     } else {
       s.text("TxAskA", label(head.slice(0, 1)));
       // The reason first, so the byte clip can only shorten the command, never the reason.
-      s.text("TxAskB", label(["Not from the headset: approve it at the desk.", clipWidth((cmd[0] ?? "") + (cmd.length > 1 ? " ..." : ""), W.ask)]));
+      s.text("TxAskB", label([WORDS.askAtPc, clipWidth((cmd[0] ?? "") + (cmd.length > 1 ? " ..." : ""), W.ask)]));
     }
     s.visible("BtnApprove", approvable);
     if (approvable) actions.set("BtnApprove", `approve:${a.id}`);
@@ -898,8 +976,8 @@ const PRESS_WORDS: Record<string, string> = {
   BtnApprove: "Approve",
   BtnDeny: "Deny",
   BtnWhy: "Ask why",
-  BtnStop: "Stop",
-  BtnFold: "Fold",
+  BtnStop: "Stop this job",
+  BtnFold: "Hide to ledge",
   BtnKeep: "Keep going",
   BtnSimple: "Explain simply",
   BtnSummary: "Stop + summarize",
@@ -910,10 +988,10 @@ const PRESS_WORDS: Record<string, string> = {
   BtnNotes: "Draft release notes",
   BtnNewTask: "New task",
   BtnProject: "Change project",
-  BtnPageUp: "Page up",
-  BtnPageDown: "Page down",
-  BtnWatch: "Group watch",
-  CubePlus: "the + cube",
+  BtnPageUp: "Older",
+  BtnPageDown: "Newer",
+  BtnWatch: "Share with group",
+  CubePlus: "New job",
   BtnPuckApprove: "Approve (puck)",
   BtnPuckDeny: "Deny (puck)",
 };

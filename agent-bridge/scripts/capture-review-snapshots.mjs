@@ -1,5 +1,5 @@
 // Captures the snapshots the v2 lit-render review draws (mission-control/V2_CONTRACT.md section 7):
-// pair, paired, cubes, cubes_need, arc and watch.
+// pair, paired, arc_empty (the 1.4.0 clarity pass), cubes, cubes_need, arc and watch.
 //
 // Runs the REAL bridge and the REAL Mission Control face with the scripted fake adapter (no
 // tokens, no projects touched), drives it the way the world would, and writes the exact bodies
@@ -107,6 +107,15 @@ save("pair", minted);
 // 2. The owner types the code at the PC; the headset's next poll is paired.
 bridge.pairing.approveTyped(code);
 save("paired", await op("pair", { pair: id }));
+
+// 2b. The cold arrival (CLARITY_PASS.md sections C and D): signed in, the arc open, no jobs at all.
+// The + cube opens it; the status line shows its everyday words, not "Signed in at the seal."
+face.state.notice = undefined;
+await press("CubePlus");
+const empty = await view();
+if (!/^T TxHeader Start here/m.test(empty)) throw new Error("arc_empty is not the cold arrival");
+save("arc_empty", empty);
+await press("BtnFold");
 
 // Two jobs finished earlier today, for "Done today".
 for (const [preset, project] of [["today", "kosmos-project"], ["notes", "kosmos-portal"]]) {

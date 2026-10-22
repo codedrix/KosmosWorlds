@@ -495,7 +495,7 @@ test("threat: a watcher never sees pairing: no I, no seal, no hue, no code", asy
   const v1 = await op("view", { tok });
   const on = await op("press", { tok, v: v1.v, press: "CubePlus" });
   const w1 = await op("press", { tok, v: on.v, press: "BtnWatch" });
-  assert.match(w1.text.get("TxWatch") ?? "", /code \d{3} \d{3}/);
+  assert.match(w1.text.get("TxWatch") ?? "", /^Code \d{3} \d{3}\n/);
   const watchCode = b.bridge.watch.current ?? "";
   resetMintRate();
   const s = await op("pair", {});
@@ -534,7 +534,7 @@ test("threat: minting is refused beyond the rate (pair_refused), and an expired 
   assert.equal(fast.mode, "lock");
   assert.equal(fast.pairId, "");
   assert.ok(!fast.text.has("TxSeal"));
-  assert.match(fast.text.get("TxSealHint") ?? "", /Too many pairings/);
+  assert.match(fast.text.get("TxSealHint") ?? "", /Too many codes/);
   const unknown = await op("pair", { pair: "a".repeat(32) });
   assert.ok(unknown.events.includes("pair_expired"));
   assert.equal(unknown.hue.get("SealRing"), "off");
@@ -547,7 +547,7 @@ test("threat: the kill switch refuses minting and clears what is pending", async
   try {
     const r = await op("pair", {});
     assert.ok(r.events.includes("pair_refused"));
-    assert.match(r.text.get("TxSealHint") ?? "", /Stopped on the PC/);
+    assert.match(r.text.get("TxSealHint") ?? "", /Stopped from your PC/);
     assert.equal(r.visible.get("BtnSealType"), false, "no passphrase fallback while stopped");
     assert.equal(b.bridge.pairing.state(s.pairId).state, "expired", "the waiting pairing is gone");
     const poll = await op("pair", { pair: s.pairId });
@@ -564,7 +564,7 @@ test("config: pairSignIn false refuses pairing; passphraseSignIn false answers p
   try {
     const r = await op("pair", {});
     assert.ok(r.events.includes("pair_refused"));
-    assert.match(r.text.get("TxSealHint") ?? "", /Pairing is off/);
+    assert.match(r.text.get("TxSealHint") ?? "", /Signing in with a code is off/);
   } finally {
     b.bridge.config.pairSignIn = true;
   }

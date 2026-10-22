@@ -2,9 +2,9 @@ AB1
 V 1000001
 M pair
 I <pairid>
-T TxSeal CPQ LMH
-T TxSealHint At the PC, type this code\nto approve. It lasts 2 minutes.
+T TxSeal XWG SCC
+T TxSealHint Sign in from your PC: type this code\nin the window where npm start runs.
 H SealRing armed
 U BtnSealType 1
-P BtnSealType Mission Control passphrase (it shows on screen as you type)
+P BtnSealType Mission Control passphrase (shows as you type)
 E pair_wait
