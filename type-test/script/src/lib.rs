@@ -3,6 +3,9 @@
 //! 1.1.0 (KOS-699, builder vp-w1, 2026-10-22) keeps everything below unchanged and adds
 //! seven cards on the side walls and behind the visitor (`checks.rs`): the level-5 checks
 //! kosmos-project #213 lists as not shown on 1.0.0. They import `k_ui_text_end` too.
+//! 1.1.1 changes no behaviour: every plaque's text moves to its own invisible anchor
+//! node (TEXT_NODES), so the pointing outline fits the button instead of wrapping the
+//! invisible keel 1.1.0's plaques carried under them.
 //!
 //! @kosmos-system  Content (KosmosWorlds) -- Type Test (temporary)
 //! @kosmos-owner   Type Test, CEO 2026-10-21: "go ahead and do the type test, MickNerks, and we can
@@ -177,6 +180,12 @@ pub const OTHER_NODES: [&str; 11] = [
     "TxtTitle", "TxtNav", "TxtPlainResult", "TxtPlainStatus", "TxtPassResult", "TxtPassStatus",
     "Floor", "WallFront", "WallBack", "WallLeft", "WallRight",
 ];
+/// 1.1.1: each plaque's text goes on its own invisible anchor node, "<plaque>Text",
+/// so the node a laser presses is just the plaque and the pointing outline fits it
+/// (../tools/build_glb.mjs plaque()). The same order as NODES.
+pub const TEXT_NODES: [&str; 8] = [
+    "BtnPlainText", "BtnPasswordText", "TxtTitleText", "TxtNavText", "TxtPlainResultText", "TxtPlainStatusText", "TxtPassResultText", "TxtPassStatusText",
+];
 pub const LABEL_PLAIN: &str = "Press to type (plain)";
 pub const LABEL_PASSWORD: &str = "Press to type (password)";
 
@@ -332,7 +341,10 @@ pub enum Ended {
 
 #[derive(Clone, Copy)]
 pub struct Field {
+    /// The button: presses, and the node the field is opened on.
     pub node: i32,
+    /// The button's text anchor (TEXT_NODES), which carries its label.
+    pub label: i32,
     pub masked: bool,
     pub open: Open,
     /// None until the first "text changed" (code 1); then the last read's answer.
@@ -352,6 +364,7 @@ impl Field {
     const fn new(masked: bool) -> Self {
         Field {
             node: 0,
+            label: 0,
             masked,
             open: Open::No,
             text_read: None,
@@ -381,6 +394,7 @@ pub struct App {
     /// The last press on a button, in world seconds (negative: none yet).
     pub last_press_s: f32,
     pub fields: [Field; 2],
+    /// The plaques' text anchors (TEXT_NODES), never the plaques themselves.
     pub txt_title: i32,
     pub txt_nav: i32,
     pub txt_result: [i32; 2],
@@ -642,10 +656,13 @@ pub extern "C" fn k_init() {
     let a = app();
     a.fields[0].node = find("BtnPlain");
     a.fields[1].node = find("BtnPassword");
-    a.txt_title = find("TxtTitle");
-    a.txt_nav = find("TxtNav");
-    a.txt_result = [find("TxtPlainResult"), find("TxtPassResult")];
-    a.txt_status = [find("TxtPlainStatus"), find("TxtPassStatus")];
+    // Text goes on each plaque's anchor; presses stay on the plaques (OTHER_NODES).
+    a.fields[0].label = find("BtnPlainText");
+    a.fields[1].label = find("BtnPasswordText");
+    a.txt_title = find("TxtTitleText");
+    a.txt_nav = find("TxtNavText");
+    a.txt_result = [find("TxtPlainResultText"), find("TxtPassResultText")];
+    a.txt_status = [find("TxtPlainStatusText"), find("TxtPassStatusText")];
     a.api_level = unsafe { host::k_api_version() };
 
     let ev = "OnInteract";
@@ -832,8 +849,8 @@ fn render(a: &mut App) {
     }
     let mut failed = false;
     if a.labels_dirty {
-        let ok = show(a.fields[0].node, LABEL_PLAIN) == 0;
-        let ok2 = show(a.fields[1].node, LABEL_PASSWORD) == 0;
+        let ok = show(a.fields[0].label, LABEL_PLAIN) == 0;
+        let ok2 = show(a.fields[1].label, LABEL_PASSWORD) == 0;
         a.labels_dirty = !(ok && ok2);
         failed |= a.labels_dirty;
     }

@@ -20,9 +20,14 @@
  *
  * Text (KWorldTextPool.cpp, Build 1013): white 8 cm Roboto, bottom-aligned,
  * printed flat on a thin upright plane's face a hair in front, centred on the
- * mesh's bounds. Every plaque carries an invisible keel under it so a block of
- * n lines sits centred on the plaque (the More Room pattern). Every node the
- * script finds has a mesh and an extra, and no name ends in a digit.
+ * mesh's bounds. So that a block of n lines sits centred on a plaque, its text
+ * goes on its own invisible node, "<plaque>Text": two small studs, wholly inside
+ * the plaque's body, whose bounds are centred half a text block below the
+ * plaque's centre. 1.1.1: until 1.1.0 that offset came from an invisible keel
+ * under the plaque, in the plaque's own mesh, and the pointing outline (which
+ * boxes the whole pressed node, KPointingGlow.cpp) wrapped the keel too. Now
+ * the node a laser presses is just the plaque, and the outline fits it. Every
+ * node the script finds has a mesh and an extra, and no name ends in a digit.
  *
  * @integration
  *   @kosmos-nodes  must build exactly the names in script/src/lib.rs NODES and OTHER_NODES (checked below).
@@ -199,7 +204,16 @@ const textH = (n) => 0.08 + (n - 1) * 0.084;
 
 const PRESS = { interactable: true };
 const anchor = (role) => ({ script_node: role });
+/** The extra on every text anchor: an extra keeps the optimizer from merging it away. */
+const TEXT_ANCHOR = anchor("text");
+/** The suffix of a plaque's text anchor (lib.rs TEXT_NODES and checks.rs CHECK_TEXT_NODES name them). */
+const TEXT_SUFFIX = "Text";
 const FRONT = -0.006;
+/** A text anchor's studs: 2 mm cubes. Its bounds are 2 * ANCHOR_HALF tall. */
+const STUD = 0.002;
+const ANCHOR_HALF = 0.015;
+/** The studs' front faces sit this far behind the plaque's front face, so a laser always meets the plaque. */
+const STUD_INSET = 0.00025;
 
 function palette(g) {
   return {
@@ -210,7 +224,7 @@ function palette(g) {
     cyan: g.material("LightCyan", [0.37, 0.9, 1.0]),
     amber: g.material("LightAmber", [0.95, 0.66, 0.23]),
     teal: g.material("LightTeal", [0.12, 0.45, 0.55]),
-    // Fully transparent: the keel exists only to move the mesh's rendered centre.
+    // Fully transparent: a text anchor's studs exist only to place its text.
     stud: g.material("Unseen", [0, 0, 0], { alpha: 0 }),
   };
 }
@@ -226,9 +240,37 @@ function lightBars(w, h, d, mat) {
 }
 
 /**
- * A plaque facing the spawn at (r, deg, y): w wide, h tall, d deep, with a keel
- * so maxLines lines of text sit centred on it. `lines` are the widest texts it
- * will carry (checked to fit).
+ * The studs of a plaque's text anchor, in the plaque's own frame (front = -x).
+ * Their bounds are centred k below the plaque's centre, k being half the height
+ * of maxLines lines; ANCHOR_HALF each way vertically, nearly the plaque's width
+ * across, and STUD deep, so the client reads them as a thin upright plane that
+ * faces the spawn (KWorldTextPool.cpp ComputeFixedFacing) and prints the text
+ * a hair in front of the plaque's face. Both studs lie wholly inside the
+ * plaque's body, so no part of the anchor can be pointed at or pressed.
+ *
+ * @returns {Array} mesh parts for Gltf.node
+ * @throws if the studs would not fit inside the body
+ */
+function textAnchorParts(P, w, h, d, maxLines) {
+  const k = textH(maxLines) / 2;
+  const x = -d / 2 + STUD_INSET + STUD / 2;
+  const yTop = -k + ANCHOR_HALF - STUD / 2;
+  const yBot = -k - ANCHOR_HALF + STUD / 2;
+  const z = w / 2 - STUD;
+  if (-k - ANCHOR_HALF < -h / 2 + 0.001 || -k + ANCHOR_HALF > h / 2 - 0.001) throw new Error(`a text anchor for ${maxLines} lines does not fit inside a ${h} m plaque`);
+  if (STUD + STUD_INSET > d) throw new Error(`a text anchor does not fit inside a ${d} m deep plaque`);
+  return [
+    [boxGeom([STUD, STUD, STUD], [x, yTop, -z]), P.stud],
+    [boxGeom([STUD, STUD, STUD], [x, yBot, z]), P.stud],
+  ];
+}
+
+/**
+ * A plaque facing the spawn at (r, deg, y): w wide, h tall, d deep, as two
+ * nodes. `name` is the body and its light bars: the node the script subscribes
+ * to and the pointing outline boxes. `name` + "Text" is its invisible text
+ * anchor (textAnchorParts), on which maxLines lines sit centred on the plaque.
+ * `lines` are the widest texts it will carry (checked to fit).
  */
 function plaque(g, P, name, r, deg, y, w, h, d, maxLines, lines, bodyMat, barMat, extras) {
   if (textH(maxLines) > h) throw new Error(`${name}: ${maxLines} lines do not fit ${h} m`);
@@ -239,9 +281,8 @@ function plaque(g, P, name, r, deg, y, w, h, d, maxLines, lines, bodyMat, barMat
       if (lineW(l) > w * 0.97) throw new Error(`${name}: "${l}" is ${lineW(l).toFixed(3)} m, wider than ${w} m`);
     }
   }
-  const k = textH(maxLines) / 2;
-  const keel = [boxGeom([0.002, 2 * k, 0.002], [0, -h / 2 - k, 0]), P.stud];
-  g.node(name, at(r, deg, y), [[boxGeom([d, h, w]), bodyMat], ...lightBars(w, h, d, barMat), keel], extras, facing(deg));
+  g.node(name, at(r, deg, y), [[boxGeom([d, h, w]), bodyMat], ...lightBars(w, h, d, barMat)], extras, facing(deg));
+  g.node(name + TEXT_SUFFIX, at(r, deg, y), textAnchorParts(P, w, h, d, maxLines), TEXT_ANCHOR, facing(deg));
 }
 
 /** The widest texts each plaque carries (mirrors script/src/lib.rs; its tests check bytes and lines). */
@@ -301,10 +342,10 @@ export function build() {
   }
   plaque(g, P, "TxtChecks", 2.2, 180, 2.02, 1.3, 0.38, 0.008, 4, ["Level 5 checks, part 2\nLeft: closing, refusals\nRight: limits, keyboards\nBehind you: the audit field"], P.glass, P.cyan, anchor("header"));
 
-  // The script's node contract: every name in NODES, OTHER_NODES and CHECK_NODES, and every mesh is one of them.
+  // The script's node contract: every name in its five lists, and every mesh is one of them.
   const lib = fs.readFileSync(path.join(ROOT, "script", "src", "lib.rs"), "utf8") + fs.readFileSync(path.join(ROOT, "script", "src", "checks.rs"), "utf8");
   const want = new Set();
-  for (const list of ["NODES", "OTHER_NODES", "CHECK_NODES"]) {
+  for (const list of ["NODES", "OTHER_NODES", "TEXT_NODES", "CHECK_NODES", "CHECK_TEXT_NODES"]) {
     const m = lib.match(new RegExp(`pub const ${list}: \\[&str; \\d+\\] = \\[([^\\]]*)\\]`));
     if (!m) throw new Error(`${list} not found in lib.rs or checks.rs`);
     for (const x of m[1].matchAll(/"([^"]+)"/g)) want.add(x[1]);

@@ -1,6 +1,6 @@
 [package]
 name = "type_test_script"
-version = "1.1.0"
+version = "1.1.1"
 edition = "2021"
 description = "Type Test: a temporary check of host API level 5 world text input (world://type-test.micknerks)."
 license = "MIT"
