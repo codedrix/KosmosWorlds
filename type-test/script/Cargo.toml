@@ -1,0 +1,22 @@
+[package]
+name = "type_test_script"
+version = "1.1.0"
+edition = "2021"
+description = "Type Test: a temporary check of host API level 5 world text input (world://type-test.micknerks)."
+license = "MIT"
+# build.rs supplies --import-memory and --export-table (see its header).
+build = "build.rs"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# No dependencies. The world declares its host imports itself (src/lib.rs,
+# `mod host`); every signature is the levels table's on the client's
+# feat/device-p2-2026-10 at 944abfa (Build 1013, host API level 5).
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
