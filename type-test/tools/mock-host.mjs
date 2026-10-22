@@ -266,11 +266,9 @@ export class Host {
       if (!n) return -1;
       if (l < 1 || l > LIMITS.textBytes || !Number.isFinite(off)) return -7;
       if (style.err) return -7;
-      const text = H.str(p, l);
-      if (text.split("\n").length > LIMITS.textLines) {
-        H.textRefusals.push({ node: n.name, len: l, text });
-        return -7;
-      }
+      // KWasmText.cpp class G: the 4th line feed onwards becomes a space (never refused).
+      const parts = H.str(p, l).split("\n");
+      const text = parts.length > LIMITS.textLines ? parts.slice(0, LIMITS.textLines - 1).join("\n") + "\n" + parts.slice(LIMITS.textLines - 1).join(" ") : parts.join("\n");
       if (!H.texts.has(h) && H.texts.size >= H.maxTexts) {
         H.textRefusals.push({ node: n.name, reason: "pool full", text });
         return -5;
@@ -335,10 +333,24 @@ export class Host {
         return n.handle;
       },
       k_transform_set_position(h, x, y, z) {
+        if (!H.hasCap("transform")) return -2;
+        if (![x, y, z].every(Number.isFinite)) return -7;
         const n = node(h);
         if (!n) return -1;
-        if (![x, y, z].every(Number.isFinite)) return -7;
+        if ([x, y, z].some((v) => Math.abs(v) > 1000)) return -3;
+        // World position; the writers only parent created copies at the root, so local = world there.
         n.pos = [x, y, z];
+        return 0;
+      },
+      k_transform_get_position(h, px, py, pz) {
+        if (!H.hasCap("scene_read")) return -2;
+        const n = node(h);
+        if (!n) return -1;
+        const w = H.worldOf(n).pos;
+        const f = new Float32Array(H.memory.buffer);
+        f[px >>> 2] = w[0];
+        f[py >>> 2] = w[1];
+        f[pz >>> 2] = w[2];
         return 0;
       },
       k_ui_show_world_text(h, p, l, off) {
@@ -644,6 +656,7 @@ export class Host {
   point(hand, which) {
     const n = which === null ? null : this.byName.get(which);
     if (which !== null && !n) throw new Error(`point: no node ${which}`);
+    if (n && !n.visible) throw new Error(`point: ${n.name} is hidden (no collision on device: the ray passes through)`);
     const target = n ? this.pressTarget(n.handle) : null;
     const st = this.hover[hand];
     const id = target ? target.handle : null;
@@ -664,7 +677,11 @@ export class Host {
   }
   serviceHover(dt) {
     this.hoverBucket = Math.min(LIMITS.hoverBurst, this.hoverBucket + LIMITS.hoverRate * dt);
-    if (!this.hoverSubscribed()) return;
+    if (!this.hoverSubscribed()) {
+      // A world with no hover subscription pays nothing and hears nothing; what was entered is forgotten.
+      for (const st of this.hover) st.entered = null;
+      return;
+    }
     for (let hand = 0; hand < 2; hand++) {
       const st = this.hover[hand];
       if (this.menuOpen) {
@@ -673,6 +690,13 @@ export class Host {
           st.entered = null;
         }
         st.since = this.time; // no Enter until the menu closes and the ray rests again
+        continue;
+      }
+      if (st.entered !== null && !this.nodes.get(st.entered)?.visible) {
+        // The target was hidden (k_node_set_visible): an Exit at once.
+        this.deliverHover("OnHoverExit", st.entered, hand);
+        st.entered = null;
+        st.on = null;
         continue;
       }
       if (st.entered !== null && st.on !== st.entered) {

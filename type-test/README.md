@@ -63,7 +63,7 @@ The world needs only level 5: it runs on Build 1013 and on the level-6 cook.
 
 ## Publish (unlisted) -- only when the cook is ready, after review
 
-See the PR. 1.1.0 replaces 1.0.0 at the same address. Never publish against level 5 or 6 before the CEO's `deployed` bump unless he says so for this test world (the runbook's warning).
+The bundle to publish is `release/type-test-1.1.0.worldbundle` (the bundler is not byte-reproducible, so the reviewed bytes are kept). The commands are in the PR. 1.1.0 replaces 1.0.0 at the same address. As for 1.0.0, publishing a level-5 test world before the `deployed` bump is the CEO's call (the runbook's section 6.5 warning).
 
 ## Destroy (after the CEO's checks pass)
 
