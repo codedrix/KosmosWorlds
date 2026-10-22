@@ -4,8 +4,8 @@
     "id": "type-test",
     "name": "Type Test",
     "author": "micknerks",
-    "description": "A temporary test room for the system keyboard in worlds: press a button, type, and see what the world received. The password field shows only its length.",
-    "version": "1.0.0",
+    "description": "A temporary test room for the system keyboard in worlds: press a button, type, and see what the world received. 1.1.0 adds seven cards for the remaining level-5 checks. The password fields show only a length.",
+    "version": "1.1.0",
     "spawn_point": {
       "x": 0,
       "y": 0,

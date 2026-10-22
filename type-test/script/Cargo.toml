@@ -1,8 +1,8 @@
 [package]
 name = "type_test_script"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
-description = "Type Test: a throwaway check of host API level 5 world text input (world://type-test.micknerks)."
+description = "Type Test: a temporary check of host API level 5 world text input (world://type-test.micknerks)."
 license = "MIT"
 # build.rs supplies --import-memory and --export-table (see its header).
 build = "build.rs"

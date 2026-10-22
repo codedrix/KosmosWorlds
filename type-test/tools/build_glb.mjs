@@ -283,12 +283,30 @@ export function build() {
   plaque(g, P, "TxtTitle", 2.7, 0, 2.42, 1.95, 0.3, 0.008, 3, WIDEST.title, P.glass, P.cyan, anchor("title"));
   plaque(g, P, "TxtNav", 2.7, 0, 2.08, 1.45, 0.22, 0.008, 2, WIDEST.nav, P.glass, P.teal, anchor("nav"));
 
-  // The script's node contract: every name in NODES and OTHER_NODES, and every mesh is one of them.
-  const lib = fs.readFileSync(path.join(ROOT, "script", "src", "lib.rs"), "utf8");
+  // 1.1.0: the seven level-5 cards (script/src/checks.rs). Left wall: C1-C3; right wall:
+  // C4-C6; behind the visitor: C7 under the header. Each is a button with its result
+  // plaque above it, the plaque 12 cm farther out so a laser that reaches the button
+  // hits the button first. Sizes are checks.rs's CARD_WIDTH_M and BUTTON_WIDTH_M.
+  const CARD = { r: 1.95, y: 1.12, w: 0.86, h: 0.16, d: 0.025, rr: 2.07, ry: 1.5, rw: 1.0, rh: 0.38 };
+  // Names and labels come from checks.rs's CARDS, so the two files cannot disagree.
+  const checksRs = fs.readFileSync(path.join(ROOT, "script", "src", "checks.rs"), "utf8");
+  const parsed = [...checksRs.matchAll(/\("(Btn\w+)", "(Txt\w+)", Kind::\w+, "([^"]+)"\)/g)].map((m) => [m[1], m[2], m[3]]);
+  const PLACE = { BtnEnd: [-62, P.cyan], BtnTwice: [-94, P.cyan], BtnOne: [-126, P.cyan], BtnLimits: [62, P.amber], BtnPin: [94, P.amber], BtnDigits: [126, P.amber], BtnAudit: [180, P.teal] };
+  if (parsed.length !== 7 || parsed.some(([btn]) => !PLACE[btn])) throw new Error("checks.rs CARDS changed; update PLACE");
+  const CARDS = parsed.map(([btn, txt, label]) => [btn, txt, PLACE[btn][0], label, PLACE[btn][1]]);
+  const CARD_WIDEST = ["Press once: four refusals,\nthen a 512-byte field with\n500 bytes in it. Type 20\nmore, then press Enter.", "plain 513: -7, pw 129: -7\npw start: -7, 600>512: -7\n512 field: begin 0\nread 512 bytes, max 512"];
+  for (const [btn, txt, deg, label, bar] of CARDS) {
+    plaque(g, P, btn, CARD.r, deg, CARD.y, CARD.w, CARD.h, CARD.d, 1, [label], P.button, bar, PRESS);
+    plaque(g, P, txt, CARD.rr, deg, CARD.ry, CARD.rw, CARD.rh, COL.d, 4, CARD_WIDEST, P.glass, P.teal, anchor("card"));
+  }
+  plaque(g, P, "TxtChecks", 2.2, 180, 2.02, 1.3, 0.38, 0.008, 4, ["Level 5 checks, part 2\nLeft: closing, refusals\nRight: limits, keyboards\nBehind you: the audit field"], P.glass, P.cyan, anchor("header"));
+
+  // The script's node contract: every name in NODES, OTHER_NODES and CHECK_NODES, and every mesh is one of them.
+  const lib = fs.readFileSync(path.join(ROOT, "script", "src", "lib.rs"), "utf8") + fs.readFileSync(path.join(ROOT, "script", "src", "checks.rs"), "utf8");
   const want = new Set();
-  for (const list of ["NODES", "OTHER_NODES"]) {
+  for (const list of ["NODES", "OTHER_NODES", "CHECK_NODES"]) {
     const m = lib.match(new RegExp(`pub const ${list}: \\[&str; \\d+\\] = \\[([^\\]]*)\\]`));
-    if (!m) throw new Error(`${list} not found in lib.rs`);
+    if (!m) throw new Error(`${list} not found in lib.rs or checks.rs`);
     for (const x of m[1].matchAll(/"([^"]+)"/g)) want.add(x[1]);
   }
   for (const n of want) if (!g.names.has(n)) throw new Error(`lib.rs finds ${n}, which this file does not build`);

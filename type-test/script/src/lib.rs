@@ -1,9 +1,13 @@
 //! Type Test -- a throwaway check of world text input (`world://type-test.micknerks`).
 //!
+//! 1.1.0 (KOS-699, builder vp-w1, 2026-10-22) keeps everything below unchanged and adds
+//! seven cards on the side walls and behind the visitor (`checks.rs`): the level-5 checks
+//! kosmos-project #213 lists as not shown on 1.0.0. They import `k_ui_text_end` too.
+//!
 //! @kosmos-system  Content (KosmosWorlds) -- Type Test (temporary)
 //! @kosmos-owner   Type Test, CEO 2026-10-21: "go ahead and do the type test, MickNerks, and we can
 //!                 test it. After we test it and it works, please destroy that world."
-//! @kosmos-level   host API level 5 (`k_ui_text_begin`, `k_ui_text_read`, the event `OnTextInput`);
+//! @kosmos-level   host API level 5 (`k_ui_text_begin`, `k_ui_text_read`, `k_ui_text_end`, the event `OnTextInput`);
 //!                 level 2 (`k_api_version`); level 0 for the rest.
 //!
 //! What it does, in the order the CEO will see it:
@@ -38,7 +42,7 @@
 //! (Build 1013, versionCode 1013, `current_level` 5).
 //!
 //! @integration
-//!   @kosmos-calls  k_ui_text_begin, k_ui_text_read (KDomUI.cpp), k_world_navigate (KDomWorld.cpp)
+//!   @kosmos-calls  k_ui_text_begin, k_ui_text_read, k_ui_text_end (KDomUI.cpp), k_world_navigate (KDomWorld.cpp)
 //!   @kosmos-calls  k_node_find, k_event_subscribe, k_event_subscribe_global, k_ui_show_world_text, k_api_version
 //!   @kosmos-nodes  ../tools/build_glb.mjs builds every node named in `NODES` below.
 
@@ -70,6 +74,8 @@ mod host {
         pub fn k_ui_text_begin(node: i32, flags: i32, max_bytes: i32, init_ptr: i32, init_len: i32, request_id: i32) -> i32;
         /// "(iii)i", ui_basic, level 5. Copies at most out_cap bytes; returns the full byte length.
         pub fn k_ui_text_read(request_id: i32, out_ptr: i32, out_cap: i32) -> i32;
+        /// "(i)i", ui_basic, level 5. The world closes its own field; no event follows. -7: no open session with this id.
+        pub fn k_ui_text_end(request_id: i32) -> i32;
         /// "(ii)i", world_navigate. Activation-gated: -11 without a local press in the last 5 s.
         pub fn k_world_navigate(url_ptr: i32, url_len: i32) -> i32;
         /// "()i", no capability, level 2.
@@ -86,8 +92,32 @@ mod host {
     pub unsafe fn k_ui_show_world_text(_n: i32, _p: i32, _l: i32, _o: f32) -> i32 { 0 }
     /// What the stand-in k_ui_text_begin answers (tests set it).
     pub static mut STUB_BEGIN: i32 = 0;
-    pub unsafe fn k_ui_text_begin(_n: i32, _f: i32, _m: i32, _ip: i32, _il: i32, _r: i32) -> i32 { STUB_BEGIN }
-    pub unsafe fn k_ui_text_read(_r: i32, _o: i32, _c: i32) -> i32 { -7 }
+    /// The stand-in applies the host's argument rules first (KWorldTextInput.h ValidateBeginArgs:
+    /// -7 for a bad bit, layout or cap, start text in a masked field or over the cap; -8 multi-line),
+    /// then answers STUB_BEGIN, so the tests see the refusals the cards expect.
+    pub unsafe fn k_ui_text_begin(_n: i32, f: i32, m: i32, _ip: i32, il: i32, _r: i32) -> i32 {
+        let masked = f & 1 != 0;
+        if f & !(1 | 2 | (0xF << 4)) != 0 || ((f >> 4) & 0xF) > 3 {
+            return -7;
+        }
+        if m < 1 || m > if masked { 128 } else { 512 } || (masked && il > 0) || il > m {
+            return -7;
+        }
+        if f & 2 != 0 {
+            return -8;
+        }
+        STUB_BEGIN
+    }
+    /// What the stand-in k_ui_text_read answers (tests set it).
+    pub static mut STUB_READ: i32 = -7;
+    /// The out_cap of the last read (the audit card must ask for 0).
+    pub static mut STUB_LAST_READ_CAP: i32 = -1;
+    pub unsafe fn k_ui_text_read(_r: i32, _o: i32, c: i32) -> i32 {
+        STUB_LAST_READ_CAP = c;
+        STUB_READ
+    }
+    pub static mut STUB_END: i32 = 0;
+    pub unsafe fn k_ui_text_end(_r: i32) -> i32 { STUB_END }
     pub unsafe fn k_world_navigate(_p: i32, _l: i32) -> i32 { -11 }
     pub unsafe fn k_api_version() -> i32 { 5 }
 }
@@ -363,6 +393,8 @@ pub struct App {
     pub nav_dirty: bool,
     pub labels_dirty: bool,
     pub next_text_try_s: f32,
+    /// The 1.1.0 cards (checks.rs).
+    pub checks: checks::Checks,
 }
 
 impl App {
@@ -388,6 +420,7 @@ impl App {
             nav_dirty: true,
             labels_dirty: true,
             next_text_try_s: 0.0,
+            checks: checks::Checks::new(),
         }
     }
 }
@@ -649,6 +682,7 @@ pub extern "C" fn k_init() {
     if s <= 0 {
         a.init_error = if s == 0 { -1 } else { s };
     }
+    checks::init(a);
 }
 
 /// OnInteract on any other mesh, or OnButtonA / OnButtonB: only noted, so the
@@ -701,6 +735,7 @@ pub extern "C" fn k_tick(delta: f32) {
         }
     }
 
+    checks::tick(a);
     render(a);
 }
 
@@ -717,6 +752,7 @@ pub extern "C" fn k_shutdown() {
         wipe(&mut *core::ptr::addr_of_mut!(PLAIN_BUF));
         wipe(&mut *core::ptr::addr_of_mut!(MASK_BUF));
     }
+    checks::shutdown();
 }
 
 /// OnInteract on either button: `node` is the button that was pressed.
@@ -733,6 +769,10 @@ pub extern "C" fn on_press(_event_type: i32, node: i32, _p1: i32, _p2: i32) {
 #[no_mangle]
 pub extern "C" fn on_text_input(_event_type: i32, _node: i32, request_id: i32, code: i32) {
     let a = app();
+    // A card's field (checks.rs) first: request ids come from one counter, so they never collide.
+    if checks::on_text_input(a, request_id, code) {
+        return;
+    }
     let Some((k, req, via)) = a.session else { return };
     if req != request_id {
         return; // a stale session's news
@@ -807,10 +847,13 @@ fn render(a: &mut App) {
             failed |= a.fields[k].status_dirty;
         }
     }
+    failed |= checks::render(a);
     if failed {
         a.next_text_try_s = a.now_s + TEXT_RETRY_S;
     }
 }
+
+pub mod checks;
 
 #[cfg(test)]
 mod tests;
