@@ -1,7 +1,7 @@
 AB1
 V 1
 M arc
-T TxTicker 3 working  |  1 needs you\n2 done today  |  21:50
+T TxTicker 3 working  |  1 needs you\n2 done today  |  00:27
 U RailA 1
 T TxRailA registry: Run all tests\nNEEDS YOU  4m 12s
 U RailSelA 1
@@ -35,7 +35,7 @@ T TxPage 3/3
 U AskPanel 1
 T TxAskA !! Claude wants to: Run a command\nnpm test
 X TxAskB
-T TxPageSpot Page panel (DB-043)\nA pinned web page will\nshow here.
+T TxPageSpot A page you pin goes here.
 U BtnTests 0
 U BtnPrs 0
 U BtnToday 0
@@ -57,4 +57,4 @@ U BtnWatch 0
 U BtnSignOut 0
 X TxProject
 T TxWatch read-only
-T TxStatus Watching Mission Control\npressed: Group watch 0s ago
+T TxStatus Watching Mission Control\npressed: Share with group 0s ago

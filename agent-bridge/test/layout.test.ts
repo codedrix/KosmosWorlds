@@ -67,10 +67,10 @@ test("node names follow the device rules", () => {
   assert.ok(ARC_TEXT_NODES.length + 4 + 1 <= 29, "the arc state shows at most 29 labels (arc + four cubes + the puck)");
 });
 
-test("the line widths are the contract's (narrowed for the v2.1 panels, section 8)", () => {
+test("the line widths are the contract's (v2.1 panels, section 8; TxWatch widened for the 1.4.0 clarity pass)", () => {
   assert.deepEqual({ ...W }, {
     ticker: 0.78, status: 1.2, project: 0.85, rail: 0.74, done: 0.78,
-    header: 1.2, conv: 1.2, ask: 1.1, pageSpot: 0.72, cube: 0.34, puck: 0.8, seal: 0.45, sealHint: 1.0, watch: 0.5,
+    header: 1.2, conv: 1.2, ask: 1.1, pageSpot: 0.72, cube: 0.34, puck: 0.8, seal: 0.45, sealHint: 1.0, watch: 0.66,
   });
   assert.equal(CONV_LEFT_M, -0.6);
 });

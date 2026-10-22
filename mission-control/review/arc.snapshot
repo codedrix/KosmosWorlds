@@ -1,5 +1,5 @@
 AB1
-V 4
+V 6
 M arc
 Z 3
 U CubeA 1
@@ -19,7 +19,7 @@ H Puck need
 T TxPuck registry: run npm test
 U BtnPuckApprove 1
 U BtnPuckDeny 1
-T TxTicker 3 working  |  1 needs you\n2 done today  |  21:50
+T TxTicker 3 working  |  1 needs you\n2 done today  |  00:27
 U RailA 1
 T TxRailA registry: Run all tests\nNEEDS YOU  4m 12s
 U RailSelA 1
@@ -34,7 +34,7 @@ T TxRailD portal: Draft release notes\nDONE  0s
 U RailSelD 0
 T TxDone Done today: 2  |  Draft relea...
 U BtnFold 1
-T TxStatus 3/4 jobs  |  stop at the PC: npm run kill
+T TxStatus 3/4 jobs running  |  stop all: npm run kill (PC)
 U BtnTests 0
 U BtnPrs 0
 U BtnToday 0
@@ -72,7 +72,7 @@ U BtnKeep 0
 U BtnSimple 0
 U BtnSummary 0
 U BtnReply 0
-T TxWatch off
+T TxWatch Not shared
 U BtnWatch 1
 U BtnSignOut 1
-T TxPageSpot Page panel (DB-043)\nA pinned web page will\nshow here.
+T TxPageSpot A page you pin goes here.

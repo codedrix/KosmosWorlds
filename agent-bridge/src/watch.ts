@@ -6,7 +6,7 @@
  *
  * Off by default. The owner turns "Let my group watch" on from the panel; the
  * bridge makes a six-digit code, the panel shows it, the owner shares it (group
- * chat, or aloud), and a group member types it at the Watch button in the Lobby.
+ * chat, or aloud), and a group member types it at the Watch post in the Lobby.
  * A watcher sees what the owner sees, plus the last thing the owner pressed.
  *
  * A watch code can never approve, type, start or stop anything: the face's watch

@@ -58,7 +58,7 @@ export interface BridgeConfig {
   alwaysAsk?: string[];
   /**
    * Mission Control v2: the typed passphrase stays as a fallback beside the Pairing Seal. false =
-   * `signin` (and POST /v1/session) answer "passphrase_off", and the seal hides "Use passphrase".
+   * `signin` (and POST /v1/session) answer "passphrase_off", and the seal hides "Or type passphrase here".
    */
   passphraseSignIn: boolean;
   /** The Pairing Seal (pairing.ts). false = every pairing is refused ("pair_refused"). */
