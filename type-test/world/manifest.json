@@ -1,0 +1,29 @@
+{
+  "kosmos_version": "1.0",
+  "world": {
+    "id": "type-test",
+    "name": "Type Test",
+    "author": "micknerks",
+    "description": "A temporary test room for the system keyboard in worlds: press a button, type, and see what the world received. The password field shows only its length.",
+    "version": "1.0.0",
+    "spawn_point": {
+      "x": 0,
+      "y": 0,
+      "z": 1.1
+    },
+    "sky": "night"
+  },
+  "capabilities": [
+    "scene_read",
+    "events",
+    "ui_basic",
+    "world_navigate"
+  ],
+  "requires": {
+    "host_api": 5
+  },
+  "assets": {
+    "gltf": "world.glb",
+    "wasm": "world.wasm"
+  }
+}
