@@ -458,3 +458,21 @@ fn numbers_print() {
     b.push_i32(-11).push(" ").push_f1(13.88).push(" ").push_f1(0.04).push(" ").push_i32(i32::MIN);
     assert_eq!(b.as_str(), "-11 13.9 0.0 -2147483648");
 }
+
+/// 1.0.1: every plaque's text anchor is "<plaque>Text": unique, a legal node name
+/// (no trailing digit), within the 32-byte buffer, and never one of NAMED itself.
+#[test]
+fn text_anchors_are_named_after_their_plaques() {
+    let mut seen: std::vec::Vec<std::string::String> = std::vec::Vec::new();
+    for &n in TEXT_ANCHORED {
+        let mut b = [0u8; 32];
+        let len = text_anchor_name(n, &mut b);
+        let name = core::str::from_utf8(&b[..len]).unwrap().to_string();
+        assert_eq!(name, std::format!("{}Text", NAMED[n as usize].0));
+        assert!(!name.ends_with(|c: char| c.is_ascii_digit()), "{name}");
+        assert!(!NAMED.iter().any(|(x, _)| *x == name), "{name} is a named node");
+        assert!(!seen.contains(&name), "{name} twice");
+        seen.push(name);
+    }
+    assert_eq!(seen.len(), 43);
+}

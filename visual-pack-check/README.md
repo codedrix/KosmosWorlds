@@ -1,6 +1,8 @@
 # Visual Pack Check (`world://visual-pack-check.micknerks` and `world://visual-pack-check-mr.micknerks`) -- TEMPORARY
 
-Two unlisted test rooms for the CEO's level-6 headset checkpoint: the DB-045 visual pack (styled text and the plate, colour, glow, fade and reset, pictures from the bundle, and hover). They follow the device checkpoint in `docs/DB045_VISUAL_PACK_SITTING_RUNBOOK_v1.0.md` section 7.2 (K1 to K11, and the extras the reviews asked for). The level-5 checks the CEO ruled into the same session are in `type-test/` (1.1.0).
+Two unlisted test rooms for the CEO's level-6 headset checkpoint: the DB-045 visual pack (styled text and the plate, colour, glow, fade and reset, pictures from the bundle, and hover). They follow the device checkpoint in `docs/DB045_VISUAL_PACK_SITTING_RUNBOOK_v1.0.md` section 7.2 (K1 to K11, and the extras the reviews asked for). The level-5 checks the CEO ruled into the same session are in `type-test/` (1.1.1).
+
+**1.0.1** (both rooms) changes no check: every plaque's text moves to its own invisible anchor node, `<plaque>Text` (`script/src/nodes.rs` `TEXT_ANCHORED`), so the pointing outline fits the buttons, tabs and hover pads. In 1.0.0 each plaque carried an invisible keel under it to centre its text, and the outline (which boxes the whole node a press goes to) wrapped the keel too.
 
 **Publishing these is the CEO's call** (see "Publishing" below): the runbook holds every level-6 world back until the `deployed` bump, and these are the test worlds the checkpoint itself runs on. They are meant to be taken down once the checkpoint is recorded.
 
@@ -11,7 +13,7 @@ The VR room and the MR room run the same `world.wasm`; the script tells them apa
 **Order:** run the Colour page's K6 (**256: make**) first, before Pictures, Hover and Travel (it resets every look anyway, but running it first keeps the other pages' looks). Then the pages in tab order.
 
 - **The cook:** a level-6 cook of `feat/device-p2-2026-10` at `a1936d8` or later, with the sitting's assets (Inter and the plate) if the sitting has happened. Without them the client falls back to Roboto and a square, fully dark plate (runbook section 5): K1's and K4's look then waits for a later sitting.
-- **The two worlds published unlisted** (see "Publishing"), and `world://type-test.micknerks` 1.1.0, which the Travel page's door goes to.
+- **The two worlds published unlisted** (see "Publishing"), and `world://type-test.micknerks` 1.1.1, which the Travel page's door goes to.
 - **Logs** (PowerShell; HS2 is the Quest 3S `340YC10GBQ1FYK`, HS3 the Quest 3 `2G0YC1ZF9H06CW`):
 
   ```powershell

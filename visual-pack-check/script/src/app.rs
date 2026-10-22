@@ -308,6 +308,8 @@ pub struct App {
     pub missing: i32,
     pub sub_err: i32,
     pub named: [i32; NAMED_COUNT],
+    /// The text anchors of the TEXT_ANCHORED plaques (0 for every other node).
+    pub named_text: [i32; NAMED_COUNT],
     pub groups: [[i32; 64]; 5],
     pub last_press: f32,
     pub shown: [(i32, u32); 64],
@@ -343,6 +345,7 @@ impl App {
             missing: 0,
             sub_err: 0,
             named: [0; NAMED_COUNT],
+            named_text: [0; NAMED_COUNT],
             groups: [[0; 64]; 5],
             last_press: -100.0,
             shown: [(0, 0); 64],
@@ -413,6 +416,11 @@ impl App {
     pub fn h(&self, n: N) -> i32 {
         self.named[n as usize]
     }
+    /// The node `n`'s text goes on: its anchor if it is a TEXT_ANCHORED plaque, else `n` itself.
+    pub fn t(&self, n: N) -> i32 {
+        let x = self.named_text[n as usize];
+        if x > 0 { x } else { self.named[n as usize] }
+    }
     pub fn g(&self, g: usize, i: usize) -> i32 {
         self.groups[g][i]
     }
@@ -469,6 +477,11 @@ pub fn init(a: &mut App, on_press_fn: i32, on_enter_fn: i32, on_exit_fn: i32) {
     for (i, (name, _)) in NAMED.iter().enumerate() {
         a.named[i] = find(name.as_bytes());
     }
+    let mut tb = [0u8; 32];
+    for &n in TEXT_ANCHORED {
+        let len = text_anchor_name(n, &mut tb);
+        a.named_text[n as usize] = if len > 0 { find(&tb[..len]) } else { -1 };
+    }
     let mut nb = [0u8; 16];
     for g in 0..GROUPS.len() {
         for i in 0..GROUPS[g].1 {
@@ -482,6 +495,9 @@ pub fn init(a: &mut App, on_press_fn: i32, on_enter_fn: i32, on_exit_fn: i32) {
     for (i, (_, mask)) in NAMED.iter().enumerate() {
         let here = if a.mr { *mask == P_MR } else { *mask != P_MR };
         if here && a.named[i] <= 0 {
+            a.missing += 1;
+        }
+        if here && TEXT_ANCHORED.iter().any(|&n| n as usize == i) && a.named_text[i] <= 0 {
             a.missing += 1;
         }
     }
@@ -1381,13 +1397,13 @@ pub fn build_wants(a: &App, w: &mut Wants) {
                 b.push("> ");
             }
             b.push(label);
-            w.add_buf(a.h(tab), &b, None, 0.0, Tag::Named(tab));
+            w.add_buf(a.t(tab), &b, None, 0.0, Tag::Named(tab));
         }
         let t = title_text(a);
-        w.add_buf(a.h(N::TxtTitle), &t, None, 0.0, Tag::Named(N::TxtTitle));
+        w.add_buf(a.t(N::TxtTitle), &t, None, 0.0, Tag::Named(N::TxtTitle));
         let (s, s2) = status_texts(a);
-        w.add_buf(a.h(N::TxtStatus), &s, None, 0.0, Tag::Named(N::TxtStatus));
-        w.add_buf(a.h(N::TxtStatusB), &s2, None, 0.0, Tag::Named(N::TxtStatusB));
+        w.add_buf(a.t(N::TxtStatus), &s, None, 0.0, Tag::Named(N::TxtStatus));
+        w.add_buf(a.t(N::TxtStatusB), &s2, None, 0.0, Tag::Named(N::TxtStatusB));
     }
     match a.page {
         Page::Text => {
@@ -1402,26 +1418,26 @@ pub fn build_wants(a: &App, w: &mut Wants) {
                 let [bs, br, ss, sr] = nodes[c];
                 if c == 1 && a.text.old_call {
                     // The old call on a styled node puts it back to plain white (VISUAL_PACK.md section 3).
-                    w.add(a.h(bs), "Ag", None, 0.0, Tag::Named(bs));
+                    w.add(a.t(bs), "Ag", None, 0.0, Tag::Named(bs));
                 } else {
-                    w.add(a.h(bs), "Ag", st(AMBER, 160, align | STRONG | plate), 0.0, Tag::Named(bs));
+                    w.add(a.t(bs), "Ag", st(AMBER, 160, align | STRONG | plate), 0.0, Tag::Named(bs));
                 }
-                w.add(a.h(br), "Ag", st(CYAN, 160, align | plate), 0.0, Tag::Named(br));
+                w.add(a.t(br), "Ag", st(CYAN, 160, align | plate), 0.0, Tag::Named(br));
                 let mut b: Buf<64> = Buf::new();
                 b.push("10 mm SemiBold, ").push(word);
-                w.add_buf(a.h(ss), &b, st(WHITE, 10, align | STRONG | plate), 0.0, Tag::Named(ss));
+                w.add_buf(a.t(ss), &b, st(WHITE, 10, align | STRONG | plate), 0.0, Tag::Named(ss));
                 b.clear();
                 b.push("10 mm Regular, ").push(word);
-                w.add_buf(a.h(sr), &b, st(WHITE, 10, align | plate), 0.0, Tag::Named(sr));
+                w.add_buf(a.t(sr), &b, st(WHITE, 10, align | plate), 0.0, Tag::Named(sr));
             }
-            w.add(a.h(N::SampDefault), "size 0 = 80 mm", st(VIOLET, 0, ALIGN_C | plate), 0.0, Tag::Named(N::SampDefault));
-            w.add(a.h(N::SampBehind), "Behind a wall", st(WHITE, 60, ALIGN_C | STRONG | PLATE), 0.0, Tag::Named(N::SampBehind));
-            w.add(a.h(N::CapLeft), "Left aligned", None, 0.0, Tag::Named(N::CapLeft));
-            w.add(a.h(N::CapMid), "Centred", None, 0.0, Tag::Named(N::CapMid));
-            w.add(a.h(N::CapRight), "Right aligned", None, 0.0, Tag::Named(N::CapRight));
-            w.add(a.h(N::BtnPlate), if a.text.plate { "Plates:\non" } else { "Plates:\noff" }, None, 0.0, Tag::Named(N::BtnPlate));
-            w.add(a.h(N::BtnBadValues), "Try bad\nvalues", None, 0.0, Tag::Named(N::BtnBadValues));
-            w.add(a.h(N::BtnOldCall), "Old call:\ntop middle", None, 0.0, Tag::Named(N::BtnOldCall));
+            w.add(a.t(N::SampDefault), "size 0 = 80 mm", st(VIOLET, 0, ALIGN_C | plate), 0.0, Tag::Named(N::SampDefault));
+            w.add(a.t(N::SampBehind), "Behind a wall", st(WHITE, 60, ALIGN_C | STRONG | PLATE), 0.0, Tag::Named(N::SampBehind));
+            w.add(a.t(N::CapLeft), "Left aligned", None, 0.0, Tag::Named(N::CapLeft));
+            w.add(a.t(N::CapMid), "Centred", None, 0.0, Tag::Named(N::CapMid));
+            w.add(a.t(N::CapRight), "Right aligned", None, 0.0, Tag::Named(N::CapRight));
+            w.add(a.t(N::BtnPlate), if a.text.plate { "Plates:\non" } else { "Plates:\noff" }, None, 0.0, Tag::Named(N::BtnPlate));
+            w.add(a.t(N::BtnBadValues), "Try bad\nvalues", None, 0.0, Tag::Named(N::BtnBadValues));
+            w.add(a.t(N::BtnOldCall), "Old call:\ntop middle", None, 0.0, Tag::Named(N::BtnOldCall));
         }
         Page::Grid => {
             for i in 0..64 {
@@ -1448,7 +1464,7 @@ pub fn build_wants(a: &App, w: &mut Wants) {
                 (N::BtnFrameCap, "65 in\none frame"),
             ];
             for (n, l) in labels {
-                w.add(a.h(n), l, None, 0.0, Tag::Named(n));
+                w.add(a.t(n), l, None, 0.0, Tag::Named(n));
             }
             let caps: [(N, &str); 7] = [
                 (N::ColCube, "Lit cube"),
@@ -1461,7 +1477,7 @@ pub fn build_wants(a: &App, w: &mut Wants) {
             ];
             // The objects are 0.28 m apart and a caption is up to 0.42 m wide: alternate heights.
             for (k, (n, l)) in caps.iter().enumerate() {
-                w.add(a.h(*n), l, None, if k % 2 == 0 { 0.16 } else { 0.3 }, Tag::Named(*n));
+                w.add(a.t(*n), l, None, if k % 2 == 0 { 0.16 } else { 0.3 }, Tag::Named(*n));
             }
         }
         Page::Pics => {
@@ -1474,18 +1490,18 @@ pub fn build_wants(a: &App, w: &mut Wants) {
                 (N::BtnPicNoUv, "Mesh with\nno UV0"),
             ];
             for (n, l) in labels {
-                w.add(a.h(n), l, None, 0.0, Tag::Named(n));
+                w.add(a.t(n), l, None, 0.0, Tag::Named(n));
             }
-            w.add(a.h(N::PicNoUv), "No UV0", None, 0.0, Tag::Named(N::PicNoUv));
+            w.add(a.t(N::PicNoUv), "No UV0", None, 0.0, Tag::Named(N::PicNoUv));
         }
         Page::Hover => {
-            w.add(a.h(N::BtnHoverClear), "Clear\nthe counts", None, 0.0, Tag::Named(N::BtnHoverClear));
+            w.add(a.t(N::BtnHoverClear), "Clear\nthe counts", None, 0.0, Tag::Named(N::BtnHoverClear));
             let l = log_text(a);
-            w.add_buf(a.h(N::TxtLog), &l, None, 0.0, Tag::Named(N::TxtLog));
-            w.add(a.h(N::HoverPad), "Point here", None, 0.0, Tag::Named(N::HoverPad));
-            w.add(a.h(N::HoverGo), "Point, then wait", None, 0.0, Tag::Named(N::HoverGo));
-            w.add(a.h(N::HoverArch), "Arch", None, 0.45, Tag::Named(N::HoverArch));
-            w.add(a.h(N::HoverBehind), "Wall behind", None, 0.0, Tag::Named(N::HoverBehind));
+            w.add_buf(a.t(N::TxtLog), &l, None, 0.0, Tag::Named(N::TxtLog));
+            w.add(a.t(N::HoverPad), "Point here", None, 0.0, Tag::Named(N::HoverPad));
+            w.add(a.t(N::HoverGo), "Point, then wait", None, 0.0, Tag::Named(N::HoverGo));
+            w.add(a.t(N::HoverArch), "Arch", None, 0.45, Tag::Named(N::HoverArch));
+            w.add(a.t(N::HoverBehind), "Wall behind", None, 0.0, Tag::Named(N::HoverBehind));
         }
         Page::Travel => {
             let labels: [(N, &str); 4] = [
@@ -1495,18 +1511,18 @@ pub fn build_wants(a: &App, w: &mut Wants) {
                 (N::DoorNowhere, "Door:\nnowhere"),
             ];
             for (n, l) in labels {
-                w.add(a.h(n), l, None, 0.0, Tag::Named(n));
+                w.add(a.t(n), l, None, 0.0, Tag::Named(n));
             }
             let caps: [(N, &str); 4] = [(N::TrvCube, "Colour"), (N::TrvGlow, "Glow"), (N::TrvBlend, "Fade"), (N::TrvPic, "Picture")];
             for (n, l) in caps {
-                w.add(a.h(n), l, None, 0.16, Tag::Named(n));
+                w.add(a.t(n), l, None, 0.16, Tag::Named(n));
             }
         }
         Page::Mr => {
             let plate = if a.mrs.plate { PLATE } else { 0 };
             let mut t: Buf<128> = Buf::new();
             t.push("Plates over your room (K4)\nA plate darkens only its own footprint:\nthe room around it is never dimmed.");
-            w.add_buf(a.h(N::MrTitle), &t, None, 0.0, Tag::Named(N::MrTitle));
+            w.add_buf(a.t(N::MrTitle), &t, None, 0.0, Tag::Named(N::MrTitle));
             let mut s: Buf<128> = Buf::new();
             let samples = [N::MrTxtA, N::MrTxtB, N::MrTxtC, N::MrTxtD, N::MrTxtE, N::MrTxtF];
             let ok = samples.iter().filter(|n| a.named_code[**n as usize] == 0).count();
@@ -1518,7 +1534,7 @@ pub fn build_wants(a: &App, w: &mut Wants) {
             } else {
                 s.push("\nlevel ").push_i32(a.level).push(", texts refused ").push_i32(a.text_refusals);
             }
-            w.add_buf(a.h(N::MrStatus), &s, None, 0.0, Tag::Named(N::MrStatus));
+            w.add_buf(a.t(N::MrStatus), &s, None, 0.0, Tag::Named(N::MrStatus));
             let items: [(N, &str, u32, i32, i32); 6] = [
                 (N::MrTxtA, "Plate at 20 mm", WHITE, 20, ALIGN_C),
                 (N::MrTxtB, "Plate at 40 mm", AMBER, 40, ALIGN_C | STRONG),
@@ -1528,12 +1544,12 @@ pub fn build_wants(a: &App, w: &mut Wants) {
                 (N::MrTxtF, "Right on the room", PINK, 40, ALIGN_R | STRONG),
             ];
             for (n, txt, c, size, f) in items {
-                w.add(a.h(n), txt, st(c, size, f | plate), 0.0, Tag::Named(n));
+                w.add(a.t(n), txt, st(c, size, f | plate), 0.0, Tag::Named(n));
             }
-            w.add(a.h(N::MrBtnPlates), if a.mrs.plate { "Plates:\non" } else { "Plates:\noff" }, None, 0.0, Tag::Named(N::MrBtnPlates));
-            w.add(a.h(N::MrBtnFade), "Fade\n0.4 / 1", None, 0.0, Tag::Named(N::MrBtnFade));
-            w.add(a.h(N::MrFade), "BLEND panel", None, 0.14, Tag::Named(N::MrFade));
-            w.add(a.h(N::MrSolid), "Solid", None, 0.14, Tag::Named(N::MrSolid));
+            w.add(a.t(N::MrBtnPlates), if a.mrs.plate { "Plates:\non" } else { "Plates:\noff" }, None, 0.0, Tag::Named(N::MrBtnPlates));
+            w.add(a.t(N::MrBtnFade), "Fade\n0.4 / 1", None, 0.0, Tag::Named(N::MrBtnFade));
+            w.add(a.t(N::MrFade), "BLEND panel", None, 0.14, Tag::Named(N::MrFade));
+            w.add(a.t(N::MrSolid), "Solid", None, 0.14, Tag::Named(N::MrSolid));
         }
     }
 }

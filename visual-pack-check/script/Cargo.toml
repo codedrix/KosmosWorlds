@@ -1,6 +1,6 @@
 [package]
 name = "visual_pack_check"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 description = "Visual Pack Check: the level-6 (DB-045 visual pack) device-checkpoint world (world://visual-pack-check.micknerks and its -mr twin)."
 license = "MIT"

@@ -229,7 +229,17 @@ const textH = (n) => 0.08 + (n - 1) * 0.084;
 
 const nodesRs = fs.readFileSync(path.join(ROOT, "script", "src", "nodes.rs"), "utf8");
 const appRs = fs.readFileSync(path.join(ROOT, "script", "src", "app.rs"), "utf8");
-const NAMED = [...nodesRs.matchAll(/^\s+\w+ = "(\w+)": ([A-Z_| ]+),$/gm)].map((m) => ({ name: m[1], mr: m[2].trim() === "P_MR" }));
+const NAMED = [...nodesRs.matchAll(/^\s+(\w+) = "(\w+)": ([A-Z_| ]+),$/gm)].map((m) => ({ id: m[1], name: m[2], mr: m[3].trim() === "P_MR" }));
+// 1.0.1: the plaques with a text anchor, "<name>" + TEXT_SUFFIX (nodes.rs TEXT_ANCHORED).
+const anchoredBlock = nodesRs.match(/pub const TEXT_ANCHORED: &\[N\] = &\[([^\]]*)\];/);
+if (!anchoredBlock) throw new Error("nodes.rs: TEXT_ANCHORED not found");
+const TEXT_SUFFIX = nodesRs.match(/pub const TEXT_SUFFIX: &str = "(\w+)";/)?.[1];
+if (TEXT_SUFFIX !== "Text") throw new Error(`nodes.rs: TEXT_SUFFIX is ${TEXT_SUFFIX}`);
+const ANCHORED = new Set([...anchoredBlock[1].matchAll(/N::(\w+)/g)].map((m) => {
+  const n = NAMED.find((x) => x.id === m[1]);
+  if (!n) throw new Error(`nodes.rs: TEXT_ANCHORED names ${m[1]}, which is not in NAMED`);
+  return n.name;
+}));
 const GROUPS = [...nodesRs.matchAll(/\("(\w+)", (\d+), (true|false), P_\w+\)/g)].map((m) => ({ prefix: m[1], count: +m[2], two: m[3] === "true" }));
 if (NAMED.length < 90 || GROUPS.length !== 5) throw new Error(`nodes.rs parse: ${NAMED.length} named, ${GROUPS.length} groups`);
 const groupName = (gp, i) => (gp.two ? `${gp.prefix}${String.fromCharCode(65 + Math.floor(i / 8))}${String.fromCharCode(97 + (i % 8))}` : `${gp.prefix}${String.fromCharCode(65 + i)}`);
@@ -247,6 +257,11 @@ const W = { tab: constF("W_TAB"), btn: constF("W_BTN"), status: constF("W_STATUS
 const PRESS = { interactable: true };
 const anchor = (role) => ({ script_node: role });
 const FRONT = -0.006;
+/** A text anchor's studs: 2 mm cubes. Its bounds are 2 * ANCHOR_HALF tall. */
+const STUD = 0.002;
+const ANCHOR_HALF = 0.015;
+/** The studs' front faces sit this far behind the plaque's front face, so a laser always meets the plaque. */
+const STUD_INSET = 0.00025;
 
 /** Materials are made on first use, so a world carries only the ones it uses. */
 function palette(g, tex) {
@@ -329,8 +344,37 @@ function lightBars(w, h, d, mat) {
 }
 
 /**
- * A plaque facing the spawn: w wide, h tall, d deep, with an invisible keel so
- * maxLines lines of 8 cm text sit centred on it. `lines` are its widest texts (checked).
+ * The studs of a plaque's text anchor, in the plaque's own frame (front = -x).
+ * Their bounds are centred k below the plaque's centre, k being half the height
+ * of maxLines lines of 8 cm text; ANCHOR_HALF each way vertically, nearly the
+ * plaque's width across, and STUD deep, so the client reads them as a thin
+ * upright plane that faces the spawn (KWorldTextPool.cpp ComputeFixedFacing)
+ * and prints the text a hair in front of the plaque's face. Both studs lie
+ * wholly inside the plaque's body, so no part of the anchor can be pointed at
+ * or pressed.
+ *
+ * @returns {Array} mesh parts for Gltf.node
+ * @throws if the studs would not fit inside the body
+ */
+function textAnchorParts(P, name, w, h, d, maxLines) {
+  const k = textH(maxLines) / 2;
+  const x = -d / 2 + STUD_INSET + STUD / 2;
+  const z = w / 2 - STUD;
+  if (-k - ANCHOR_HALF < -h / 2 + 0.001 || -k + ANCHOR_HALF > h / 2 - 0.001) throw new Error(`${name}: a text anchor for ${maxLines} lines does not fit inside a ${h} m plaque`);
+  if (STUD + STUD_INSET > d) throw new Error(`${name}: a text anchor does not fit inside a ${d} m deep plaque`);
+  return [
+    [boxGeom([STUD, STUD, STUD], [x, -k + ANCHOR_HALF - STUD / 2, -z]), P.unseen],
+    [boxGeom([STUD, STUD, STUD], [x, -k - ANCHOR_HALF + STUD / 2, z]), P.unseen],
+  ];
+}
+
+/**
+ * A plaque facing the spawn: w wide, h tall, d deep, as two nodes. `name` is
+ * the body and its light bars: the node a press goes to and the pointing
+ * outline boxes. `name` + "Text" is its invisible text anchor
+ * (textAnchorParts), on which maxLines lines of 8 cm text sit centred on the
+ * plaque (the script shows the plaque's text there: app.rs App::t). `lines`
+ * are its widest texts (checked).
  */
 function plaque(g, P, name, pos, deg, w, h, d, maxLines, lines, bodyMat, barMat, extras, parent = null) {
   if (textH(maxLines) > h + 1e-6) throw new Error(`${name}: ${maxLines} lines do not fit ${h} m`);
@@ -341,10 +385,11 @@ function plaque(g, P, name, pos, deg, w, h, d, maxLines, lines, bodyMat, barMat,
       if (lw > w * 0.97) throw new Error(`${name}: "${l}" is ${lw.toFixed(3)} m, wider than ${w} m`);
     }
   }
-  const k = textH(maxLines) / 2;
-  const keel = [boxGeom([0.002, 2 * k, 0.002], [0, -h / 2 - k, 0]), P.unseen];
-  const parts = [[boxGeom([d, h, w]), bodyMat], ...(barMat !== null ? lightBars(w, h, d, barMat) : []), keel];
-  return g.node(name, pos, parts, extras, facing(deg), parent);
+  if (!ANCHORED.has(name)) throw new Error(`${name}: a plaque, but not in nodes.rs TEXT_ANCHORED`);
+  const parts = [[boxGeom([d, h, w]), bodyMat], ...(barMat !== null ? lightBars(w, h, d, barMat) : [])];
+  const idx = g.node(name, pos, parts, extras, facing(deg), parent);
+  g.node(name + TEXT_SUFFIX, pos, textAnchorParts(P, name, w, h, d, maxLines), anchor("text"), facing(deg), parent);
+  return idx;
 }
 
 /** A 3 x 3 cm x 2 mm invisible stud: a text anchor that prints its text flat and shows nothing itself. */
@@ -534,6 +579,7 @@ function buildMr() {
 
 function check(g, mr) {
   const want = new Set(NAMED.filter((x) => x.mr === mr).map((x) => x.name));
+  for (const x of NAMED) if (x.mr === mr && ANCHORED.has(x.name)) want.add(x.name + TEXT_SUFFIX);
   if (!mr) for (const gp of GROUPS) for (let i = 0; i < gp.count; i++) want.add(groupName(gp, i));
   for (const n of want) if (!g.names.has(n)) throw new Error(`${mr ? "MR" : "VR"}: nodes.rs finds ${n}, which this file does not build`);
   for (const nd of g.j.nodes) if (nd.mesh !== undefined && !want.has(nd.name)) throw new Error(`${mr ? "MR" : "VR"}: mesh ${nd.name} is not in nodes.rs`);

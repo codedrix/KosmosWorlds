@@ -42,8 +42,46 @@ const ok = (cond, msg) => {
     console.error(`  FAIL ${msg}`);
   } else console.log(`  ok   ${msg}`);
 };
-const has = (h, node, s) => ok((h.textOf(node) ?? "").includes(s), `${node} shows ${JSON.stringify(s)}  [${JSON.stringify(h.textOf(node))}]`);
+// 1.0.1: a plaque's text is on its anchor, "<plaque>Text" (build_glb.mjs plaque()); any other node carries its own.
+const txt = (h, node) => (h.byName.has(node + "Text") ? h.textOf(node + "Text") : h.textOf(node));
+const has = (h, node, s) => ok((txt(h, node) ?? "").includes(s), `${node} shows ${JSON.stringify(s)}  [${JSON.stringify(txt(h, node))}]`);
 const snap = (h, name) => SNAP && fs.writeFileSync(path.join(SNAP, `${name}.json`), JSON.stringify(h.scene(), null, 1));
+
+/**
+ * 1.0.1: the outline fits the plaque. For every plaque with a text anchor in the
+ * GLB this run loads: the plaque's mesh reaches no lower, higher or wider than its
+ * body (primitive 0; no keel), the anchor sits at the plaque's own place and turn,
+ * and the anchor's box lies wholly inside the body, behind its front face.
+ * Positions are read in each mesh's local frame, dequantised when the optimizer
+ * stored them as normalised integers.
+ */
+function checkAnchors(glbPath, want) {
+  const b = fs.readFileSync(glbPath);
+  const json = JSON.parse(b.subarray(20, 20 + b.readUInt32LE(12)).toString("utf8"));
+  const box = (prim) => {
+    const a = json.accessors[prim.attributes.POSITION];
+    const k = a.normalized ? { 5120: 127, 5121: 255, 5122: 32767, 5123: 65535 }[a.componentType] : 1;
+    return { min: a.min.map((v) => v / k), max: a.max.map((v) => v / k) };
+  };
+  const union = (boxes) => ({ min: [0, 1, 2].map((i) => Math.min(...boxes.map((x) => x.min[i]))), max: [0, 1, 2].map((i) => Math.max(...boxes.map((x) => x.max[i]))) });
+  const byName = new Map(json.nodes.map((n) => [n.name, n]));
+  const xf = (n) => JSON.stringify([n.translation ?? [0, 0, 0], n.rotation ?? [0, 0, 0, 1], n.scale ?? [1, 1, 1]]);
+  let anchors = 0;
+  for (const anc of json.nodes) {
+    if (!anc.name?.endsWith("Text") || anc.mesh === undefined) continue;
+    const base = byName.get(anc.name.slice(0, -4));
+    if (!base || base.mesh === undefined) continue;
+    anchors++;
+    const prims = json.meshes[base.mesh].primitives.map(box);
+    const body = prims[0], all = union(prims);
+    const a = union(json.meshes[anc.mesh].primitives.map(box));
+    const eps = 1e-4;
+    const noKeel = [1, 2].every((i) => Math.abs(all.min[i] - body.min[i]) < eps && Math.abs(all.max[i] - body.max[i]) < eps);
+    const inside = [0, 1, 2].every((i) => a.min[i] > body.min[i] - eps && a.max[i] < body.max[i] + eps) && a.min[0] > body.min[0];
+    if (!noKeel || !inside || xf(base) !== xf(anc)) ok(false, `${base.name}: no keel ${noKeel}, anchor inside ${inside}, same place ${xf(base) === xf(anc)}`);
+  }
+  ok(anchors === want, `${anchors} plaques (want ${want}): each mesh is just its body and bars, and each text anchor lies inside its plaque`);
+}
 
 function load(dir) {
   const manifest = JSON.parse(fs.readFileSync(path.join(dir, "manifest.json"), "utf8"));
@@ -69,8 +107,10 @@ console.log("\n== VR: visual-pack-check ==");
   ok(!imports.some((n) => /^k_(log|state_|net_|player_)/.test(n)), `no k_log / k_state_* / k_net_* / k_player_* import (${imports.length} imports)`);
   for (const f of ["k_ui_show_world_text_ex", "k_material_set_color", "k_material_set_emissive", "k_material_set_opacity", "k_material_reset", "k_texture_set_bundle"]) ok(imports.includes(f), `imports ${f}`);
   ok(h.images.size === 6 && h.imageBytes === 24 * 1024 * 1024, `six pictures decoded, ${h.imageBytes} bytes (24 MiB, the budget exactly)`);
+  checkAnchors(path.join(VR, "world.glb"), 39);
   h.init();
   run(h, 1.5);
+  ok(["TabText", "TabColour", "TxtTitle", "TxtStatus", "BtnPlate", "HoverPad", "DoorReal"].every((n) => h.textOf(n) == null) && h.textOf("TabTextText") != null, "text is shown on the anchors, never on a pressed plaque");
   ok(h.textRefusals.length === 0, `no text refused (${JSON.stringify(h.textRefusals)})`);
   has(h, "TxtStatus", "styled shows: 14 of 14 answered 0");
   has(h, "TxtStatus", "level 6");
@@ -105,7 +145,7 @@ console.log("\n== VR: visual-pack-check ==");
   run(h, 1.2);
   ok(h.texts.size === 64, `64 texts on the grid page (${h.texts.size})`);
   ok([...h.texts.values()].every((t) => t.style.plate && !t.style.engine), "all 64 styled and plated");
-  ok(h.textOf("TabText") === undefined && h.textOf("TxtTitle") === undefined, "the chrome is hidden to free the pool");
+  ok(txt(h, "TabText") === undefined && txt(h, "TxtTitle") === undefined, "the chrome is hidden to free the pool");
   ok(!h.byName.get("TabText").visible, "the tabs are hidden too");
   has(h, "CellAa", "65th: -5");
   has(h, "CellAa", "hover on, deep 0/0");
@@ -252,7 +292,7 @@ console.log("\n== VR: visual-pack-check ==");
   h.point(0, null);
   h.point(1, null);
   run(h, 0.3);
-  const m = h.textOf("TxtStatus").match(/most Enters: (\d+) in 1 s, (\d+) in 3 s/) ?? [];
+  const m = txt(h, "TxtStatus").match(/most Enters: (\d+) in 1 s, (\d+) in 3 s/) ?? [];
   ok(+m[1] <= 20 && +m[2] <= 40 && +m[2] >= 30, `the most Enters: ${m[1]} in 1 s (a full bucket allows 20), ${m[2]} in 3 s (the cap allows 40)`);
   ok(h.events.some((e) => e.kind === "hover_refused"), "some Enters were refused by the rate cap");
   // The arch is one node with a hole; from where the visitor stands, the ray through the hole reaches the wall.
@@ -343,6 +383,7 @@ console.log("\n== VR against a DEFECTIVE host whose hover stamps activation ==")
 console.log("\n== MR: visual-pack-check-mr ==");
 {
   const h = load(MR);
+  checkAnchors(path.join(MR, "world.glb"), 4);
   h.init();
   run(h, 1.5);
   ok(h.textRefusals.length === 0, "no text refused");

@@ -5,7 +5,7 @@
     "name": "Visual Pack Check (MR)",
     "author": "micknerks",
     "description": "A temporary test room for host API level 6 in mixed reality: plated text over your real room. A plate darkens only its own footprint.",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "spawn_point": {
       "x": 0,
       "y": 0,

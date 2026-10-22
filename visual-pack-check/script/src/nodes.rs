@@ -150,6 +150,37 @@ named! {
 
 pub const NAMED_COUNT: usize = NAMED.len();
 
+/// 1.0.1: the plaques whose text sits on its own invisible anchor node, named
+/// `<plaque>` + TEXT_SUFFIX (../tools/build_glb.mjs plaque()). The anchor's bounds
+/// centre the text on the plaque; the plaque itself is then just its body and light
+/// bars, so the pointing outline (which boxes the whole pressed node) fits it. In
+/// 1.0.0 an invisible keel under each plaque did the centring, and the outline
+/// wrapped the keel too. build_glb.mjs builds an anchor for exactly these.
+pub const TEXT_ANCHORED: &[N] = &[
+    N::TabText, N::TabGrid, N::TabColour, N::TabPics, N::TabHover, N::TabTravel,
+    N::TxtTitle, N::TxtStatus, N::TxtStatusB, N::CapLeft, N::CapMid, N::CapRight,
+    N::BtnPlate, N::BtnBadValues, N::BtnOldCall,
+    N::BtnColour, N::BtnGlow, N::BtnResetCube, N::BtnFade, N::BtnTryEight,
+    N::BtnShareA, N::BtnClone, N::BtnCloneColour, N::BtnMany, N::BtnFrameCap,
+    N::BtnPicShow, N::BtnPicSwap, N::BtnPicTint, N::BtnPicReset, N::BtnPicMissing, N::BtnPicNoUv,
+    N::HoverPad, N::HoverGo, N::BtnHoverClear, N::TxtLog,
+    N::BtnLooks, N::BtnLooksOff, N::DoorReal, N::DoorNowhere,
+    N::MrTitle, N::MrStatus, N::MrBtnPlates, N::MrBtnFade,
+];
+pub const TEXT_SUFFIX: &str = "Text";
+
+/// The name of `n`'s text anchor, written into `out`; returns its length (0 if it does not fit).
+pub fn text_anchor_name(n: N, out: &mut [u8; 32]) -> usize {
+    let a = NAMED[n as usize].0.as_bytes();
+    let s = TEXT_SUFFIX.as_bytes();
+    if a.len() + s.len() > out.len() {
+        return 0;
+    }
+    out[..a.len()].copy_from_slice(a);
+    out[a.len()..a.len() + s.len()].copy_from_slice(s);
+    a.len() + s.len()
+}
+
 /// Lettered groups: (prefix, count, two letters (8 x 8) or one, page mask).
 /// Two-letter names: prefix + row 'A'.. + column 'a'..; one-letter: prefix + 'A'...
 pub const GROUPS: [(&str, usize, bool, u8); 5] = [
