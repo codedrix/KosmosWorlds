@@ -1,0 +1,37 @@
+{
+  "kosmos_version": "1.0",
+  "world": {
+    "id": "visual-pack-check-mr",
+    "name": "Visual Pack Check (MR)",
+    "author": "micknerks",
+    "description": "A temporary test room for host API level 6 in mixed reality: plated text over your real room. A plate darkens only its own footprint.",
+    "version": "1.0.0",
+    "spawn_point": {
+      "x": 0,
+      "y": 0,
+      "z": 1.1
+    },
+    "sky": "void"
+  },
+  "capabilities": [
+    "scene_read",
+    "scene_write",
+    "transform",
+    "events",
+    "ui_basic",
+    "world_navigate"
+  ],
+  "requires": {
+    "host_api": 6
+  },
+  "assets": {
+    "gltf": "world.glb",
+    "wasm": "world.wasm"
+  },
+  "presentation": {
+    "mode": "immersive-ar",
+    "blend": "alpha-blend",
+    "requiredFeatures": [],
+    "optionalFeatures": []
+  }
+}
