@@ -175,7 +175,9 @@ console.log("\n== VR: visual-pack-check ==");
   ok(h.mat.size === 256, `256 instances live (${h.mat.size})`);
   h.press("BtnFrameCap");
   run(h, 0.1);
-  has(h, "TxtStatusB", "65 in a frame: write 65 got -6");
+  has(h, "TxtStatusB", "65 writes: 65th -6 (pass)");
+  has(h, "TxtStatusB", "256: made 256, refused 0 (pass)");
+  has(h, "TxtStatusB", "257th -5 (pass)");
   snap(h, "colour-256");
   h.press("BtnMany");
   run(h, 0.1);
@@ -196,8 +198,9 @@ console.log("\n== VR: visual-pack-check ==");
   h.press("BtnPicNoUv");
   run(h, 0.1);
   has(h, "TxtStatus", "swap 0, tint 0");
-  has(h, "TxtStatus", "unlisted path -4 (want -4)");
-  has(h, "TxtStatus", "no UV0 -8 (want -8)");
+  has(h, "TxtStatus", "unlisted path -4 (pass)");
+  has(h, "TxtStatus", "no UV0 0 (expected: see right)");
+  has(h, "TxtStatusB", "DB-045 says -8");
   h.press("BtnPicReset");
   run(h, 0.1);
   has(h, "TxtStatus", "reset 0");
@@ -260,14 +263,26 @@ console.log("\n== VR: visual-pack-check ==");
   h.point(0, null);
   run(h, 0.2);
   has(h, "TxtStatusB", "wall behind 1");
-  // Hover, then travel: the last press was the tab, about 6 s ago; the world waits until 6.5 s.
+  // Hover, then travel: the last press (the tab) is long past; the call comes 1 s after the Enter.
+  ok(h.time - h.lastPress > 5, "no press in the last 5 s");
   h.point(1, "HoverGo");
-  run(h, 0.1);
-  run(h, 7.0);
+  run(h, 0.5);
+  has(h, "TxtStatusB", "hover, then travel: in ");
+  run(h, 0.8);
   has(h, "TxtStatusB", "hover, then travel: -11 (pass)");
-  ok(h.navigations.at(-1)?.url === "world://visual-pack-hover-nowhere.micknerks" && h.navigations.at(-1)?.rc === -11, "k_world_navigate after a hover alone: -11");
+  ok(h.navigations.at(-1)?.url === "world://visual-pack-hover-nowhere.micknerks" && h.navigations.at(-1)?.rc === -11, "k_world_navigate 1 s after a hover alone: -11");
   snap(h, "hover");
   h.point(1, null);
+  run(h, 0.3);
+  // A press, then the hover within a second: the press's own window decides, so INCONCLUSIVE.
+  h.press("HoverPad");
+  run(h, 0.4);
+  h.point(1, "HoverGo");
+  run(h, 1.4);
+  has(h, "TxtStatusB", "hover, then travel: INCONCLUSIVE 0");
+  has(h, "TxtStatusB", "a press was <5 s before: wait");
+  h.point(1, null);
+  run(h, 0.3);
 
   // --- K11 and the cancelled travel
   h.press("TabTravel");
@@ -293,8 +308,35 @@ console.log("\n== VR: visual-pack-check ==");
   run(h, 0.3);
   h.travelStopped();
   ok(h.materialOf("TrvCube")?.color === "f3a83a" && h.materialOf("TrvGlow")?.emissive === "2ec4b6", "a refused travel gives every look back");
+  // K6 frees every look in the world first, so it still makes 256 after every other page.
+  h.press("BtnLooks");
+  h.press("TabColour");
+  run(h, 0.3);
+  h.press("BtnMany");
+  run(h, 0.3);
+  has(h, "TxtStatusB", "256: made 256, refused 0 (pass)");
+  has(h, "TxtStatusB", "257th -5 (pass)");
+  h.press("BtnMany");
+  run(h, 0.2);
   ok(h.textRefusals.length === 1 && h.textRefusals[0].text === "the 65th", `the only text refused in the whole run is the deliberate 65th (${JSON.stringify(h.textRefusals)})`);
   ok(h.textPeak <= 64, `at most ${h.textPeak} texts at once`);
+}
+
+// ---------------------------------------------------------------------------
+console.log("\n== VR against a DEFECTIVE host whose hover stamps activation ==");
+{
+  const manifest = JSON.parse(fs.readFileSync(path.join(VR, "manifest.json"), "utf8"));
+  const images = {};
+  for (const p of manifest.assets.images ?? []) images[p] = fs.readFileSync(path.join(VR, p));
+  const h = new Host({ wasmPath: path.join(VR, "world.wasm"), glbPath: path.join(VR, "world.glb"), manifest, level: 6, images, hoverStampsActivation: true });
+  h.init();
+  run(h, 1.0);
+  h.press("TabHover");
+  run(h, 6.0);
+  h.point(1, "HoverGo");
+  run(h, 1.4);
+  has(h, "TxtStatusB", "hover, then travel: 0 (FAIL)");
+  ok(h.navigations.at(-1)?.rc === 0, "the defect is caught: navigate answered 0 inside the hover's window");
 }
 
 // ---------------------------------------------------------------------------

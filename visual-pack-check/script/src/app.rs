@@ -71,8 +71,15 @@ pub const DOOR_REAL: &str = "world://type-test.micknerks";
 pub const DOOR_NOWHERE: &str = "world://visual-pack-nowhere.micknerks";
 /// The hover-then-travel target names a world that does not exist, so even a wrong 0 goes nowhere.
 pub const HOVER_NOWHERE: &str = "world://visual-pack-hover-nowhere.micknerks";
-/// A hover-driven k_world_navigate waits until the last press is this old (the window is 5 s).
-pub const PRESS_SETTLE_S: f32 = 6.5;
+/// The hover-then-travel check calls k_world_navigate this long after the hover Enter: well
+/// inside the 5 s window an activation would open, so a hover that wrongly stamped
+/// activation would make the call answer 0.
+pub const HOVER_NAV_DELAY_S: f32 = 1.0;
+/// The activation window (KWasm::ACTIVATION_WINDOW_SECONDS). The check is conclusive only when
+/// the last press is more than this old at the call: otherwise the press's own window could
+/// be what answers. World time can only run slower than real time (dt is clamped), so a world
+/// age over 5 s is a real age over 5 s.
+pub const PRESS_WINDOW_S: f32 = 5.0;
 /// After the real door's k_world_navigate answers 0, the world changes two meshes this much
 /// later, while the travel is pending (the "newer value wins" and "a reset stays reset" checks).
 pub const PENDING_WRITE_S: f32 = 1.0;
@@ -267,7 +274,10 @@ pub struct HoverState {
     pub peak_1s: i32,
     pub peak_3s: i32,
     pub go_pending: bool,
-    pub go_code: Option<i32>,
+    /// When the pending call is due (world seconds).
+    pub go_at: f32,
+    /// The call's answer, and whether it was conclusive (the last press more than 5 s old).
+    pub go_code: Option<(i32, bool)>,
     pub log: [(u8, u8, u8, f32); 4],
     pub log_n: usize,
     pub subs_on: bool,
@@ -389,6 +399,7 @@ impl App {
                 peak_1s: 0,
                 peak_3s: 0,
                 go_pending: false,
+                go_at: 0.0,
                 go_code: None,
                 log: [(0, 0, 0, 0.0); 4],
                 log_n: 0,
@@ -613,11 +624,9 @@ pub fn tick(a: &mut App, dt: f32) {
         }
     }
     many_step(a);
-    // The hover-then-travel check, once the last press is PRESS_SETTLE_S old.
-    if a.hover.go_pending && a.now - a.last_press >= PRESS_SETTLE_S {
-        a.hover.go_pending = false;
-        a.hover.go_code = Some(navigate(HOVER_NOWHERE));
-        a.dirty = true;
+    // The hover-then-travel check, HOVER_NAV_DELAY_S after the Enter.
+    if a.hover.go_pending && a.now >= a.hover.go_at {
+        go_call(a);
     }
     // The writes made while the real door's travel is pending.
     if a.travel.pending && a.now - a.travel.door_at >= PENDING_WRITE_S {
@@ -717,19 +726,15 @@ pub fn press(a: &mut App, node: i32) {
         }
         N::BtnMany => {
             if a.colour.many_phase == 0 {
-                // Free every instance this page made, then make 256 over four frames.
-                for n in [N::ColCube, N::ColBlend, N::ColOpaque, N::ColUnlit, N::ColShareA, N::ColShareB, N::ColChip] {
-                    reset(a.h(n), 0);
-                }
-                if a.colour.clone > 0 {
-                    reset(a.colour.clone, 0);
-                }
+                // Free every instance the world holds, on every page, so the count is the
+                // cap's own; then make 256 over four frames, starting a frame later.
+                release_all_looks(a);
                 a.colour.many_phase = 1;
                 a.colour.many_made = 0;
                 a.colour.many_refused = 0;
                 a.colour.many_257 = None;
                 a.colour.many_released = None;
-            } else if a.colour.many_phase == 6 {
+            } else if a.colour.many_phase == MANY_DONE {
                 let mut bad = 0;
                 for i in 0..64 {
                     for s in 0..TILE_SLOTS {
@@ -869,11 +874,46 @@ fn clone_chip(a: &mut App) {
     }
 }
 
+/// K6's phases: 1 the frame of the press (its resets count toward that frame's 64 writes, so
+/// nothing more is written in it), 2..=5 the four batches of 64, 6 the 257th, MANY_DONE made.
+pub const MANY_DONE: u8 = 7;
+
+/// Reset every (node, slot) any page may have changed: K6 counts from zero. Resets are never
+/// refused at the per-frame cap (they still count toward it), and there are fewer than 64 here
+/// besides the tiles, which are reset only when the 256 are live.
+pub fn release_all_looks(a: &mut App) {
+    let named = [
+        N::ColCube, N::ColBlend, N::ColOpaque, N::ColUnlit, N::ColShareA, N::ColShareB, N::ColChip,
+        N::PicA, N::PicB, N::PicC, N::PicD, N::PicE, N::PicF, N::PicNoUv,
+        N::HoverPad, N::HoverArch, N::HoverBehind,
+        N::TrvCube, N::TrvGlow, N::TrvBlend, N::TrvPic,
+        N::MrFade,
+    ];
+    for n in named {
+        if a.h(n) > 0 {
+            reset(a.h(n), 0);
+        }
+    }
+    for g in [G_BAR, G_RATE] {
+        for i in 0..GROUPS[g].1 {
+            reset(a.g(g, i), 0);
+        }
+    }
+    if a.colour.clone > 0 {
+        reset(a.colour.clone, 0);
+    }
+    a.pics.show = [None; 6];
+    a.travel.looks = [None; 4];
+    a.hover.bars = 0;
+}
+
 /// K6: 64 (node, slot) pairs a frame for four frames (256), then the 257th on a new pair.
 fn many_step(a: &mut App) {
     let p = a.colour.many_phase;
-    if (1..=4).contains(&p) {
-        let base = (p as usize - 1) * 16;
+    if p == 1 {
+        a.colour.many_phase = 2;
+    } else if (2..=5).contains(&p) {
+        let base = (p as usize - 2) * 16;
         for t in base..base + 16 {
             for s in 0..TILE_SLOTS {
                 let c = PALETTE[(t + s as usize) % 8];
@@ -887,9 +927,9 @@ fn many_step(a: &mut App) {
         }
         a.colour.many_phase += 1;
         a.dirty = true;
-    } else if p == 5 {
+    } else if p == 6 {
         a.colour.many_257 = Some(color(a.h(N::ColCube), 0, AMBER));
-        a.colour.many_phase = 6;
+        a.colour.many_phase = MANY_DONE;
         a.dirty = true;
     }
 }
@@ -897,7 +937,7 @@ fn many_step(a: &mut App) {
 /// The per-frame cap: 65 writes in one frame on one pair; the 65th must be -6. With the 256
 /// made, the pair is a tile's (an existing instance), so the instance cap cannot answer first.
 fn frame_cap(a: &mut App) {
-    let node = if a.colour.many_phase == 6 { a.g(G_TILE, 0) } else { a.h(N::ColShareB) };
+    let node = if a.colour.many_phase == MANY_DONE { a.g(G_TILE, 0) } else { a.h(N::ColShareB) };
     let mut first_bad = 0;
     let mut bad_at = 0;
     for k in 1..=65 {
@@ -929,6 +969,46 @@ fn pics_bind(a: &mut App, swap: bool) {
 // ---------------------------------------------------------------------------
 // Hover
 // ---------------------------------------------------------------------------
+
+/// The hover-then-travel call. Conclusive only when the last press is more than the window
+/// old: then a 0 can only mean the hover opened the window (FAIL), and -11 that it did not.
+pub fn go_call(a: &mut App) {
+    a.hover.go_pending = false;
+    let r = navigate(HOVER_NOWHERE);
+    let conclusive = a.now - a.last_press > PRESS_WINDOW_S;
+    a.hover.go_code = Some((r, conclusive));
+    a.dirty = true;
+}
+
+/// The hover-then-travel line and the line under it (the status plaque's lines 2 and 3).
+pub fn go_lines(a: &App) -> (Buf<64>, Buf<64>) {
+    let h = &a.hover;
+    let mut l2: Buf<64> = Buf::new();
+    let mut l3: Buf<64> = Buf::new();
+    l2.push("hover, then travel: ");
+    l3.push("last press ").push_f1(a.now - a.last_press).push(" s ago");
+    match (h.go_pending, h.go_code) {
+        (true, _) => {
+            l2.push("in ").push_f1((h.go_at - a.now).max(0.0)).push(" s");
+        }
+        (false, Some((r, true))) => {
+            l2.push_i32(r).push(match r {
+                -11 => " (pass)",
+                0 => " (FAIL)",
+                _ => " (code)",
+            });
+        }
+        (false, Some((r, false))) => {
+            l2.push("INCONCLUSIVE ").push_i32(r);
+            l3.clear();
+            l3.push("a press was <5 s before: wait");
+        }
+        (false, None) => {
+            l2.push("not yet");
+        }
+    }
+    (l2, l3)
+}
 
 /// What a hover target is, for the log: 0 other, 1 pad, 2 go, 3 arch, 4 behind, 5 deep, 6 bar, 7 rate.
 fn hover_kind(a: &App, node: i32) -> (u8, u8) {
@@ -992,11 +1072,10 @@ pub fn hover_enter(a: &mut App, node: i32, hand: i32) {
             }
         }
         2 => {
-            a.hover.go_pending = true;
-            a.hover.go_code = None;
-            if a.now - a.last_press >= PRESS_SETTLE_S {
-                a.hover.go_pending = false;
-                a.hover.go_code = Some(navigate(HOVER_NOWHERE));
+            if !a.hover.go_pending {
+                a.hover.go_pending = true;
+                a.hover.go_at = a.now + HOVER_NAV_DELAY_S;
+                a.hover.go_code = None;
             }
         }
         3 => {
@@ -1070,7 +1149,7 @@ pub fn title_text(a: &App) -> Buf<128> {
         }
         Page::Grid => {}
         Page::Colour => {
-            b.push("Colour, glow, fade, reset (K5); 256 (K6); clone (K8)\nGlow is a flat bright colour: no halo.\n");
+            b.push("Colour, glow, fade, reset (K5); 256 (K6); clone (K8)\nNo halo. 256 first clears every look.\n");
             b.push("frame ").push_f1(a.ft_avg_ms).push(" ms avg, ").push_f1(a.ft_max_ms).push(" max");
         }
         Page::Pics => {
@@ -1150,21 +1229,30 @@ pub fn status_texts(a: &App) -> (Buf<128>, Buf<128>) {
             code(&mut s, c.c_colour_unlit);
             t.push("chip ");
             code(&mut t, c.c_chip);
-            t.push(", clone ");
+            t.push(", copy ");
             t.push_i32(c.clone);
             t.push(", moved ");
             code(&mut t, c.c_clone_pos);
             t.push(", green ");
             code(&mut t, c.c_clone_colour);
             t.push("\n256: made ").push_i32(c.many_made).push(", refused ").push_i32(c.many_refused);
+            if c.many_phase == MANY_DONE {
+                t.push(if c.many_made == 256 && c.many_refused == 0 { " (pass)" } else { " (FAIL)" });
+            }
             t.push("\n257th ");
             code(&mut t, c.many_257);
+            match c.many_257 {
+                Some(-5) => t.push(" (pass)"),
+                Some(_) => t.push(" (FAIL)"),
+                None => t.push(""),
+            };
             t.push(", released ");
             code(&mut t, c.many_released);
-            t.push("\n65 in a frame: ");
+            t.push("\n65 writes: ");
             match c.frame_cap {
-                Some((at, r)) if at > 0 => t.push("write ").push_i32(at).push(" got ").push_i32(r),
-                Some(_) => t.push("none refused"),
+                Some((65, -6)) => t.push("65th -6 (pass)"),
+                Some((at, r)) if at > 0 => t.push("#").push_i32(at).push(" ").push_i32(r).push(" (FAIL)"),
+                Some(_) => t.push("none refused (FAIL)"),
                 None => t.push("-"),
             };
         }
@@ -1183,11 +1271,20 @@ pub fn status_texts(a: &App) -> (Buf<128>, Buf<128>) {
             code(&mut s, p.reset);
             s.push("\nunlisted path ");
             code(&mut s, p.missing);
-            s.push(" (want -4)");
+            s.push(match p.missing {
+                Some(-4) => " (pass)",
+                Some(_) => " (FAIL: want -4)",
+                None => "",
+            });
             s.push("\nno UV0 ");
             code(&mut s, p.nouv);
-            s.push(" (want -8)");
-            t.push("The pictures were decoded\nunder the loading cover.\nShowing and swapping is a\nquick parameter swap.");
+            s.push(match p.nouv {
+                Some(0) => " (expected: see right)",
+                Some(-8) => " (DB-045's -8)",
+                Some(_) => " (unexpected)",
+                None => "",
+            });
+            t.push("No UV0: the client returns 0\n(its glTF loader always builds\nUV0); DB-045 says -8.\nA client finding, not a pass.");
         }
         Page::Hover => {
             let h = &a.hover;
@@ -1197,16 +1294,8 @@ pub fn status_texts(a: &App) -> (Buf<128>, Buf<128>) {
             s.push("\nmost Enters: ").push_i32(h.peak_1s).push(" in 1 s, ").push_i32(h.peak_3s).push(" in 3 s");
             s.push("\nhover: ").push(if h.subs_on { "subscribed" } else { "OFF" });
             t.push("arch ").push_i32(h.arch).push(", wall behind ").push_i32(h.behind);
-            t.push("\nhover, then travel: ");
-            match (h.go_pending, h.go_code) {
-                (true, _) => {
-                    let left = PRESS_SETTLE_S - (a.now - a.last_press);
-                    t.push("in ").push_f1(left.max(0.0)).push(" s")
-                }
-                (false, Some(c)) => t.push_i32(c).push(if c == -11 { " (pass)" } else { " (FAIL)" }),
-                (false, None) => t.push("not yet"),
-            };
-            t.push("\nlast press ").push_f1(a.now - a.last_press).push(" s ago");
+            let (l2, l3) = go_lines(a);
+            t.push("\n").push(l2.as_str()).push("\n").push(l3.as_str());
             t.push("\nother targets: ").push_i32(h.others);
         }
         Page::Travel => {
@@ -1355,7 +1444,7 @@ pub fn build_wants(a: &App, w: &mut Wants) {
                 (N::BtnShareA, "Colour\nshared A"),
                 (N::BtnClone, "Clone\nthe chip"),
                 (N::BtnCloneColour, "Colour\nthe clone"),
-                (N::BtnMany, if a.colour.many_phase == 6 { "256:\nrelease" } else { "256:\nmake" }),
+                (N::BtnMany, if a.colour.many_phase == MANY_DONE { "256:\nrelease" } else { "256:\nmake" }),
                 (N::BtnFrameCap, "65 in\none frame"),
             ];
             for (n, l) in labels {

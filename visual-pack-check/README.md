@@ -8,6 +8,8 @@ The VR room and the MR room run the same `world.wasm`; the script tells them apa
 
 ## Before the session
 
+**Order:** run the Colour page's K6 (**256: make**) first, before Pictures, Hover and Travel (it resets every look anyway, but running it first keeps the other pages' looks). Then the pages in tab order.
+
 - **The cook:** a level-6 cook of `feat/device-p2-2026-10` at `a1936d8` or later, with the sitting's assets (Inter and the plate) if the sitting has happened. Without them the client falls back to Roboto and a square, fully dark plate (runbook section 5): K1's and K4's look then waits for a later sitting.
 - **The two worlds published unlisted** (see "Publishing"), and `world://type-test.micknerks` 1.1.0, which the Travel page's door goes to.
 - **Logs** (PowerShell; HS2 is the Quest 3S `340YC10GBQ1FYK`, HS3 the Quest 3 `2G0YC1ZF9H06CW`):
@@ -60,7 +62,7 @@ Objects on a line ahead: a lit cube, a BLEND panel, an opaque panel, an unlit ti
 | K5 reset | **Reset the cube** | the authored grey is back; `reset 0` |
 | extra | **Colour shared A** | A turns teal and **B does not** (each mesh gets its own copy) |
 | K8 | **Clone the chip**, then **Colour the clone** | the source chip turns amber, then a copy appears in the frame **with the authored grey**, not amber; then the copy turns green. `chip 0, clone <handle>, moved 0, green 0` |
-| K6 | **256: make**; read; **65 in one frame**; **256: release** | the tile wall above takes 256 colours over four frames: `256: made 256, refused 0`, then `257th -5` (it frees the page's own instances first). `65 in a frame: write 65 got -6`. `released 0`. Record the frame time (the title's last line) and the memory (below) |
+| K6 | **256: make**; read; **65 in one frame**; **256: release** | it first resets every look the world has changed on any page (colours, pictures, hover lights, travel looks), waits a frame, then the tile wall above takes 256 colours over four frames: `256: made 256, refused 0 (pass)`, then `257th -5 (pass)`. `65 writes: 65th -6 (pass)`. `released 0`. Because of the reset it can be run at any point; running it **first**, before Pictures, Hover and Travel, keeps those pages' looks. Record the frame time (the title's last line) and the memory (below) |
 
 K6 memory, before **256: make** and after it (and after release):
 
@@ -78,7 +80,7 @@ Six quads ahead, and a small one with no UV0 on the right.
 | **Swap pictures** | they move one quad along, at once (a parameter swap, no hitch): `swap 0` |
 | **Tint pictures** | warm and blue tints: `tint 0` |
 | **Unlisted path** | `unlisted path -4 (want -4)` |
-| **Mesh with no UV0** | `no UV0 -8 (want -8)` |
+| **Mesh with no UV0** | **Expected: `no UV0 0 (expected: see right)`.** DB-045 says `-8` for a mesh with no UV0, but the client returns 0: its glTF loader (glTFRuntime) always builds at least one UV channel, filling it with zeros when the glTF has none, so the client's `-8` branch cannot fire for a world mesh. **This is a contract gap and a client finding, not a pass**; the right-hand plaque says so. If it ever reads `-8`, the card says `(DB-045's -8)` |
 | **Reset pictures** | the placeholders are back: `reset 0` |
 
 The six are decoded once, under the loading cover: 6 x 1024 x 1024 x 4 = 24 MiB, the budget exactly. Formats: PNG RGB, PNG greyscale, baseline JPEG and progressive JPEG (4:2:0), greyscale JPEG, PNG RGB. Each file is under 60 KB. The decode lines:
@@ -100,7 +102,7 @@ Point; do not press. The upper status counts Enters and Exits per hand; the plaq
 | the rate cap | Sweep both rays back and forth along the row of small tiles for several seconds | `most Enters: N in 1 s, M in 3 s`. The cap is a bucket of 10 a second with bursts of 10, so from rest at most 20 in one second and at most 40 in three |
 | the menu | Rest a ray on the pad, open the menu | an `out` at once in the log; no `in` while the menu is open; one after it closes |
 | concave target | Point through the arch's opening at the wall behind it, then at the arch's sides | the **wall behind** counts through the hole, the **arch** counts on its sides. If the arch counts through its hole, the hover ray traces simple collision: record it (reading R-15) |
-| hover then travel | Do not press anything; rest a ray on **Point, then wait** | `hover, then travel: in N s`, then `-11 (pass)`. The world waits until your last press is 6.5 s old, so the press window has closed |
+| hover then travel | Do not press anything for **more than 5 s** (the plaque's `last press N s ago`), then rest a ray on **Point, then wait** and keep the menu closed | `hover, then travel: in N s`, then **`-11 (pass)`**. The world calls `k_world_navigate` 1 s after the hover Enter, inside the 5 s window a stamp would open, so a hover that stamped activation would read **`0 (FAIL)`**. If your last press was less than 5 s before the call, the press's own window decides and the card reads **`INCONCLUSIVE`** with `a press was <5 s before: wait`: wait, point away, and point again. Lost input focus (the menu open) also reads -11: keep the menu closed |
 | tracked hands | Put the controllers down and repeat the pad check with hands | the same; two hands on one target give two Enters |
 | `world_hover` | Optional, the CEO's act: put `world_hover` on the client policy's off-list (registry setting, a DEPLOY_LEDGER row), then travel in again | no hover at all; every page still works plainly |
 | PhysicsBody | not possible from a world | a world's meshes are WorldDynamic; no world can make a PhysicsBody prop. See follow-ups |
@@ -119,13 +121,15 @@ Point; do not press. The upper status counts Enters and Exits per hand; the plaq
 & $adb -s $s logcat -d | Select-String '\[KDomMaterial\] released|\[KBundleImages\] released|\[KWorldText\]'
 ```
 
-Pass: at the travel start, `[KDomMaterial] released N material override(s)` and `[KBundleImages] released 6 image texture(s)`, and nothing of this world's left after the cover. **There is no console command for the live counters** (`FKMaterialOverrides::GetLiveInstanceCountGlobal`, `FKBundleImages::GetLiveTextureCountGlobal`): the release lines are the evidence a session can read (see follow-ups).
+What these lines show: at the travel start, `[KDomMaterial] released N material override(s)` and `[KBundleImages] released 6 image texture(s)`, so **the release ran**. They do **not** show that the live counts reached zero after the cover: there is no console command or log line for the live counters (`FKMaterialOverrides::GetLiveInstanceCountGlobal`, `FKBundleImages::GetLiveTextureCountGlobal`), and the text plates have no release line at all. K11 is therefore only partly evidenced from a world (see follow-ups).
 
 ### K10: two headsets
 
 Both headsets in this room. Change colours, show pictures and hover on one: **the other shows none of it**. The world imports no `k_state_*` and no `k_net_*`; the visual pack never syncs.
 
 ## The MR room (K4)
+
+**K4 runs in this world's MR twin, `world://visual-pack-check-mr.micknerks`, not in `more-room-mr`** as runbook section 7.2 names; the plate-over-passthrough check is the same. Record which world was used in the ledger row.
 
 `world://visual-pack-check-mr.micknerks`: plated texts at 20 to 120 mm floating over your real room, a BLEND panel and a solid one, two buttons. The world is room-scale: everything is within reach of the spawn.
 

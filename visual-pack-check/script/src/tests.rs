@@ -129,7 +129,7 @@ fn worst(a: &mut App) {
     c.many_257 = Some(-5);
     c.many_released = Some(0);
     c.frame_cap = Some((65, -6));
-    c.many_phase = 6;
+    c.many_phase = MANY_DONE;
     a.pics.show = [Some(-4); 6];
     a.pics.swap = Some(-6);
     a.pics.tint = Some(-8);
@@ -145,7 +145,7 @@ fn worst(a: &mut App) {
     h.arch = 999;
     h.behind = 999;
     h.others = 999;
-    h.go_code = Some(-11);
+    h.go_code = Some((-11, false));
     h.log_n = 4;
     h.log = [(1, 5, 1, 999.9); 4];
     a.travel.looks = [Some(-8); 4];
@@ -273,7 +273,13 @@ fn bad_values_send_eight_refusable_calls() {
 fn many_makes_256_then_tries_the_257th() {
     let mut a = test_app(Page::Colour);
     { let h = a.h(N::BtnMany); press(&mut a, h); }
-    calls();
+    let c = calls();
+    assert!(c.iter().filter(|s| s.starts_with("reset")).count() >= 50, "every look reset first: {}", c.len());
+    assert!(c.iter().any(|s| *s == format!("reset {} 0", a.h(N::PicA))), "the pictures too");
+    assert!(c.iter().any(|s| *s == format!("reset {} 0", a.g(G_BAR, 0))), "the hover bars too");
+    assert!(c.iter().any(|s| *s == format!("reset {} 0", a.h(N::TrvCube))), "the travel looks too");
+    tick(&mut a, 1.0 / 72.0);
+    assert!(calls().is_empty(), "nothing more in the press's frame");
     for f in 0..4 {
         tick(&mut a, 1.0 / 72.0);
         let c = calls();
@@ -283,7 +289,7 @@ fn many_makes_256_then_tries_the_257th() {
     tick(&mut a, 1.0 / 72.0);
     let c = calls();
     assert_eq!(c, vec![format!("color {} 0 f3a83aff", a.h(N::ColCube))]);
-    assert_eq!(a.colour.many_phase, 6);
+    assert_eq!(a.colour.many_phase, MANY_DONE);
     { let h = a.h(N::BtnMany); press(&mut a, h); }
     assert_eq!(calls().iter().filter(|s| s.starts_with("reset")).count(), 256);
 }
@@ -311,12 +317,12 @@ fn clone_colours_the_source_then_copies() {
     assert_eq!(a.colour.clone, 900);
 }
 
-/// Hover: per hand counts, the pad's colour by hand, and the hover-then-travel wait.
+/// Hover: per hand counts and the pad's colour by hand.
 #[test]
-fn hover_counts_per_hand_and_waits_for_the_press_window() {
+fn hover_counts_per_hand() {
     let mut a = test_app(Page::Hover);
     a.now = 10.0;
-    a.last_press = 9.0;
+    a.last_press = 0.0;
     calls();
     { let h = a.h(N::HoverPad); hover_enter(&mut a, h, 0); }
     { let h = a.h(N::HoverPad); hover_enter(&mut a, h, 1); }
@@ -325,13 +331,84 @@ fn hover_counts_per_hand_and_waits_for_the_press_window() {
     assert!(c.last().unwrap().ends_with("f2f4f8ff"), "both hands: white: {c:?}");
     { let h = a.h(N::HoverPad); hover_exit(&mut a, h, 0); }
     assert!(calls().last().unwrap().ends_with("f3a83aff"), "right hand only: amber");
+}
+
+/// Run the hover-then-travel check against the stand-in host, which models the 5 s
+/// activation window. `press_at`: the last press; `hover_stamps`: a defective host that
+/// lets a hover stamp activation. Returns the status plaque's second and third lines.
+fn hover_then_travel(press_at: f32, hover_stamps: bool) -> (String, String, Option<(i32, bool)>) {
+    let mut a = test_app(Page::Hover);
+    a.last_press = press_at;
+    host::STAMP.with(|s| *s.borrow_mut() = press_at);
+    a.now = 10.0;
+    host::NOW.with(|n| *n.borrow_mut() = a.now);
+    if hover_stamps {
+        host::STAMP.with(|s| *s.borrow_mut() = a.now);
+    }
     { let h = a.h(N::HoverGo); hover_enter(&mut a, h, 1); }
-    assert!(a.hover.go_pending, "the press 1 s ago: wait");
-    assert!(!calls().iter().any(|s| s.starts_with("navigate")));
-    a.now = 15.6;
-    tick(&mut a, 0.0);
-    assert!(calls().iter().any(|s| s.starts_with("navigate")));
-    assert_eq!(a.hover.go_code, Some(-11));
+    assert!(a.hover.go_pending);
+    assert!(!calls().iter().any(|s| s.starts_with("navigate")), "nothing before the delay");
+    for _ in 0..90 {
+        tick(&mut a, 1.0 / 72.0);
+        host::NOW.with(|n| *n.borrow_mut() = a.now);
+    }
+    assert!(calls().iter().any(|s| s.starts_with("navigate")), "called within 1.25 s of the Enter");
+    let (l2, l3) = go_lines(&a);
+    host::STAMP.with(|s| *s.borrow_mut() = -100.0);
+    (l2.as_str().to_string(), l3.as_str().to_string(), a.hover.go_code)
+}
+
+/// The check is conclusive, and fails, when a hover stamps activation: the call is made 1 s
+/// after the Enter, inside the window a stamp would open.
+#[test]
+fn hover_then_travel_fails_if_hover_stamps_activation() {
+    // A correct host, the last press long before: -11, a conclusive pass.
+    let (l2, _, code) = hover_then_travel(0.0, false);
+    assert_eq!(code, Some((-11, true)));
+    assert_eq!(l2, "hover, then travel: -11 (pass)");
+    // A defective host whose hover stamps activation: the call answers 0, a conclusive FAIL.
+    let (l2, _, code) = hover_then_travel(0.0, true);
+    assert_eq!(code, Some((0, true)));
+    assert_eq!(l2, "hover, then travel: 0 (FAIL)");
+    // A press 1 s before the hover: the press's own window decides, so nothing is concluded,
+    // whatever the host does.
+    for stamps in [false, true] {
+        let (l2, l3, code) = hover_then_travel(9.0, stamps);
+        assert_eq!(code.map(|c| c.1), Some(false));
+        assert!(l2.starts_with("hover, then travel: INCONCLUSIVE"), "{l2}");
+        assert_eq!(l3, "a press was <5 s before: wait");
+    }
+}
+
+/// Pass labels on the other cards, pinned (the scenario checks them too).
+#[test]
+fn pass_labels_are_pinned() {
+    let mut a = test_app(Page::Pics);
+    a.pics.missing = Some(-4);
+    a.pics.nouv = Some(0);
+    let (s, t) = status_texts(&a);
+    assert!(s.as_str().contains("unlisted path -4 (pass)"), "{}", s.as_str());
+    assert!(s.as_str().contains("no UV0 0 (expected: see right)"), "{}", s.as_str());
+    assert!(t.as_str().contains("DB-045 says -8"), "{}", t.as_str());
+    a.pics.missing = Some(0);
+    a.pics.nouv = Some(-8);
+    let (s, _) = status_texts(&a);
+    assert!(s.as_str().contains("unlisted path 0 (FAIL: want -4)"), "{}", s.as_str());
+    assert!(s.as_str().contains("no UV0 -8 (DB-045's -8)"), "{}", s.as_str());
+    let mut a = test_app(Page::Colour);
+    a.colour.many_phase = MANY_DONE;
+    a.colour.many_made = 256;
+    a.colour.many_257 = Some(-5);
+    a.colour.frame_cap = Some((65, -6));
+    let (_, t) = status_texts(&a);
+    assert!(t.as_str().contains("256: made 256, refused 0 (pass)"), "{}", t.as_str());
+    assert!(t.as_str().contains("257th -5 (pass)"), "{}", t.as_str());
+    assert!(t.as_str().contains("65 writes: 65th -6 (pass)"), "{}", t.as_str());
+    a.colour.many_257 = Some(0);
+    a.colour.frame_cap = Some((64, -6));
+    let (_, t) = status_texts(&a);
+    assert!(t.as_str().contains("257th 0 (FAIL)"), "{}", t.as_str());
+    assert!(t.as_str().contains("65 writes: #64 -6 (FAIL)"), "{}", t.as_str());
 }
 
 /// The real door: the two writes while the travel is pending.

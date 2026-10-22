@@ -68,6 +68,11 @@ mod imp {
     thread_local! {
         pub static CALLS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
         pub static ANSWER: RefCell<i32> = const { RefCell::new(0) };
+        /// The activation window, modelled for k_world_navigate: the host's clock and the last
+        /// activation stamp (seconds). A test stamps at a press, and, to model a defective host,
+        /// at a hover too. navigate answers 0 within 5 s of the stamp and -11 otherwise.
+        pub static NOW: RefCell<f32> = const { RefCell::new(0.0) };
+        pub static STAMP: RefCell<f32> = const { RefCell::new(-100.0) };
     }
     fn rec(s: String) -> i32 {
         CALLS.with(|c| c.borrow_mut().push(s));
@@ -86,7 +91,15 @@ mod imp {
         rec(format!("textex {n} {l} {c:08x} {s} {f}"))
     }
     pub unsafe fn k_ui_hide_world_text(n: i32) -> i32 { rec(format!("hide {n}")) }
-    pub unsafe fn k_world_navigate(_p: i32, l: i32) -> i32 { rec(format!("navigate {l}")); -11 }
+    pub unsafe fn k_world_navigate(_p: i32, l: i32) -> i32 {
+        rec(format!("navigate {l}"));
+        let age = NOW.with(|n| *n.borrow()) - STAMP.with(|s| *s.borrow());
+        if (0.0..=5.0).contains(&age) {
+            0
+        } else {
+            -11
+        }
+    }
     pub unsafe fn k_api_version() -> i32 { 6 }
     pub unsafe fn k_material_set_color(n: i32, s: i32, c: i32) -> i32 { rec(format!("color {n} {s} {c:08x}")) }
     pub unsafe fn k_material_set_emissive(n: i32, s: i32, c: i32, k: f32) -> i32 { rec(format!("glow {n} {s} {c:06x} {k}")) }
