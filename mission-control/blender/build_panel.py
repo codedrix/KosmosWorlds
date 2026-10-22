@@ -745,6 +745,8 @@ def materials():
     mat("coreNeed", AMBER, emit=AMBER)
     mat("coreIdle", (0.06, 0.08, 0.10), emit=(0.06, 0.08, 0.10))
     mat("shelf", (0.010, 0.014, 0.024), rough=0.6)
+    # The chrome bar (clarity pass): the panel smoke's colour, opaque.
+    mat("barFill", (0.004, 0.008, 0.018), rough=0.25)
     make_textures()
     tex_mat("haloSealMat", "haloSeal")
     tex_mat("haloNeedMat", "haloNeed")
@@ -798,8 +800,9 @@ def build_center():
         # abstract instrument detail in the margins: tick scales beside the conversation
         tick_scale("_CTicksL", c, 0.655, 0.86, 1.78, side=1),
         tick_scale("_CTicksR", c, -0.655, 0.86, 1.78, side=-1),
-        # the chrome bar: one slim smoked-glass strip under the panel
-    ] + glass_panel("_CBar", c, 0, bar_z, BAR_W, BAR_H, x=0.012, brackets=False)
+        # the chrome bar under the panel: an OPAQUE smoked strip since the clarity pass (it grew
+        # to 0.18 m; opaque, a lowered bar can never stack a third layer over a need cube)
+    ] + glass_panel("_CBar", c, 0, bar_z, BAR_W, BAR_H, glass="barFill", x=0.012, brackets=False)
     # "Move panels" before the handles (clarity pass C): a static word on the bar, part of the
     # frame's mesh (no node of its own, no button under it, so it blocks no laser).
     parts.append(mesh_text("_CMoveWord", c, (-0.006, -0.40, bar_z), "Move\npanels", 0.032, MATS["label"]))
@@ -858,7 +861,7 @@ def build_center():
     bz = bar_z
     button("BtnSignOut", c, (-0.005, 0.70, bz), 0.15, 0.07, "Sign out", MATS["button"], text_size=0.032)
     button("BtnWatch", c, (-0.005, 0.485, bz), 0.26, 0.07, "Share with group", MATS["button"], text_size=0.030)
-    anchor("TxWatch", c, (-0.02, 0.0, BAR_TOP - BAR_H + 0.012))
+    anchor("TxWatch", c, (-0.02, 0.0, BAR_TOP - BAR_H + 0.02))
     up, low = bz + 0.04, bz - 0.04
     for name, words, y, z, w in (("McMoveLeft", "<", -0.495, up, 0.06), ("McMoveUp", "^", -0.565, up, 0.06),
                                  ("McMoveDown", "v", -0.635, up, 0.06), ("McMoveRight", ">", -0.705, up, 0.06),
@@ -1165,7 +1168,7 @@ def world_text(anchor_obj, text, dx_m=0.0):
     REVIEW_OBJS.append(o)
 
 
-def apply_view(snaps, mode="owner", stage="signed", arc_e=None, picked=None, words=True):
+def apply_view(snaps, mode="owner", stage="signed", arc_e=None, picked=None, words=True, texts_over=None):
     """Show what src/lib.rs would show.
 
     snaps:  snapshot names applied in order (review/synthetic/<name>.snapshot)
@@ -1175,6 +1178,8 @@ def apply_view(snaps, mode="owner", stage="signed", arc_e=None, picked=None, wor
     arc_e:  None (folded), or the unfold's eased progress 0..1 (1 = open)
     picked: the cube the arc unfolded from (hidden while it is open)
     words:  draw the plaques' words (False for the audit: text is opaque and not counted)
+    texts_over: {anchor: text} applied after the snapshots (a review stand-in for a state the
+            captured snapshots don't hold, such as TxWatch while sharing)
     """
     clear_review()
     texts, offsets, wants, hues = {}, {}, {}, {}
@@ -1191,6 +1196,7 @@ def apply_view(snaps, mode="owner", stage="signed", arc_e=None, picked=None, wor
                 hues[r[1]] = r[2]
             elif k == "O":
                 offsets[r[1]] = int(r[2]) / 1000.0
+    texts.update(texts_over or {})
     if mode == "watcher":
         on = {"arc"}
     elif stage == "closed":
@@ -1481,6 +1487,11 @@ def review():
     if os.path.exists(os.path.join(SNAPS, "arc_empty.snapshot")):
         apply_view(["arc_empty"], arc_e=1.0, picked="CubePlus")
         render(cam_arc, "arc_empty.jpg", eye=True)
+    # Sharing on (clarity pass C): TxWatch's two lines on the taller chrome bar. The captured arc
+    # snapshot is from before Share with group, so the bridge's words are set here as it sends
+    # them (W.watch 0.66, the code grouped 3 + 3).
+    apply_view(["arc"], arc_e=1.0, picked="CubeA", texts_over={"TxWatch": "Code 123 456\ntype it at the Watch post"})
+    render(cam_arc, "arc_shared.jpg", eye=True)
     # The Watch post (clarity pass D): standing in front of it at 1.6 m eye height, and from
     # the owner's eye on the throne. Mission Control closed: only the fixtures show.
     apply_view([], stage="closed")
