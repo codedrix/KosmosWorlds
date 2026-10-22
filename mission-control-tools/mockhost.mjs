@@ -239,8 +239,10 @@ owner.press(cube);
 await until([owner], () => owner.scale.get("McCenterFrame") === 1 && owner.text.has("TxHeader"), "the arc on the job");
 assert.ok(!owner.shown(cube), "its cube became the arc");
 owner.press("BtnWatch");
-await until([owner], () => /code \d{3} \d{3}/.test(owner.text.get("TxWatch") ?? ""), "the watch code");
-const watchCode = /code (\d{3}) (\d{3})/.exec(owner.text.get("TxWatch")).slice(1).join("");
+// The clarity pass's TxWatch reads "Code 123 456" over "type it at the Watch post" (1.3.0's bridge
+// said "code 123 456"): match either.
+await until([owner], () => /code \d{3} \d{3}/i.test(owner.text.get("TxWatch") ?? ""), "the watch code");
+const watchCode = /code (\d{3}) (\d{3})/i.exec(owner.text.get("TxWatch")).slice(1).join("");
 console.log("7.", cube, "unfolded the arc on its job; group watch on:", owner.text.get("TxWatch"));
 
 const watcher = await headset("watcher");
@@ -273,7 +275,7 @@ for (const n of ["McCenterFrame", "McLedge", "Puck", "SealRing"]) {
   assert.equal(owner.position.get(n)?.[1], PARKED_Y, `Close parks ${n}`);
   assert.ok(!owner.shown(n));
 }
-await until([watcher], () => /Nobody is sharing|owner has left/.test(watcher.text.get("TxStatus") ?? ""), "the watcher refused after the owner left", 12000);
+await until([watcher], () => /Nobody is sharing|owner has left/i.test(watcher.text.get("TxStatus") ?? ""), "the watcher refused after the owner left", 12000);
 const stopped = watcher.log.fetches.length;
 for (let i = 0; i < 80; i++) watcher.tick();
 assert.equal(watcher.log.fetches.length, stopped, "a refused watcher stops polling");

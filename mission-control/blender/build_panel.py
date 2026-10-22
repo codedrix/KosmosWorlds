@@ -104,6 +104,10 @@ PARK_DROP = 200.0
 SEAL_AT = (14.42, 0.0, 1.462)
 # The Watch post: on the dais, to the throne's right as seen from the hall (y < 0).
 WATCH_AT = (14.3, -1.75, 0.9)
+# Its plate (clarity pass A): width, height and centre height above the dais, and its turn
+# (degrees about Z) from facing the hall toward the throne: face normal (-0.5, 0.866).
+WATCH_PLATE = (0.70, 0.30, 1.12)
+WATCH_YAW = -60.0
 LOBBY_GLB = os.environ.get(
     "LOBBY_GLB", "E:/Kosmos_Integration/mission-control-door/lobby_1.1.1_live/scene.glb"
 )
@@ -118,9 +122,12 @@ LEFT = (36.0, 1.80)
 RIGHT = (-36.0, 1.80)
 SIDE_W = 0.85
 SIDE_Z = (0.95, 2.16)
-# The chrome bar (contract 8.3): one slim bar under the centre panel, facing the eye.
+# The chrome bar (contract 8.3): one slim bar under the centre panel, facing the eye. The clarity
+# pass (CLARITY_PASS.md C) made it 0.18 m tall (was 0.10), its top and width unchanged: TxWatch's
+# two lines ("Code 123 456" / "type it at the Watch post", W.watch 0.66) and the handles' two
+# rows need the height. src/lib.rs ARC_PARTS mirrors it (z 0.585 to 0.765).
 BAR_TOP = 0.765
-BAR_H = 0.10
+BAR_H = 0.18
 BAR_W = 1.56
 SEAL = (0.0, 1.10)
 VIEWER = (0.0, 0.0)       # identity: viewer coordinates as they are
@@ -137,7 +144,10 @@ LEDGE_TOP = 0.80
 CUBE = 0.12
 SLOT_STEP = 0.33
 SLOT_Y = {"A": 1.5 * SLOT_STEP, "B": 0.5 * SLOT_STEP, "C": -0.5 * SLOT_STEP, "D": -1.5 * SLOT_STEP, "Plus": -2.5 * SLOT_STEP}
-CLOSE_Y = 2.5 * SLOT_STEP
+# Close + sign out (clarity pass): a wider tab (0.26 m), its centre 2.5 cm in from the old spot so
+# its far end stays over the shelf's end (and inside src/lib.rs KEEP_OUT, y 0.93).
+CLOSE_Y = 2.5 * SLOT_STEP - 0.025
+CLOSE_W = 0.26
 LEDGE_W = 5 * SLOT_STEP + 0.15
 CUBE_LABEL_Z = LEDGE_TOP + CUBE / 2 + 0.12
 # The puck, on a stem rising from the left armrest (arm top: 2.10 - 1.46 = 0.64 m).
@@ -748,7 +758,11 @@ def materials():
 def build_fixtures():
     """McSeal: an unmarked inlay on the front of the throne seat. Pressing it raises the
     Pairing Seal (the first network call mints a pairing; approval happens at the PC).
-    McWatchJoin: a small "Watch" plaque on the dais for a group member's watch code."""
+    McWatchJoin: the Watch post on the dais, where a second headset types the group watch code.
+    Its plate says what it is in two lines, "GROUP WATCH" / "for a second headset" (clarity
+    pass A: "Watch" alone read as a watch beside the throne). The plate is turned 60 degrees
+    from the hall toward the throne (WATCH_YAW), so it reads both from the hall (about 38
+    degrees off its face) and from the throne (about 46 degrees off), the CEO's view."""
     sx, sy, sz = SEAL_AT
     bpy.ops.mesh.primitive_cylinder_add(vertices=32, radius=0.09, depth=0.006, location=(sx, sy, sz))
     seal = bpy.context.active_object
@@ -756,13 +770,17 @@ def build_fixtures():
     node("McSeal", seal, "button")
 
     wx, wy, wz = WATCH_AT
-    f = VIEWER
+    # Lobby frame at the post, turned so its local -X (the plate's face) points between the
+    # hall (-X) and the throne (+Y as seen from the post).
+    f = Matrix.Translation((wx, wy, 0.0)) @ Matrix.Rotation(math.radians(WATCH_YAW), 4, "Z")
+    pz = wz + WATCH_PLATE[2]
     parts = [
-        box("_WatchPost", f, (wx, wy, wz + 0.5), (0.05, 0.05, 1.0), MATS["frame"]),
-        box("_WatchPlate", f, (wx, wy, wz + 1.08), (0.04, 0.42, 0.17), MATS["button"], bevel=0.01),
-        mesh_text("_WatchWord", f, (wx - 0.025, wy, wz + 1.08), "Watch", 0.075, MATS["label"]),
+        box("_WatchPost", f, (0, 0, wz + 0.5), (0.05, 0.05, 1.0), MATS["frame"]),
+        box("_WatchPlate", f, (0, 0, pz), (0.04, WATCH_PLATE[0], WATCH_PLATE[1]), MATS["button"], bevel=0.01),
+        mesh_text("_WatchWordA", f, (-0.021, 0, pz + 0.06), "GROUP WATCH", 0.085, MATS["label"], weight="Bold"),
+        mesh_text("_WatchWordB", f, (-0.021, 0, pz - 0.065), "for a second headset", 0.064, MATS["label"]),
     ]
-    node("McWatchJoin", join("McWatchJoin", parts, (wx, wy, wz + 1.08)), "button")
+    node("McWatchJoin", join("McWatchJoin", parts, (wx, wy, pz)), "button")
 
 
 # ---------------------------------------------------------------------------
@@ -782,6 +800,9 @@ def build_center():
         tick_scale("_CTicksR", c, -0.655, 0.86, 1.78, side=-1),
         # the chrome bar: one slim smoked-glass strip under the panel
     ] + glass_panel("_CBar", c, 0, bar_z, BAR_W, BAR_H, x=0.012, brackets=False)
+    # "Move panels" before the handles (clarity pass C): a static word on the bar, part of the
+    # frame's mesh (no node of its own, no button under it, so it blocks no laser).
+    parts.append(mesh_text("_CMoveWord", c, (-0.006, -0.40, bar_z), "Move\npanels", 0.032, MATS["label"]))
     node("McCenterFrame", join("McCenterFrame", parts, to_world(c, (0, 0, 1.49))), "show")
     # The projected floor ring and grid (contract 9.6 and 9.10): its own node, McFloorRing, in
     # the arc group (it shows, unfolds and folds with the arc) but pinned to the hall floor past
@@ -791,13 +812,14 @@ def build_center():
     node("McFloorRing", join("McFloorRing", [floor], (FLOOR_X, 0.0, FLOOR_Z)), "show")
     anchor("TxStatus", c, (-0.03, 0, 2.105))
 
-    # The top row: Fold, Stop, paging.
+    # The top row: Hide to ledge (Fold), Stop this job, paging (Older / Newer). Clarity pass C:
+    # every control says what it does; the plates widened to fit the words with margin.
     row = 2.04
-    button("BtnFold", c, (-0.02, 0.50, row), 0.24, 0.075, "FOLD", MATS["button"], text_size=0.042)
-    button("BtnStop", c, (-0.02, 0.24, row), 0.22, 0.075, "STOP", MATS["redFace"], text_size=0.042)
-    button("BtnPageUp", c, (-0.02, -0.26, row), 0.10, 0.075, "^", MATS["button"], text_size=0.06)
+    button("BtnFold", c, (-0.02, 0.50, row), 0.25, 0.075, "Hide to ledge", MATS["button"], text_size=0.036)
+    button("BtnStop", c, (-0.02, 0.235, row), 0.24, 0.075, "Stop this job", MATS["redFace"], text_size=0.036)
+    button("BtnPageUp", c, (-0.02, -0.24, row), 0.13, 0.075, "Older", MATS["button"], text_size=0.036)
     anchor("TxPage", c, (-0.03, -0.40, 2.01))
-    button("BtnPageDown", c, (-0.02, -0.54, row), 0.10, 0.075, "v", MATS["button"], text_size=0.06)
+    button("BtnPageDown", c, (-0.02, -0.56, row), 0.13, 0.075, "Newer", MATS["button"], text_size=0.036)
     # The header may run to two lines (the bridge's does): they grow upward to the button row.
     anchor("TxHeader", c, (-0.03, 0, 1.828))
     for i, slot in enumerate("ABCDEFGHIJ"):
@@ -806,7 +828,7 @@ def build_center():
     # Start a job (contract 8.2): inside the conversation area. The face shows it only while
     # no job is open (after CubePlus), when the conversation lines are empty.
     anchor("TxProject", c, (-0.04, 0, 1.70))
-    button("BtnProject", c, (-0.03, 0, 1.635), 0.42, 0.07, "CHANGE PROJECT", MATS["button"], text_size=0.036)
+    button("BtnProject", c, (-0.03, 0, 1.635), 0.42, 0.07, "Change project", MATS["button"], text_size=0.036)
     for name, words, y, z in (("BtnTests", "Run all tests", 0.31, 1.50), ("BtnPrs", "Review open PRs", -0.31, 1.50),
                               ("BtnToday", "Summarize today", 0.31, 1.38), ("BtnNotes", "Draft release notes", -0.31, 1.38)):
         button(name, c, (-0.03, y, z), 0.58, 0.10, words, MATS["button"], text_size=0.048)
@@ -828,15 +850,20 @@ def build_center():
     button("BtnDeny", c, (-0.105, -0.06, bottom), 0.36, 0.072, "DENY", MATS["redFace"], text_size=0.04, depth=0.025)
     button("BtnWhy", c, (-0.105, -0.40, bottom), 0.28, 0.072, "ASK WHY", MATS["button"], text_size=0.036, depth=0.025)
 
-    # On the chrome bar, left to right as the owner sees it: Sign out, Group watch and its line,
-    # then the six handles. No Close here: Close is on the ledge (contract 8.7).
+    # On the chrome bar, left to right as the owner sees it: Sign out, Share with group and its
+    # line (TxWatch: up to two lines, W.watch 0.66, in the 0.68 m between the button and the
+    # handles), then "Move panels" (a static word, part of McCenterFrame) and the six handles in
+    # two rows (arrows above, Closer / Farther below). No Close here: Close is on the ledge
+    # (contract 8.7).
     bz = bar_z
-    button("BtnSignOut", c, (-0.005, 0.66, bz), 0.20, 0.07, "Sign out", MATS["button"], text_size=0.034)
-    button("BtnWatch", c, (-0.005, 0.43, bz), 0.22, 0.07, "Group watch", MATS["button"], text_size=0.032)
-    anchor("TxWatch", c, (-0.02, 0.06, bz - 0.035))
-    for name, words, y, w in (("McMoveLeft", "<", -0.27, 0.07), ("McMoveUp", "^", -0.35, 0.07), ("McMoveDown", "v", -0.43, 0.07),
-                              ("McMoveRight", ">", -0.51, 0.07), ("McMoveCloser", "Near", -0.61, 0.10), ("McMoveFarther", "Far", -0.72, 0.09)):
-        button(name, c, (-0.005, y, bz), w, 0.07, words, MATS["button"], text_size=0.045 if len(words) == 1 else 0.032)
+    button("BtnSignOut", c, (-0.005, 0.70, bz), 0.15, 0.07, "Sign out", MATS["button"], text_size=0.032)
+    button("BtnWatch", c, (-0.005, 0.485, bz), 0.26, 0.07, "Share with group", MATS["button"], text_size=0.030)
+    anchor("TxWatch", c, (-0.02, 0.0, BAR_TOP - BAR_H + 0.012))
+    up, low = bz + 0.04, bz - 0.04
+    for name, words, y, z, w in (("McMoveLeft", "<", -0.495, up, 0.06), ("McMoveUp", "^", -0.565, up, 0.06),
+                                 ("McMoveDown", "v", -0.635, up, 0.06), ("McMoveRight", ">", -0.705, up, 0.06),
+                                 ("McMoveCloser", "Closer", -0.53, low, 0.12), ("McMoveFarther", "Farther", -0.67, low, 0.13)):
+        button(name, c, (-0.005, y, z), w, 0.07, words, MATS["button"], text_size=0.045 if len(words) == 1 else 0.032)
 
 
 def build_left():
@@ -881,7 +908,7 @@ def build_right():
         grid.append((-sw / 2, gz - 0.0007, sw / 2, gz + 0.0007))
         gz += 0.08
     parts += [
-        mesh_text("_RHead", f, (-0.012, 0, 2.11), "BROWSER SPOT", 0.036, MATS["title"], weight="Bold"),
+        mesh_text("_RHead", f, (-0.012, 0, 2.11), "Web page (coming soon)", 0.036, MATS["title"], weight="Bold"),
         quads("_RSpotLines", f, outline_rects(0, sc, sw, sh, 0.0018), MATS["tealLine"], x=-0.004),
         quads("_RSpotBrackets", f, bracket_rects(0, sc, sw, sh, leg=0.04, t=0.0035), MATS["cyanLine"], x=-0.005),
         quads("_RSpotGrid", f, grid, MATS["hairline"], x=-0.003),
@@ -923,8 +950,10 @@ def build_seal():
     anchor("TxSeal", s, (-0.03, 0, EYE - 0.03))
     # The hint may run to two lines (the bridge's is): they grow upward and stop below the ring.
     anchor("TxSealHint", s, (-0.02, 0, 1.155))
-    button("BtnSealType", s, (-0.01, 0.17, 1.09), 0.30, 0.06, "Use passphrase", MATS["button"], text_size=0.032)
-    button("McSealCancel", s, (-0.01, -0.17, 1.09), 0.22, 0.06, "Cancel", MATS["button"], text_size=0.032)
+    # Clarity pass B: the ring's code is the PC way (TxSealHint says where); this is the headset
+    # way, saying so, on a wider plate (was 0.30 m, "Use passphrase").
+    button("BtnSealType", s, (-0.01, 0.12, 1.09), 0.40, 0.06, "Or type passphrase here", MATS["button"], text_size=0.032)
+    button("McSealCancel", s, (-0.01, -0.22, 1.09), 0.20, 0.06, "Cancel", MATS["button"], text_size=0.032)
 
 
 def build_ledge():
@@ -943,7 +972,9 @@ def build_ledge():
         body = [box("_Cube" + slot + "Glass", fr, (0, 0, 0), (CUBE, CUBE, CUBE), MATS["cubeGlass"]),
                 cuboids("_Cube" + slot + "Edges", fr, cube_edges(CUBE, 0.0025), MATS["edgeLine"])]
         if slot == "Plus":
-            body.append(quads("_CubePlusMark", fr, [(-0.03, -0.003, 0.03, 0.003), (-0.003, -0.03, 0.003, 0.03)], MATS["cyanLine"], x=-CUBE / 2 - 0.003))
+            # The "+" raised a little, and "New job" under it (clarity pass C), on the front face.
+            body.append(quads("_CubePlusMark", fr, [(-0.025, 0.012, 0.025, 0.018), (-0.003, -0.010, 0.003, 0.040)], MATS["cyanLine"], x=-CUBE / 2 - 0.003))
+            body.append(mesh_text("_CubePlusWords", fr, (-CUBE / 2 - 0.004, 0, -0.035), "New job", 0.026, MATS["label"]))
         node("Cube" + slot, join("Cube" + slot, body, (LEDGE_X, y, cz)), "button")
         if slot == "Plus":
             continue
@@ -957,10 +988,10 @@ def build_ledge():
             g = join("Cube" + slot + state, core, (LEDGE_X, y, cz))
             node("Cube" + slot + state, g, "show")
         anchor("TxCube" + slot, facing(LEDGE_X, y), (0, 0, CUBE_LABEL_Z))
-    # Close, on the ledge's left end (contract 8.7): an outlined red tab standing on the shelf.
+    # Close + sign out, on the ledge's left end (contract 8.7): an outlined red tab on the shelf.
     y = CLOSE_Y
     fr = Matrix.Translation((LEDGE_X, y, LEDGE_TOP + 0.045)) @ Matrix.Rotation(math.atan2(y, LEDGE_X), 4, "Z")
-    button("McClose", fr, (0, 0, 0), 0.20, 0.09, "CLOSE", MATS["redFace"], text_size=0.045, depth=0.06)
+    button("McClose", fr, (0, 0, 0), CLOSE_W, 0.09, "Close + sign out", MATS["redFace"], text_size=0.032, depth=0.06)
 
 
 def build_puck():
@@ -1139,7 +1170,8 @@ def apply_view(snaps, mode="owner", stage="signed", arc_e=None, picked=None, wor
 
     snaps:  snapshot names applied in order (review/synthetic/<name>.snapshot)
     mode:   "owner" or "watcher"
-    stage:  "seal" (the ring up), "signed" (ledge + puck, plus the arc when arc_e is set)
+    stage:  "closed" (fixtures only), "seal" (the ring up), "signed" (ledge + puck, plus the
+            arc when arc_e is set)
     arc_e:  None (folded), or the unfold's eased progress 0..1 (1 = open)
     picked: the cube the arc unfolded from (hidden while it is open)
     words:  draw the plaques' words (False for the audit: text is opaque and not counted)
@@ -1161,6 +1193,8 @@ def apply_view(snaps, mode="owner", stage="signed", arc_e=None, picked=None, wor
                 offsets[r[1]] = int(r[2]) / 1000.0
     if mode == "watcher":
         on = {"arc"}
+    elif stage == "closed":
+        on = set()
     elif stage == "seal":
         on = {"seal"}
     else:
@@ -1443,6 +1477,16 @@ def review():
     render(cam_floor, "arc_floor.jpg")
     apply_view(["arc"], arc_e=0.5, picked="CubeA")
     render(cam_arc, "arc_unfolding.jpg", eye=True)
+    # The cold arrival (clarity pass D): signed in, no jobs, the arc opened from +.
+    if os.path.exists(os.path.join(SNAPS, "arc_empty.snapshot")):
+        apply_view(["arc_empty"], arc_e=1.0, picked="CubePlus")
+        render(cam_arc, "arc_empty.jpg", eye=True)
+    # The Watch post (clarity pass D): standing in front of it at 1.6 m eye height, and from
+    # the owner's eye on the throne. Mission Control closed: only the fixtures show.
+    apply_view([], stage="closed")
+    cam_post, cam_post_throne = watch_post_cameras(eye)
+    render(cam_post, "watch_post.jpg", eye=True)
+    render(cam_post_throne, "watch_post_throne.jpg", eye=True)
     clear_review()
     turn_for_watcher(True)
     apply_view(["watch"], mode="watcher")
@@ -1450,6 +1494,38 @@ def review():
     clear_review()
     turn_for_watcher(False)
     art_sheet()
+
+
+def watch_post_plate():
+    """The Watch post plate's centre and face normal (Lobby coordinates)."""
+    a = math.radians(WATCH_YAW)
+    normal = Vector((-math.cos(a), -math.sin(a), 0.0))
+    return Vector((WATCH_AT[0], WATCH_AT[1], WATCH_AT[2] + WATCH_PLATE[2])), normal
+
+
+def floor_below(x, y):
+    """The Lobby's floor height under (x, y): the first surface down that is not Mission Control's."""
+    dg = bpy.context.evaluated_depsgraph_get()
+    o = Vector((x, y, 6.0))
+    for _ in range(16):
+        hit, loc, _n, _i, obj, _m = bpy.context.scene.ray_cast(dg, o, Vector((0, 0, -1)))
+        if not hit:
+            return 0.03
+        if obj.name not in built and not obj.hide_render:
+            return loc.z
+        o = loc + Vector((0, 0, -1e-3))
+    return 0.03
+
+
+def watch_post_cameras(owner_eye):
+    """watch_post: a second headset's visitor 1.0 m in front of the plate, eye 1.6 m above the
+    floor there; watch_post_throne: the owner's eye on the throne, looking at the plate."""
+    centre, normal = watch_post_plate()
+    stand = centre + normal * 1.0
+    eye_z = floor_below(stand.x, stand.y) + EYE
+    cam_post = camera("CamWatchPost", (stand.x, stand.y, eye_z), centre, 90)
+    cam_post_throne = camera("CamWatchPostThrone", owner_eye, centre, 90)
+    return cam_post, cam_post_throne
 
 
 # The arc_floor review camera (viewer frame): behind and above the throne, a step to the side.

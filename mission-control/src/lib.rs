@@ -17,7 +17,8 @@
 //!      - the owner presses the seal on the throne seat (`McSeal`): the Pairing Seal rises
 //!        to eye height, the first call mints a pairing, the ring shows a short code, and
 //!        the owner approves it AT THE PC. Nothing secret is typed in the headset. A small
-//!        "Use passphrase" button (`BtnSealType`) keeps the typed passphrase as a fallback.
+//!        "Or type passphrase here" button (`BtnSealType`) keeps the typed passphrase as the
+//!        headset way.
 //!      - or a visitor presses the Watch post (`McWatchJoin`) and types a watch code the
 //!        owner shared: a read-only copy of the owner's arc, turned to face the hall.
 //!    Signed in, the owner sees a ledge of glass job cubes and the decision puck on the
@@ -333,8 +334,14 @@ const FOLD_S: f32 = 0.4;
 /// The smallest scale a tween starts or ends at.
 const SCALE_MIN: f32 = 0.02;
 
-const SEAL_QUESTION: &str = "Mission Control passphrase (it shows on screen as you type)";
-const WATCH_QUESTION: &str = "Watch code: the 6 digits the owner shared with the group";
+/// The typing sheets' questions (clarity pass, CLARITY_PASS.md A and B). SEAL_QUESTION equals the
+/// bridge face's PASSPHRASE_QUESTION byte for byte (a host test pins both strings).
+const SEAL_QUESTION: &str = "Mission Control passphrase (shows as you type)";
+const WATCH_QUESTION: &str =
+    "Group watch code (6 digits). The person on the throne gets it by pressing Share with group.";
+/// The owner's press on the Watch post (clarity pass A): two lines, each within the status line
+/// (W.status 1.2 m) at 8 cm.
+const WATCH_POST_OWNER: &str = "This post is for a second headset.\nLet someone watch: press Share with group.";
 
 pub const NODES_TEXT: [&str; 31] = [
     "TxTicker", "TxStatus", "TxProject", "TxRailA", "TxRailB", "TxRailC", "TxRailD", "TxDone", "TxHeader", "TxConvA", "TxConvB",
@@ -803,7 +810,7 @@ pub extern "C" fn on_press(_event_type: i32, node: i32, _p1: i32, _p2: i32) {
         "McWatchJoin" => match mode() {
             Mode::Closed => open_sheet(WATCH_QUESTION, REQ_PROMPT_WATCH),
             Mode::Watcher => close_panel(),
-            Mode::Owner => local_status("You are the owner here: the watch code is for your group."),
+            Mode::Owner => local_status(WATCH_POST_OWNER),
             Mode::Closing => {}
         },
         "McClose" | "McSealCancel" => close_panel(),
@@ -1286,7 +1293,7 @@ fn plane_clear(xp: f32, yl: f32, yr: f32, zb: f32, zt: f32) -> bool {
 const ARC_PARTS: [[f32; 7]; 5] = [
     [1.705, 0.0, 1.49, 0.05, 0.66, 0.70, 0.0],     // centre panel, z 0.79-2.19
     [1.606, 0.0, 1.0875, 0.025, 0.62, 0.2725, 0.0], // ask plate with its buttons, z 0.815-1.36
-    [1.7075, 0.0, 0.715, 0.03, 0.78, 0.05, 0.0],   // chrome bar with its buttons, z 0.665-0.765
+    [1.7075, 0.0, 0.675, 0.03, 0.78, 0.09, 0.0],   // chrome bar with its buttons, z 0.585-0.765 (clarity pass: 0.18 tall)
     [1.4562, 1.0580, 1.555, 0.05, 0.425, 0.605, 36.0], // left panel, 1.80 m at 36 degrees
     [1.4562, -1.0580, 1.555, 0.05, 0.425, 0.605, -36.0], // right panel
 ];
