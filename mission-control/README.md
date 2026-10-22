@@ -199,11 +199,14 @@ folder (`MC_SNAPSHOTS=review/synthetic` for the stand-ins); `-- --only arc,watch
 subset; `-- --no-render` only exports. An older publisher (0.5.x) has no `--offline` and fails the
 level-3/4 imports.
 
-`build_panel.ps1` runs Blender twice, both with `--python-exit-code 1`. First the **negative
+`build_panel.ps1` runs Blender three times, each with `--python-exit-code 1`. First the **negative
 control** (`MC_AUDIT_NEGATIVE=1`): `build_panel.py` restores the round-4 floor decal and need halo,
 and its audit must refuse them; the script stops if that run exits 0, if the audit did not trip on
-the floor ring, or if `mc_assembly.glb` changed. Then the real build. In both, the contract check
-and the two-layer audit run **before** the export, so a failure exits non-zero and writes no GLB.
+the floor ring, or if `mc_assembly.glb` changed. Then the **post negative control**
+(`MC_POST_NEGATIVE=1`, since 1.4.0): the Watch post goes back behind the puck, where the first
+1.4.0 candidate had it, and `check_watch_post_clear` must refuse it the same way. Then the real
+build. In each, the contract check, the two-layer audit and the post check run **before** the
+export, so a failure exits non-zero and writes no GLB.
 Run `build_panel.py` directly only with `--python-exit-code 1` (it also exits 1 itself on any
 failure).
 
@@ -337,8 +340,16 @@ this world against the 1.3.0 bridge (`cee4f69`) and the 1.3.0 world against this
 - **The Watch post** (A): the plate reads **GROUP WATCH** over **for a second headset** (8.5 and
   6.4 cm mesh text on a 0.70 x 0.30 m plate, was "Watch" on 0.42 x 0.17), and it is **turned 60
   degrees from the hall toward the throne** (`WATCH_YAW`): facing the hall it was seen edge-on
-  from behind from the throne, where the CEO met it. It now reads about 38 degrees off its face
-  from the hall and about 46 degrees off from the owner's eye, 2.1 m away. The typing sheet asks
+  from behind from the throne, where the CEO met it. It now reads about 21 degrees off its face
+  from the middle of the hall and about 42 degrees off from the owner's eye, 3.5 m away. **It moved to the
+  other side of the throne** (Lobby (14.1, 3.4), the owner's RIGHT, turned the mirrored way, just
+  past the Omni Demo orb so no orb sits behind it as you walk up): on the old side its plate sat
+  right behind the decision puck from the seated eye, its words beside Approve and Deny (the
+  coordinator's review of the first 1.4.0 candidate). `check_watch_post_clear` runs before
+  every export: from the seated eye, no sightline to the post may pass any puck, ledge or arc
+  node first (every variant, all shown at once, handles at rest), and at least 200 sightlines
+  (0.1 degree apart) must see the post clear of the Lobby too. The post negative control puts
+  it back and must be refused. The typing sheet asks
   "Group watch code (6 digits). The person on the throne gets it by pressing Share with group."
   The owner's own press says, on two lines, "This post is for a second headset." / "Let someone
   watch: press Share with group." (the contract's sentence, shortened so each line fits the

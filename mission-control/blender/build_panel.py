@@ -102,12 +102,16 @@ STAND = (14.8, 0.0, 1.46)
 PARK_DROP = 200.0
 # The seal: the front of the seat, between the feet of someone standing on it.
 SEAL_AT = (14.42, 0.0, 1.462)
-# The Watch post: on the dais, to the throne's right as seen from the hall (y < 0).
-WATCH_AT = (14.3, -1.75, 0.9)
+# The Watch post: on the dais, to the throne's left as seen from the hall (y > 0), the owner's
+# RIGHT, just past the Omni Demo orb (y 2.39 to 3.11), so a visitor walking up sees no orb behind
+# the plate. Until the clarity pass it stood on the other side (y -1.75), where, once its plate
+# turned toward the throne, it sat right behind the decision puck on the left armrest from the
+# seated eye. check_watch_post_clear() keeps it out from behind the puck, the ledge and the arc.
+WATCH_AT = (14.1, 3.4, 0.9)
 # Its plate (clarity pass A): width, height and centre height above the dais, and its turn
-# (degrees about Z) from facing the hall toward the throne: face normal (-0.5, 0.866).
+# (degrees about Z) from facing the hall toward the throne: face normal (-0.5, -0.866).
 WATCH_PLATE = (0.70, 0.30, 1.12)
-WATCH_YAW = -60.0
+WATCH_YAW = 60.0
 LOBBY_GLB = os.environ.get(
     "LOBBY_GLB", "E:/Kosmos_Integration/mission-control-door/lobby_1.1.1_live/scene.glb"
 )
@@ -181,6 +185,13 @@ if NEGATIVE:
     FLOOR_X, FLOOR_D, FLOOR_R = 4.6, 1.8, 0.78
     HALO_W, HALO_Z0, HALO_Z1 = 0.30, 0.732, 1.032
     print("[mission-control] MC_AUDIT_NEGATIVE=1: round-4 geometry; the audit must refuse it")
+# MC_POST_NEGATIVE=1: the second negative control. Puts the Watch post back where the first 1.4.0
+# candidate had it (y -1.75, turned -60 degrees, behind the puck from the seated eye);
+# check_watch_post_clear() must refuse it before any export. build_panel.ps1 runs it too.
+POST_NEGATIVE = os.environ.get("MC_POST_NEGATIVE") == "1"
+if POST_NEGATIVE:
+    WATCH_AT, WATCH_YAW = (14.3, -1.75, 0.9), -60.0
+    print("[mission-control] MC_POST_NEGATIVE=1: the post behind the puck; the post check must refuse it")
 # The floor ring's node (a world-only node in nodes.json): pinned to the floor, never in a
 # watcher's copy (src/lib.rs FLOOR_I).
 FLOOR_NODE = "McFloorRing"
@@ -763,8 +774,8 @@ def build_fixtures():
     McWatchJoin: the Watch post on the dais, where a second headset types the group watch code.
     Its plate says what it is in two lines, "GROUP WATCH" / "for a second headset" (clarity
     pass A: "Watch" alone read as a watch beside the throne). The plate is turned 60 degrees
-    from the hall toward the throne (WATCH_YAW), so it reads both from the hall (about 38
-    degrees off its face) and from the throne (about 46 degrees off), the CEO's view."""
+    from the hall toward the throne (WATCH_YAW), so it reads both from the hall (about 21
+    degrees off its face) and from the throne (about 42 degrees off, 3.5 m), the CEO's view."""
     sx, sy, sz = SEAL_AT
     bpy.ops.mesh.primitive_cylinder_add(vertices=32, radius=0.09, depth=0.006, location=(sx, sy, sz))
     seal = bpy.context.active_object
@@ -1338,6 +1349,7 @@ def audit_before_export():
         apply_view(["arc"], arc_e=1.0, picked="CubeA", words=False)
         show_every_need()
         audit_layers("arc open, every cube in need, the puck in need")
+        check_watch_post_clear()
     finally:
         clear_review()
         for n, o in built.items():
@@ -1348,6 +1360,57 @@ def audit_before_export():
             bpy.data.collections.remove(c)
         for k in set(scene.keys()) - before_keys:
             del scene[k]
+
+
+def check_watch_post_clear(step_deg=0.1):
+    """The Watch post from the owner's seated eye (clarity pass, the coordinator's review): no
+    sightline to the post (McWatchJoin, a fixture every visitor sees) passes through any puck,
+    ledge or arc node first, every variant counted as if all were shown at once with the
+    handles at rest, so the post never sits behind a decision, a cube or a panel. And the post
+    must be visible from the throne: some sightlines must reach it before anything else,
+    the live Lobby (imported by the caller) included. Raises otherwise."""
+    from mathutils.bvhtree import BVHTree
+    dg = bpy.context.evaluated_depsgraph_get()
+
+    def tree(objs):
+        verts, polys = [], []
+        for o in objs:
+            ev = o.evaluated_get(dg)
+            me = ev.to_mesh()
+            mw, b = o.matrix_world, len(verts)
+            verts.extend(mw @ v.co for v in me.vertices)
+            polys.extend([b + k for k in poly.vertices] for poly in me.polygons)
+            ev.to_mesh_clear()
+        return BVHTree.FromPolygons(verts, polys), verts
+
+    post, pverts = tree([built["McWatchJoin"]])
+    mine, _ = tree([o for n, o in built.items() if group(n) in ("puck", "ledge", "arc")])
+    lobby, _ = tree([o for o in bpy.context.scene.objects
+                     if o.type == "MESH" and o.name not in built and o.visible_get()])
+    eye = Vector(vpt(0, 0, EYE))
+    az = [math.degrees(math.atan2((v - eye).y, (v - eye).x)) for v in pverts]
+    el = [math.degrees(math.asin((v - eye).normalized().z)) for v in pverts]
+    assert max(az) - min(az) < 90, "the post's footprint wraps around; widen this check"
+    to_post, behind, seen = 0, 0, 0
+    a = min(az) - 1.0
+    while a <= max(az) + 1.0:
+        e = min(el) - 1.0
+        while e <= max(el) + 1.0:
+            ar, er = math.radians(a), math.radians(e)
+            d = Vector((math.cos(er) * math.cos(ar), math.cos(er) * math.sin(ar), math.sin(er)))
+            hit = post.ray_cast(eye, d)
+            if hit[0] is not None:
+                to_post += 1
+                if mine.ray_cast(eye, d, hit[3])[0] is not None:
+                    behind += 1
+                elif lobby.ray_cast(eye, d, hit[3])[0] is None:
+                    seen += 1
+            e += step_deg
+        a += step_deg
+    print(f"[mission-control] Watch post from the throne: {to_post} sightlines reach it, {behind} pass a puck, "
+          f"ledge or arc node first, {seen} see it clear (azimuth {min(az):.1f} to {max(az):.1f})")
+    assert behind == 0, f"the Watch post sits behind Mission Control on {behind} sightlines from the throne"
+    assert seen >= 200, f"the Watch post is barely visible from the throne ({seen} clear sightlines)"
 
 
 def show_every_need():
@@ -1610,6 +1673,8 @@ def main():
     audit_before_export()
     if NEGATIVE:
         raise AssertionError("MC_AUDIT_NEGATIVE=1: the round-4 geometry passed the audit")
+    if POST_NEGATIVE:
+        raise AssertionError("MC_POST_NEGATIVE=1: the post behind the puck passed the post check")
     move_all(panel, -PARK_DROP)
     export_glb()
     move_all(panel, PARK_DROP)
