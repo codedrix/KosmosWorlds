@@ -35,11 +35,13 @@ $adb = 'E:\Andriod\Sdk\platform-tools\adb.exe'; $s = '340YC10GBQ1FYK'
 & $adb -s $s logcat -d -v threadtime > E:\wt\l5-audit-logcat.txt
 Select-String -Path E:\wt\l5-audit-logcat.txt -SimpleMatch -Pattern 'QZXV7731'
 & $adb -s $s shell "grep -c QZXV7731 /sdcard/Android/data/com.kosmos.client/files/UnrealGame/KosmosClient/KosmosClient/Saved/Logs/KosmosClient.log"
-# The positive control: the capture did see the typing happen (request ids and byte counts only).
-Select-String -Path E:\wt\l5-audit-logcat.txt -Pattern 'KTextInput|KDomUI'
+# The positive control: the capture covers the typing (Kosmos lines from those minutes exist).
+$kpid = (& $adb -s $s shell pidof com.kosmos.client).Trim()
+(Select-String -Path E:\wt\l5-audit-logcat.txt -Pattern " $kpid ").Count
+Select-String -Path E:\wt\l5-audit-logcat.txt -Pattern 'KTextInput|KDomUI|KActivation'
 ```
 
-**Pass:** `Select-String ... QZXV7731` prints nothing; the `grep -c` prints `0`; and the positive control prints `[KTextInput]` or `[KDomUI]` lines (if it prints none, raise the log verbosity or read the UE log file instead, and say which). A line from another process (the Quest's own keyboard, for example) is recorded with its process name and reported; it is not Kosmos's, but it is worth knowing. Telemetry and the group wire are not visible from the headset log: the client's `Kosmos.TextInput.NeverLogged` test covers the log, and the text-input code has no telemetry or sync call (KWorldTextInput.h's privacy rule).
+**Pass:** `Select-String ... QZXV7731` prints nothing; the `grep -c` prints `0`; and the positive control counts lines from the Kosmos process (non-zero), so the capture was live while typing. The text-input lines themselves may not appear at this build's log verbosity (#213 found none on Build 1013); if any do, they name a request id and a byte count, never the text. The Audit card's own "received N bytes" shows the typing reached the world. A line from another process (the Quest's own keyboard, for example) is recorded with its process name and reported; it is not Kosmos's, but it is worth knowing. Telemetry and the group wire are not visible from the headset log: the client's `Kosmos.TextInput.NeverLogged` test covers the log, and the text-input code has no telemetry or sync call (KWorldTextInput.h's privacy rule).
 
 ## Build and check
 
