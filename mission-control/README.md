@@ -17,9 +17,11 @@ package.
   register) and WASM_007 (level 4 against the vendored deployed hint of 2). The art pass's three
   PNGs carry no hidden data (IHDR, IDAT, IEND only), so they raise no SEC_004. It runs end to end
   against the v2.1 bridge in `mockhost.mjs` and was reviewed in lit renders. **Not published**: the
-  CEO sees the renders first, and publishing the Lobby is Class C. The candidate is **Lobby 1.3.0**
-  (1.1.1 plus Mission Control v2, built fresh from the live 1.1.1 package; 1.2.0 carried v1), to
-  be published unlisted by the lead after the re-review.
+  CEO sees the renders first, and publishing the Lobby is Class C. The candidate is **Lobby 1.4.0**:
+  1.3.0 (Mission Control v2, published unlisted) plus the **clarity pass** (`CLARITY_PASS.md`, the
+  CEO's headset test of 2026-10-21/22; see "The clarity pass" below), built fresh from the live
+  1.1.1 package exactly as 1.3.0 was (1.2.0 carried v1). Capabilities, the network block and the
+  host API level are as in 1.3.0.
 - **Host API level:** **4** (`k_net_*`, `OnNetResult`); also level 3 (`k_haptic_pulse`, `k_log`)
   and level 2 (`k_ui_prompt`). Nothing new is asked of the client.
 - **Capabilities added to the Lobby's `audio`:** `scene_read`, `scene_write`, `transform`, `events`,
@@ -34,11 +36,14 @@ package.
    The first network call mints that pairing; the world then long-polls `pair`, at least 1.1 s
    apart. **At the PC**, type the code into the bridge's console, or run
    `npm run approve -- KXT-WMP`. The ring turns amber (0.6 s), shrinks away (0.35 s), and the ledge
-   and the puck grow in (0.4 s). Nothing secret is typed in the headset. **Use passphrase** under
-   the ring opens the old typing sheet (the fallback `signin`); **Cancel** closes everything. A mint
-   that fails says what to do ("wait a few seconds and press the seal again").
+   and the puck grow in (0.4 s). Nothing secret is typed in the headset. The ring's hint says where
+   the code goes ("Sign in from your PC: type this code" / "in the window where npm start runs.").
+   **Or type passphrase here** under the ring is the headset way: it opens the typing sheet
+   ("Mission Control passphrase (shows as you type)", the fallback `signin`); **Cancel** closes
+   everything. A mint that fails says what to do ("wait a few seconds and press the seal again").
 2. **Job Cubes.** A ledge 0.90 m ahead, 0.80 m up, holds one glass cube per running job (up to
-   four; a cube stays with its job), a **+** cube on the right end and **CLOSE** on the left end.
+   four; a cube stays with its job), a **+** cube marked "New job" on the right end and
+   **Close + sign out** on the left end.
    Calm glows blue, "needs you" amber, idle dim; each has its project's name above it.
 3. **Unfold.** Press a cube (or +): the arc unfolds from it, every piece moving out of the cube and
    growing (0.5 s, eased), the words appearing when it lands:
@@ -46,9 +51,10 @@ package.
    - **centre**: that job's conversation (1.7 m away), with the ask plate 8 cm in front; with no job
      open (after +) the same area holds the start-a-job set (project, presets, New task);
    - **right** (-36 degrees): the browser spot (DB-043's dock, a placeholder now);
-   - **under the centre**: one slim chrome bar: Sign out, Group watch and its line, the six move
-     handles.
-   **Fold** reverses it: the words go at once, the arc folds back into the cube of the job on show
+   - **under the centre**: one chrome bar: Sign out, **Share with group** and its line ("Not
+     shared", or the code and where it is typed), then "Move panels" and the six handles in two
+     rows (< ^ v > above, Closer / Farther below).
+   **Hide to ledge** (`BtnFold`) reverses it: the words go at once, the arc folds back into the cube of the job on show
    (or the ledge's centre if that cube is gone), then hides. The picked cube is hidden while the arc
    is open; pressing another cube moves the arc to that job and makes it the picked cube. A folded
    cube press (or +) unfolds the arc **from that cube**, whichever reply lands first: the bridge
@@ -67,13 +73,14 @@ package.
    (`registry: run npm test`, or `<project>: open its cube` when the whole command doesn't fit),
    and **Approve** / **Deny** tabs sit beside it: two buzzes and the chime. It approves without
    opening the arc, only when the whole command is shown.
-5. **Leaving** is one press away whenever signed in: **CLOSE** on the ledge, or the seal on the seat
+5. **Leaving** is one press away whenever signed in: **Close + sign out** on the ledge, or the seal on the seat
    again (it toggles). Both park everything at once; the world keeps the token only to send the
    sign-out, retrying on the next frames until the headset takes the call (at most about 5 s), then
    drops it and is Closed. A sign-out from the bridge, or a token the
    bridge no longer knows (expiry, a restart, the kill switch), closes everything the same way: the
    ring never comes up blank.
-6. **Watchers** (Group watch, a 6-digit code typed at the Watch post) see the **arc only**, turned
+6. **Watchers** (Share with group, a 6-digit code typed at the Watch post, whose plate says
+   "GROUP WATCH" / "for a second headset") see the **arc only**, turned
    to face the hall and lowered to its floor, with no action buttons; never the ledge, the puck or
    the seal; never a token, never a press. A watcher leaves at the Watch post.
 
@@ -143,10 +150,10 @@ degrees and set on the seat (STAND 14.8, 0, 1.46). Seat and arms measured from t
 | Part | Where |
 |---|---|
 | Seal ring | 1.10 m ahead at eye height, 0.50 m across; code inside, hint and buttons below |
-| Ledge | 0.90 m ahead, top 0.80 m, 1.80 m wide; CLOSE, A, B, C, D, + at 0.33 m steps |
+| Ledge | 0.90 m ahead, top 0.80 m, 1.80 m wide; Close + sign out (0.26 m wide, 2.5 cm in from the end slot), A, B, C, D, + at 0.33 m steps |
 | Puck | viewer (0.15, +0.95, 1.00) on a stem from the left arm; the label plate (0.86 x 0.12) above it, 9 cm behind its centre, facing the eye, on a post from the armrest behind the disc; Approve / Deny tabs (0.22 x 0.10) beside it, tilted to the eye |
 | Centre panel | 1.70 m, azimuth 0, z 0.79 to 2.19, 1.32 m wide; ask plate 8 cm in front (z 0.815 to 1.36) |
-| Chrome bar | under the centre panel, top 0.765 m, 0.10 m tall, 1.56 m wide, same plane |
+| Chrome bar | under the centre panel, top 0.765 m, 0.18 m tall (0.10 until the clarity pass), 1.56 m wide, same plane, opaque |
 | Side panels | 1.80 m at +-36 degrees, 0.85 m wide, z 0.95 to 2.16, each turned (yaw only) to face the eye |
 
 From the eye, the cubes and their labels sit below the chrome bar, and the ask plate's bottom stays
@@ -157,7 +164,7 @@ above the bar.
 | Path | What it is |
 |---|---|
 | `V2_CONTRACT.md`, `nodes.json` | the contract and the node list (both owned by the bridge lane; a host test pins the node list) |
-| `src/lib.rs`, `src/tests.rs`, `Cargo.toml`, `build.rs` | the Lobby's program (the music plus Mission Control) and its 33 host tests |
+| `src/lib.rs`, `src/tests.rs`, `Cargo.toml`, `build.rs` | the Lobby's program (the music plus Mission Control) and its 35 host tests |
 | `world.wasm` | the built program; it becomes the Lobby's `module.wasm`; it rebuilds byte-identical from a fresh checkout |
 | `mc_assembly.glb` | every node (parked), merged into the Lobby's `scene.glb`; carries three embedded PNGs (the floor ring, 2048 x 1024; two halos, 128 x 128), which `lobby/merge_glb.mjs` appends with their images, sampler and textures (every original Lobby index still checked identical; any extension whose indices it would not re-number is refused; `lobby/merge_glb.test.mjs` runs 19 crafted orbs against it) |
 | `lobby-manifest.patch.json` | what the package changes in the Lobby's manifest |
@@ -170,7 +177,8 @@ above the bar.
 
 Tools live in `../mission-control-tools/` (ASSET_006 refuses a `.ps1` in a bundle):
 `build_panel.ps1` (the Blender build, with its negative control), `build_wasm.ps1`, `make_chime.mjs`,
-`make_synthetic_snapshots.mjs`, `set-bridge-host.mjs`, `mockhost.mjs`, and `lobby/`.
+`make_synthetic_snapshots.mjs`, `set-bridge-host.mjs`, `mockhost.mjs`, `make_clarity_sheet.mjs`
+and `lobby/`.
 
 ## Rebuilding
 
@@ -181,6 +189,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File mission-control-tools\build_
 powershell -NoProfile -ExecutionPolicy Bypass -File mission-control-tools\build_wasm.ps1
 node mission-control-tools/mockhost.mjs                         (AGENT_BRIDGE_DIST=<dist/src> for another checkout)
 node mission-control-tools/lobby/merge_glb.test.mjs
+node mission-control-tools/make_clarity_sheet.mjs --old <1.3.0 renders of the new views>
 node mission-control-tools/lobby/package_lobby.mjs <live lobby 1.1.1 package> <out>
 node <publisher 0.8.1 or later>/packages/cli/dist/index.js validate <out> --offline
 ```
@@ -190,11 +199,14 @@ folder (`MC_SNAPSHOTS=review/synthetic` for the stand-ins); `-- --only arc,watch
 subset; `-- --no-render` only exports. An older publisher (0.5.x) has no `--offline` and fails the
 level-3/4 imports.
 
-`build_panel.ps1` runs Blender twice, both with `--python-exit-code 1`. First the **negative
+`build_panel.ps1` runs Blender three times, each with `--python-exit-code 1`. First the **negative
 control** (`MC_AUDIT_NEGATIVE=1`): `build_panel.py` restores the round-4 floor decal and need halo,
 and its audit must refuse them; the script stops if that run exits 0, if the audit did not trip on
-the floor ring, or if `mc_assembly.glb` changed. Then the real build. In both, the contract check
-and the two-layer audit run **before** the export, so a failure exits non-zero and writes no GLB.
+the floor ring, or if `mc_assembly.glb` changed. Then the **post negative control**
+(`MC_POST_NEGATIVE=1`, since 1.4.0): the Watch post goes back behind the puck, where the first
+1.4.0 candidate had it, and `check_watch_post_clear` must refuse it the same way. Then the real
+build. In each, the contract check, the two-layer audit and the post check run **before** the
+export, so a failure exits non-zero and writes no GLB.
 Run `build_panel.py` directly only with `--python-exit-code 1` (it also exits 1 itself on any
 failure).
 
@@ -203,7 +215,7 @@ stubbed and `k_net_*` sent over real HTTP to a local bridge (fake adapter), and 
 `PAIR_APPROVE` poll (it lives in the bridge CLI's serve loop): the Lobby loads with zero calls; the
 seal mints and polls; the code is approved through `PAIR_APPROVE`; the ring locks, the ledge and
 the puck grow in; CubePlus unfolds the arc; a preset raises an approval (puck amber, two pulses, one
-chime); Fold; Approve on the puck, with CLOSE on the ledge; a job cube unfolds the arc; Group watch;
+chime); Fold; Approve on the puck, with Close + sign out on the ledge; a job cube unfolds the arc; Share with group;
 a watcher gets the arc only, turned, and sends nothing; Close parks everything and the watcher is
 told nobody is sharing. **It passes** against the v2.1 bridge. It does not check rendering, the
 real typing sheet or real haptics.
@@ -216,9 +228,9 @@ not pixels**: the device checkpoint is the real check.
 
 | Render | What it shows |
 |---|---|
-| `seal_ring.jpg` | the ring raised, blue, with its code, the two-line hint, Use passphrase and Cancel |
+| `seal_ring.jpg` | the ring raised, blue, with its code, the two-line hint, Or type passphrase here and Cancel |
 | `seal_locked.jpg` | the same ring turned amber (the 0.6 s hold before it shrinks) |
-| `cubes_calm.jpg` | over the owner's shoulder: CLOSE, three calm cubes and + on the ledge, the calm puck |
+| `cubes_calm.jpg` | over the owner's shoulder: Close + sign out, three calm cubes and + (New job) on the ledge, the calm puck |
 | `cubes_need.jpg` | the same with "registry" amber, the puck amber with its one-line plate and Approve / Deny |
 | `puck_close.jpg` | the puck from the eye, at hand height |
 | `arc.jpg` | the arc open on a job, from the eye, with the chrome bar and the ledge below it |
@@ -227,6 +239,11 @@ not pixels**: the device checkpoint is the real check.
 | `arc_unfolding.jpg` | the arc half way out of its cube (no words yet) |
 | `arc_floor.jpg` | a review camera, not the owner's eye: an elevated three-quarter view from behind and above the throne, a step to its right, over the floating arc at its several depths to the projected floor ring on the hall floor (how reference 2 is shot) |
 | `watcher.jpg` | a watcher's copy from the hall: the arc only, turned and lowered, no action buttons |
+| `arc_empty.jpg` | (1.4.0) the cold arrival from the eye: signed in, no jobs, the arc opened from +: "Start here" |
+| `arc_shared.jpg` | (1.4.0) `arc.jpg` with Share with group on: TxWatch's two lines on the chrome bar (a review stand-in: the captured `arc` snapshot predates the press, so the bridge's words are set by `build_panel.py`) |
+| `watch_post.jpg` | (1.4.0) standing 1.0 m in front of the Watch post's plate, eye 1.6 m above the floor there |
+| `watch_post_throne.jpg` | (1.4.0) the Watch post from the owner's eye on the throne |
+| `clarity_sheet.jpg` | (1.4.0) each of the eight views above that the clarity pass touched: 1.3.0 left, 1.4.0 right |
 | `art_sheet.jpg` | the look check: CEO reference 1 (the glass wall) beside `arc.jpg` and `seal_ring.jpg`; reference 2 (the floating panels) beside `arc_floor.jpg` and `watcher.jpg` |
 
 What the v2.1 review fixed: a 16:9 eye frame cropped the arc (eye renders are now 90 x 80
@@ -256,7 +273,7 @@ text placement are as before, and no node was renamed. The look follows the two 
 - **The floor:** a projected ring and grid (one 2048 x 1024 PNG decal, its own node
   `McFloorRing` in the arc group, so it shows only while the arc is open) pinned to the hall floor
   4.65 to 6.05 m out: past where any cube or need halo lies from the eye, and short of where the
-  ask plate does. The eye sees it under the arc, past the ledge and partly through the chrome bar.
+  ask plate does. The eye sees it under the arc and past the ledge (through the chrome bar too until 1.4.0 made the bar opaque).
 - **Colours:** the PNGs store the palette in sRGB, #5fe6ff cyan and #f3a83a amber (read back from
   the exported GLB); `_write_png` encodes the linear material colours (correctness review 4,
   LOW-1).
@@ -272,8 +289,9 @@ three ways:
    counting Mission Control's translucent faces before anything opaque, faces seen from behind
    culled, the decal and halos counted over their whole quads. Three states, each with every
    cube and the puck in need: the seal raised, folded, and the arc open. All three: worst 2, none
-   over two; with the arc open, 2,707 sightlines reach the floor ring through one layer and 656
-   through two. **Negative control** (committed: `MC_AUDIT_NEGATIVE=1`, run by `build_panel.ps1`
+   over two; with the arc open, 1,517 sightlines reach the floor ring through one layer and none
+   through two (1.3.0: 2,707 and 656; since 1.4.0 the chrome bar is opaque, so the ring is no
+   longer seen through it). **Negative control** (committed: `MC_AUDIT_NEGATIVE=1`, run by `build_panel.ps1`
    before every build): with the decal and halo put back where review 4 found them, the audit
    refuses the build before any export: 672 sightlines through three layers, CubeC + its need
    halo + the floor ring, the review's MEDIUM-2 exactly; Blender exits 1 and the GLB is untouched.
@@ -305,7 +323,7 @@ out (the review camera was lowered so the ring sits clear beneath the arc).
 glass, to keep every pixel at two translucent layers or fewer; (3) every need cube has its own
 halo, so when several jobs need you more than two halos show at once (the seal's halo never shows
 with them); (4) the watcher never sees the floor ring (in the mirrored copy it would lie under the
-floor); (5) the browser spot keeps its "BROWSER SPOT" heading mesh; (6) the floor ring hides while
+floor); (5) the browser spot keeps its heading mesh ("Web page (coming soon)" since 1.4.0); (6) the floor ring hides while
 the arc is one or more steps Nearer or Down, where the ask plate would stack over it; (7) the need
 halo is smaller (24 x 22 cm, was 30 x 30) so it stays off the ring; it reads as a tight amber glow
 around the cube; (8) `McFloorRing` is a node the bridge never names on the wire, but it is listed in
@@ -313,19 +331,58 @@ around the cube; (8) `McFloorRing` is a node the bridge never names on the wire,
 the 0.5 s unfold (0.4 s fold) the shrinking ring travels with the arc and can pass behind the ask
 plate for a moment.
 
+## The clarity pass (Lobby 1.4.0, 2026-10-22)
+
+The contract is `CLARITY_PASS.md`: words, labels and plate sizes only, no node added, removed or
+renamed (`nodes.json` byte-identical), no wire change. Both mixes run end to end in `mockhost.mjs`:
+this world against the 1.3.0 bridge (`cee4f69`) and the 1.3.0 world against this bridge.
+
+- **The Watch post** (A): the plate reads **GROUP WATCH** over **for a second headset** (8.5 and
+  6.4 cm mesh text on a 0.70 x 0.30 m plate, was "Watch" on 0.42 x 0.17), and it is **turned 60
+  degrees from the hall toward the throne** (`WATCH_YAW`): facing the hall it was seen edge-on
+  from behind from the throne, where the CEO met it. It now reads about 21 degrees off its face
+  from the middle of the hall and about 42 degrees off from the owner's eye, 3.5 m away. **It moved to the
+  other side of the throne** (Lobby (14.1, 3.4), the owner's RIGHT, turned the mirrored way, just
+  past the Omni Demo orb so no orb sits behind it as you walk up): on the old side its plate sat
+  right behind the decision puck from the seated eye, its words beside Approve and Deny (the
+  coordinator's review of the first 1.4.0 candidate). `check_watch_post_clear` runs before
+  every export: from the seated eye, no sightline to the post may pass any puck, ledge or arc
+  node first (every variant, all shown at once, handles at rest), and at least 200 sightlines
+  (0.1 degree apart) must see the post clear of the Lobby too. The post negative control puts
+  it back and must be refused. The typing sheet asks
+  "Group watch code (6 digits). The person on the throne gets it by pressing Share with group."
+  The owner's own press says, on two lines, "This post is for a second headset." / "Let someone
+  watch: press Share with group." (the contract's sentence, shortened so each line fits the
+  status line's 1.2 m; host test `the_owner_at_the_watch_post_is_told_what_it_is_for`).
+- **The seal** (B): "Or type passphrase here" on a 0.40 m plate (was "Use passphrase", 0.30);
+  `SEAL_QUESTION` is "Mission Control passphrase (shows as you type)", pinned equal to the bridge
+  face's `PASSPHRASE_QUESTION` by host test `the_typing_sheets_ask_in_plain_words`.
+- **The dashboard** (C): Hide to ledge, Stop this job, Older / Newer, Change project,
+  Closer / Farther, "Move panels" (a static word in `McCenterFrame`'s mesh, over no button),
+  Share with group, "New job" under CubePlus's mark (in its mesh), Close + sign out (0.26 m), and
+  the right panel's heading "Web page (coming soon)". Every mesh word fills at most about 70% of
+  its plate. The arc's widths are unchanged.
+- **The chrome bar grew to 0.18 m** (top unchanged): TxWatch is now two 8 cm lines ("Code 123 456"
+  / "type it at the Watch post", `W.watch` 0.66), which a 0.10 m bar can't hold, and the handles
+  sit in two rows so the line keeps 0.68 m. `src/lib.rs` `ARC_PARTS` follows it, so the handles'
+  clearance from the ledge and the puck uses the taller bar. **The bar is now opaque** (the panel
+  smoke's colour): lowered by the Down handle, a translucent 0.18 m bar would lie over a need cube
+  and its halo from the eye one step sooner than 1.3.0's did (three layers); opaque, it never adds
+  a layer at any handle setting. It hides a little more of the floor ring behind it.
+
 ## Device checks owed (the checkpoint, on Build 1009 or later)
 
 1. The seal on the seat takes the press; the ring rises from it facing the owner; the code reads.
 2. Approving at the PC locks the ring; the ledge and the puck grow in; nothing is left behind.
 3. Cubes press; the arc unfolds from the pressed cube and folds back into the cube of the job on
    show; texts appear only when it lands; the picked cube is hidden while the arc is open.
-4. CLOSE on the ledge and the seal press both close, folded or open.
+4. Close + sign out on the ledge and the seal press both close, folded or open.
 5. Alpha-blended glass and glows read on the mobile renderer (LDR, no bloom): the smoked panels,
    the clear cubes, the halos and the floor ring; white text reads through the glass; the seal's
    slow turn is smooth and comfortable.
 6. The puck's Approve / Deny tabs are reachable from the throne with the left hand.
 7. Both controllers buzz and the chime plays on a new approval; never for a watcher.
-8. Group watch on two headsets: the watcher's arc faces the hall; the watcher can't press.
+8. Share with group on two headsets: the watcher's arc faces the hall; the watcher can't press.
 9. The Lobby itself is unchanged: music, the coastal video, the Omni Demo orb.
 
 ## Known limitations
@@ -334,7 +391,8 @@ plate for a moment.
   field); the Pairing Seal is the reason it is now a fallback.
 - The seal can't check where the visitor stands or looks (no `player_read` in a network world).
 - A watcher's turned arc stands at the dais steps, in front of the Omni Demo orb's label, on the
-  watcher's headset only. A watcher has no CLOSE (it is on the ledge, which a watcher never sees);
+  watcher's headset only. A watcher has no Close + sign out (it is on the ledge, which a watcher
+  never sees);
   the Watch post ends the watch.
 - The `X-World-Address` header is forgeable; the pairing approval at the PC, the relay key and
   the bridge's own checks are the protection.

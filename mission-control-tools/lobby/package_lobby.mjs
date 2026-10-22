@@ -1,4 +1,4 @@
-// package_lobby.mjs -- builds the Lobby 1.3.0 CANDIDATE package with Mission Control v2 inside.
+// package_lobby.mjs -- builds the Lobby CANDIDATE package (1.4.0: Mission Control v2 + the clarity pass).
 //
 // @kosmos-system Content (KosmosWorlds) -- Mission Control (DB-044)
 // @kosmos-owner  Content lane
@@ -13,9 +13,9 @@
 //      exactly, plus Mission Control);
 //   3. adds audio/chime.wav;
 //   4. applies mission-control/lobby-manifest.patch.json (capabilities, host API level 4,
-//      the network block, version 1.3.0); visibility is unchanged (the package sets none).
-// It still starts from the live 1.1.1 package: 1.3.0 is 1.1.1 plus Mission Control v2, built fresh
-// (it does not start from the 1.2.0 that carried v1).
+//      the network block, the version: 1.4.0 since the clarity pass); visibility is unchanged (the package sets none).
+// It still starts from the live 1.1.1 package: 1.4.0 is 1.1.1 plus Mission Control v2 and the clarity
+// pass, built fresh exactly as 1.3.0 was (it does not start from 1.2.0, which carried v1).
 // It publishes nothing: publishing the Lobby is the CEO's (Class C).
 import { execFileSync } from "node:child_process";
 import crypto from "node:crypto";

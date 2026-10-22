@@ -1235,3 +1235,70 @@ fn no_sightline_to_the_floor_ring_crosses_two_other_translucent_layers() {
     assert!(checked > 100, "checked {checked} settings with the ring shown");
     close_panel();
 }
+
+/// Roboto Regular's advance in metres at the world-text size (8 cm), from the bridge's generated
+/// table (agent-bridge/src/roboto-advance.ts, measured from the font by measure_roboto.py).
+fn text_width_m(line: &str) -> f32 {
+    let src = include_str!("../../agent-bridge/src/roboto-advance.ts");
+    let body = &src[src.find("= [").unwrap() + 3..src.rfind(']').unwrap()];
+    let adv: Vec<f32> = body.split(',').map(str::trim).filter(|s| !s.is_empty()).map(|s| s.parse().unwrap()).collect();
+    line.bytes().map(|b| adv.get((b as usize).wrapping_sub(32)).copied().unwrap_or(0.5)).sum::<f32>() * 0.08
+}
+
+fn stored_text(name: &str) -> String {
+    let i = idx(name);
+    unsafe { String::from_utf8(TEXT_STORE[i][..TEXT_LEN[i] as usize].to_vec()).unwrap() }
+}
+
+/// Clarity pass A and B (CLARITY_PASS.md): the typing sheets ask in plain words, the seal's
+/// question is the bridge face's PASSPHRASE_QUESTION byte for byte, and no question says a word
+/// that reads as "PIN" or "pen".
+#[test]
+fn the_typing_sheets_ask_in_plain_words() {
+    assert_eq!(SEAL_QUESTION, "Mission Control passphrase (shows as you type)");
+    assert_eq!(
+        WATCH_QUESTION,
+        "Group watch code (6 digits). The person on the throne gets it by pressing Share with group."
+    );
+    let face = include_str!("../../agent-bridge/src/faces/mission-control/index.ts");
+    let key = "const PASSPHRASE_QUESTION = \"";
+    let at = face.find(key).expect("the face's PASSPHRASE_QUESTION") + key.len();
+    let bridge_q = &face[at..at + face[at..].find('"').unwrap()];
+    assert_eq!(SEAL_QUESTION, bridge_q, "the world's and the bridge's passphrase question must be equal");
+    for q in [SEAL_QUESTION, WATCH_QUESTION, WATCH_POST_OWNER] {
+        let lower = q.to_ascii_lowercase();
+        for w in lower.split(|c: char| !c.is_ascii_alphanumeric()) {
+            assert!(w != "pin" && w != "pen", "{q:?} says {w:?}");
+        }
+        assert!(q.len() <= HOST_TEXT_MAX_BYTES, "{q:?} is over a slot's 128 bytes");
+    }
+}
+
+/// Clarity pass A: the owner pressing the Watch post is told what it is for, in two lines that
+/// each fit the status line (W.status 1.2 m), and nothing is sent or opened.
+#[test]
+fn the_owner_at_the_watch_post_is_told_what_it_is_for() {
+    sign_in_to_cubes();
+    snap(&full_arc_snapshot());
+    run(0.6);
+    let n = fetches();
+    let prompts = unsafe { host::PROMPTS };
+    press("McWatchJoin");
+    assert_eq!(fetches(), n, "no call");
+    assert_eq!(unsafe { host::PROMPTS }, prompts, "no typing sheet for the owner");
+    assert_eq!(mode(), Mode::Owner);
+    let said = stored_text("TxStatus");
+    assert_eq!(said, WATCH_POST_OWNER);
+    assert_eq!(said, "This post is for a second headset.\nLet someone watch: press Share with group.");
+    for line in said.split('\n') {
+        assert!(text_width_m(line) <= 1.21, "{line:?} is {} m wide", text_width_m(line));
+    }
+    // Before signing in (the seal up), the same words go to the seal's hint.
+    reset();
+    press("McSeal");
+    snap(&pair_records());
+    run(0.62);
+    press("McWatchJoin");
+    assert_eq!(stored_text("TxSealHint"), WATCH_POST_OWNER);
+    close_panel();
+}

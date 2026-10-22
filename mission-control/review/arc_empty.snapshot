@@ -1,0 +1,74 @@
+AB1
+V 2
+M arc
+Z 0
+U CubeA 0
+H CubeA off
+X TxCubeA
+U CubeB 0
+H CubeB off
+X TxCubeB
+U CubeC 0
+H CubeC off
+X TxCubeC
+U CubeD 0
+H CubeD off
+X TxCubeD
+U CubePlus 1
+H Puck calm
+X TxPuck
+U BtnPuckApprove 0
+U BtnPuckDeny 0
+T TxTicker 0 working  |  0 need you\n0 done today  |  00:27
+U RailA 0
+U RailSelA 0
+T TxRailA No jobs yet
+U RailB 0
+U RailSelB 0
+X TxRailB
+U RailC 0
+U RailSelC 0
+X TxRailC
+U RailD 0
+U RailSelD 0
+X TxRailD
+T TxDone Done today: 0
+U BtnFold 1
+T TxStatus 0/4 jobs running  |  stop all: npm run kill (PC)
+T TxHeader Start here\nPick a task below, or press + New task.
+X TxConvA
+X TxConvB
+X TxConvC
+X TxConvD
+X TxConvE
+X TxConvF
+X TxConvG
+X TxConvH
+X TxConvI
+X TxConvJ
+X TxPage
+U BtnPageUp 0
+U BtnPageDown 0
+U BtnStop 0
+U BtnReply 0
+U BtnKeep 0
+U BtnSimple 0
+U BtnSummary 0
+U AskPanel 0
+U BtnApprove 0
+U BtnDeny 0
+U BtnWhy 0
+X TxAskA
+X TxAskB
+U BtnTests 1
+U BtnPrs 1
+U BtnToday 1
+U BtnNotes 1
+U BtnNewTask 1
+P BtnNewTask New task for Claude in kosmos-registry: what should it do?
+T TxProject Project: kosmos-registry
+U BtnProject 1
+T TxWatch Not shared
+U BtnWatch 1
+U BtnSignOut 1
+T TxPageSpot A page you pin goes here.

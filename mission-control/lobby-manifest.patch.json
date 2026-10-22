@@ -1,6 +1,6 @@
 {
   "$note": "What Mission Control adds to the Lobby's live manifest. mission-control-tools/lobby/package_lobby.mjs applies it; set-bridge-host.mjs edits network.connect and privacy_url. The purpose is written for every Lobby visitor: the program makes no network call unless the owner signs in or a visitor types a watch code.",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "add_capabilities": [
     "scene_read",
     "scene_write",

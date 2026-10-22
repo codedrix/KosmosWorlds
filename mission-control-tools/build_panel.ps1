@@ -3,19 +3,22 @@
 # @kosmos-system Content (KosmosWorlds) -- Mission Control
 # @kosmos-owner  Content lane
 #
-# Two Blender runs, both headless and both with --python-exit-code 1:
+# Three Blender runs, all headless and all with --python-exit-code 1:
 #   1. The negative control (MC_AUDIT_NEGATIVE=1, --no-render): build_panel.py restores the
 #      round-4 floor decal and need halo, which stack three translucent layers (correctness
 #      review 4, MEDIUM-2). Its pre-export two-layer audit must refuse it: the run must exit
 #      non-zero, report sightlines through three layers ending in McFloorRing, and leave
 #      mc_assembly.glb untouched. If it passes, the audit has gone blind and this script stops.
+#   1b. The post negative control (MC_POST_NEGATIVE=1, --no-render): the Watch post put back behind
+#      the decision puck (the first 1.4.0 candidate's spot); check_watch_post_clear() must refuse it
+#      before any export and leave mc_assembly.glb untouched.
 #   2. The real build, with any arguments given here passed through to build_panel.py
 #      (for example: -- --no-render, or -- --only arc,arc_floor). The contract check and the
 #      audit run before the export, so a failure exits non-zero and writes no GLB.
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File mission-control-tools\build_panel.ps1 [-- <args>]
 #
-# Exit code: 0 only when the negative control failed as it must AND the real build passed.
+# Exit code: 0 only when both negative controls failed as they must AND the real build passed.
 
 $ErrorActionPreference = 'Stop'
 $blender = 'E:\Blender\blender-5.1\Blender Foundation\Blender 5.1\blender.exe'
@@ -54,6 +57,24 @@ if ((Get-Stamp $glb) -ne $before) {
 }
 ($text -split "`n" | Where-Object { $_ -match 'layer audit \(arc open' }) | ForEach-Object { Write-Output ("negative control, as it must: " + $_.Trim()) }
 Write-Output "negative control: refused (exit $code), mc_assembly.glb untouched"
+
+# 1b. The second negative control (clarity pass): the Watch post put back behind the puck, as the
+#     first 1.4.0 candidate had it. check_watch_post_clear() must refuse it before any export.
+$postLog = Join-Path $logDir 'negative-post.log'
+$env:MC_POST_NEGATIVE = '1'
+try { $code = Invoke-Blender @('--no-render') $postLog } finally { Remove-Item Env:MC_POST_NEGATIVE -ErrorAction SilentlyContinue }
+$text = Get-Content $postLog -Raw
+$tripped = $text -match 'the Watch post sits behind Mission Control on \d+ sightlines'
+if ($code -eq 0 -or -not $tripped) {
+  Write-Output "POST NEGATIVE CONTROL DID NOT FAIL AS IT MUST (exit $code, check tripped: $tripped); log: $postLog"
+  exit 1
+}
+if ((Get-Stamp $glb) -ne $before) {
+  Write-Output "POST NEGATIVE CONTROL WROTE mc_assembly.glb; log: $postLog"
+  exit 1
+}
+($text -split "`n" | Where-Object { $_ -match '\[mission-control\] Watch post from the throne' }) | ForEach-Object { Write-Output ("post negative control, as it must: " + $_.Trim()) }
+Write-Output "post negative control: refused (exit $code), mc_assembly.glb untouched"
 
 # 2. The real build.
 $realLog = Join-Path $logDir 'build.log'

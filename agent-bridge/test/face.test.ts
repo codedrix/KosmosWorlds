@@ -5,8 +5,9 @@ import { tempHome, startBridge, call, PASS, parseSnapshot, worldBody, sleep } fr
 tempHome();
 const b = await startBridge(5, 300);
 after(() => b.close());
-const { conversationLines } = await import("../src/faces/mission-control/index.js");
-const { TEXT_NODES, BUTTON_NODES, SHOW_NODES, HUE_NODES, ARC_TEXT_NODES, ARC_BUTTON_NODES } = await import("../src/faces/mission-control/layout.js");
+const { conversationLines, pressLabel, statusWords, watchLines, WORDS, SEAL_HINT, PASSPHRASE_QUESTION } = await import("../src/faces/mission-control/index.js");
+const { estimateWidthM, wrapWidth, WORLD_TEXT_MAX_BYTES } = await import("../src/sanitize.js");
+const { TEXT_NODES, BUTTON_NODES, SHOW_NODES, HUE_NODES, ARC_TEXT_NODES, ARC_BUTTON_NODES, W } = await import("../src/faces/mission-control/layout.js");
 const known = new Set<string>([...TEXT_NODES, ...BUTTON_NODES, ...SHOW_NODES]);
 
 let tok = "";
@@ -107,9 +108,13 @@ test("the + cube opens the arc with no job; a preset opens its job; an approval 
   await view();
   const open = await press("CubePlus");
   assert.equal(open.mode, "arc");
-  assert.match(open.text.get("TxHeader") ?? "", /^No job open/);
+  assert.equal(open.text.get("TxHeader"), "Start here\nPick a task below, or press + New task.", "no jobs at all: the one first step");
+  assert.equal(open.text.get("TxRailA"), "No jobs yet", "the empty rail says so");
+  assert.equal(open.visible.get("RailA"), false, "and offers nothing to press");
+  for (const n of ["TxRailB", "TxRailC", "TxRailD"]) assert.ok(open.hidden.has(n), `${n} hidden`);
   assert.equal(open.visible.get("BtnFold"), true);
-  assert.match(open.text.get("TxPageSpot") ?? "", /DB-043/);
+  assert.equal(open.text.get("TxPageSpot"), "A page you pin goes here.");
+  assert.equal(open.text.get("TxWatch"), "Not shared");
   assert.match(open.text.get("TxTicker") ?? "", /^0 working/);
   const s = await press("BtnTests");
   assert.equal(s.mode, "arc");
@@ -164,6 +169,7 @@ test("Fold returns to the cubes; the puck approves without opening the arc; the 
   assert.equal(s.hue.get("Puck"), "calm");
   await until((x) => x.visible.get("CubeA") === false, "the job to finish");
   const arc = await press("CubePlus");
+  assert.equal(arc.text.get("TxHeader"), "No job open\nPick a job on the left, or start one below.", "jobs exist, none open");
   assert.match(arc.text.get("TxDone") ?? "", /^Done today: 1  \|  Run all/, "one line");
   assert.match(arc.text.get("TxRailA") ?? "", /^registry: Run all tests\nDONE/);
   const rail = await press("RailA");
@@ -219,7 +225,7 @@ test("Approve never shows for a command that can't be shown whole (the ask plate
   const s = await press(slot[0].replace(/^Tx/, ""));
   assert.equal(s.mode, "arc");
   assert.equal(s.visible.get("BtnApprove"), false, "not approvable from the ask plate");
-  assert.match(s.text.get("TxAskB") ?? "", /approve it at the desk/, "the reason is never clipped off");
+  assert.match(s.text.get("TxAskB") ?? "", /^Approve this one on your PC, not here\.\n/, "the reason is never clipped off");
   await view();
   const denied = await press("BtnPuckDeny");
   assert.equal(denied.events.includes("refused"), false, "the puck denies it");
@@ -228,7 +234,7 @@ test("Approve never shows for a command that can't be shown whole (the ask plate
   await press("BtnStop");
 });
 
-test("a redacted command: the puck says desk only and offers only Deny", async () => {
+test("a redacted command: the puck says the PC only and offers only Deny", async () => {
   const job = b.bridge.store.createJob({ agent: "claude", project: "kosmos-web", cwd: "C:/p", title: "Secret", firstMessage: "Secret" });
   const fakeKey = ["sk", "ant", "x".repeat(24)].join("-");
   const p = b.bridge.store.sink(job.id).requestApproval("Bash", { command: `curl -H "x-api-key: ${fakeKey}" api.example` });
@@ -236,7 +242,7 @@ test("a redacted command: the puck says desk only and offers only Deny", async (
   assert.ok(a && a.exact === false);
   const s = await view();
   assert.equal(s.visible.get("BtnPuckApprove"), false);
-  assert.equal(s.text.get("TxPuck"), "web: approve at the desk", "a redacted command: the cube can't approve it either, so the puck says the desk");
+  assert.equal(s.text.get("TxPuck"), "web: approve on your PC", "a redacted command: the cube can't approve it either, so the puck says the PC");
   assert.equal(s.visible.get("BtnPuckDeny"), true, "Deny stays");
   assert.ok(!s.raw.includes(fakeKey), "the key never leaves the PC");
   b.bridge.store.decide(a.id, "deny");
@@ -356,4 +362,53 @@ test("8.7: Sign out lives on the chrome bar: offered unfolded, never folded; a f
   assert.equal(out.mode, "lock");
   assert.ok(out.events.includes("signed_out"));
   assert.equal(b.bridge.auth.signedIn, false);
+});
+
+test("clarity pass: every fixed string fits its width unclipped (CLARITY_PASS.md B and C)", () => {
+  const fits = (line: string, w: number, what: string) => {
+    assert.ok(estimateWidthM(line) <= w, `${what}: "${line}" is ${estimateWidthM(line).toFixed(3)} m, wider than ${w} m`);
+    assert.match(line, /^[\x20-\x7e]*$/, `${what} is plain ASCII`);
+  };
+  // The ring: two lines of W.sealHint, as written.
+  assert.deepEqual(SEAL_HINT, ["Sign in from your PC: type this code", "in the window where npm start runs."]);
+  for (const l of SEAL_HINT) fits(l, W.sealHint, "SEAL_HINT");
+  // The headers (two lines of W.header each).
+  for (const k of ["startHere", "noJobOpen", "watcherNoJob"] as const) for (const l of WORDS[k]) fits(l, W.header, k);
+  fits(WORDS.noJobsYet, W.rail, "noJobsYet");
+  fits(WORDS.pageSpot, W.pageSpot, "pageSpot (one line)");
+  fits(WORDS.askAtPc, W.ask, "askAtPc");
+  fits(WORDS.watchReadOnly, W.watch, "watchReadOnly");
+  // TxWatch, off and on: the code grouped 3 + 3, and where it is typed.
+  assert.deepEqual(watchLines(null), ["Not shared"]);
+  assert.deepEqual(watchLines("123456"), ["Code 123 456", "type it at the Watch post"]);
+  for (const code of [null, "000000", "999999", "888888"]) for (const l of watchLines(code)) fits(l, W.watch, "TxWatch");
+  // The status line at every job count the config allows (maxJobs 1..4), and every note.
+  for (let m = 1; m <= 4; m++) for (let n = 0; n <= m; n++) fits(statusWords(n, m), W.status, "status line");
+  for (const k of ["signedInSeal", "signedIn", "stale", "nothingStarted", "nothingSent", "watchOn", "watchClosed", "watchWrong", "watchNobody", "watchOwnerGone", "watchTooMany"] as const) fits(WORDS[k], W.status, k);
+  fits(`Not done: ${WORDS.unknownButton}.`, W.status, "unknownButton");
+  // The puck's tails leave room for a project word.
+  for (const k of ["puckOpenCube", "puckAtPc"] as const) assert.ok(estimateWidthM(`registry${WORDS[k]}`) <= W.puck, k);
+  // Seal messages wrap to at most two lines (the hint grows up and stops below the ring).
+  for (const k of ["stopped", "pairRate", "pairOff", "pairExpired", "passWrong", "passHardLocked", "passTooFast", "passNotSet", "passOff"] as const) {
+    const lines = wrapWidth(WORDS[k], W.sealHint);
+    assert.ok(lines.length <= 2, `${k} wraps to ${lines.length} lines: ${JSON.stringify(lines)}`);
+    assert.ok(lines.join("\n").length <= WORLD_TEXT_MAX_BYTES, `${k} fits the byte limit`);
+  }
+  for (const mins of [1, 15]) assert.ok(wrapWidth(`Too many wrong tries. Wait ${mins} minutes.`, W.sealHint).length <= 2);
+});
+
+test("clarity pass: the typing sheet's question is the world's, and no word reads as PIN", () => {
+  assert.equal(PASSPHRASE_QUESTION, "Mission Control passphrase (shows as you type)", "must equal SEAL_QUESTION in mission-control/src/lib.rs");
+  const all = [...SEAL_HINT, ...Object.values(WORDS).flat(), ...watchLines("123456"), statusWords(1, 4)];
+  for (const t of all) assert.doesNotMatch(t, /\b(pin code|PIN|pen|snapshot|face|token)\b/, `"${t}" uses a word the contract bans`);
+});
+
+test("clarity pass: a watcher is told the owner's press in the panel's new words", () => {
+  assert.equal(pressLabel("BtnFold"), "Hide to ledge");
+  assert.equal(pressLabel("BtnStop"), "Stop this job");
+  assert.equal(pressLabel("BtnPageUp"), "Older");
+  assert.equal(pressLabel("BtnPageDown"), "Newer");
+  assert.equal(pressLabel("BtnWatch"), "Share with group");
+  assert.equal(pressLabel("CubePlus"), "New job");
+  assert.equal(pressLabel("CubeB"), "a job cube");
 });
