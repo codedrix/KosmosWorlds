@@ -55,7 +55,7 @@ fn every_line_fits_in_its_worst_case() {
     fits(title_text(i32::MIN, i32::MIN).as_str());
     fits(nav_text(Nav::NotYet, -1).as_str());
     fits(nav_text(Nav::Pending { enter_s: 0.0 }, 7).as_str());
-    fits(nav_text(Nav::Returned(i32::MIN), 0).as_str());
+    fits(nav_text(Nav::Returned(i32::MIN, false), 0).as_str());
 
     let mut f = field(false);
     fits(result_text(&f).as_str());
@@ -200,7 +200,9 @@ fn press_enter_rearm_then_navigate() {
     for _ in 0..2 {
         k_tick(0.25); // -> 7.75
     }
-    assert_eq!(a.nav, Nav::Returned(-11));
+    // The Enter came 1.0 s after the press: the call is 5.5 s after the Enter, so it says nothing.
+    assert_eq!(a.nav, Nav::Returned(-11, false));
+    assert!(nav_text(a.nav, 0).as_str().ends_with("returned -11, inconclusive"));
     assert_eq!(a.nav_calls, 1);
     // Once: more ticks call nothing.
     k_tick(0.25);
@@ -213,7 +215,7 @@ fn press_enter_rearm_then_navigate() {
     let (_, req3, _) = a.session.unwrap();
     on_text_input(0, 12, req3, CODE_CLOSED);
     assert_eq!(a.fields[1].ended, Ended::Closed);
-    assert_eq!(a.nav, Nav::Returned(-11), "a closed keyboard is not an Enter");
+    assert_eq!(a.nav, Nav::Returned(-11, false), "a closed keyboard is not an Enter");
 
     // A second press on the field whose keyboard is up keeps it open and shows the code.
     on_press(0, 11, 0, 0);
@@ -362,7 +364,7 @@ fn end_card_closes_and_counts_stray_events() {
     assert!(t.as_str().contains("events after end: 0 (pass)"), "{}", t.as_str());
     assert!(t.as_str().contains("read: 5 at end, -7 next"), "{}", t.as_str());
     assert!(checks::on_text_input(&mut a, req, CODE_CLOSED));
-    assert!(card_text(&a.checks.cards[i]).as_str().contains("events after end: 1 (FAIL)"));
+    assert!(card_text(&a.checks.cards[i]).as_str().contains("after end: 1, code -1 (FAIL)"), "{}", card_text(&a.checks.cards[i]).as_str());
 }
 
 /// C2: a press opens and closes at once; a second press within a second is the host's -6.
@@ -378,7 +380,7 @@ fn twice_card_shows_the_second_begin() {
     a.now_s = 10.4;
     checks::press(&mut a, i);
     let t = card_text(&a.checks.cards[i]);
-    assert!(t.as_str().contains("again after 0.4 s: -6"), "{}", t.as_str());
+    assert!(t.as_str().contains("again after 0.40 s: -6"), "{}", t.as_str());
     assert!(t.as_str().contains("-6: one a second (pass)"));
     unsafe { host::STUB_BEGIN = 0 };
     a.now_s = 12.0;
@@ -387,24 +389,71 @@ fn twice_card_shows_the_second_begin() {
     a.now_s = 13.5;
     checks::press(&mut a, i);
     let t = card_text(&a.checks.cards[i]);
-    assert!(t.as_str().contains("again after 1.5 s: 0, end 0\nopened: over 1 s, retry"), "{}", t.as_str());
+    assert!(t.as_str().contains("again after 1.50 s: 0, end 0\nopened: over 1 s, retry"), "{}", t.as_str());
+    // The gap decides the words: -6 at a second or more is another open field, not the
+    // one-a-second rule; 0 inside a second is the host's failure, not the visitor's.
+    let mut c = Card::new(Kind::TwiceFast);
+    c.begin = Some(0);
+    c.end_code = Some(0);
+    c.again = Some((-6, 1.2));
+    assert!(card_text(&c).as_str().contains("again after 1.20 s: -6\n-6: another field was open"), "{}", card_text(&c).as_str());
+    c.again = Some((0, 0.4));
+    assert!(card_text(&c).as_str().contains("\nFAIL: host let it open"), "{}", card_text(&c).as_str());
+    c.again = Some((-6, 0.999));
+    assert!(card_text(&c).as_str().contains("again after 0.99 s: -6\n-6: one a second (pass)"), "{}", card_text(&c).as_str());
 }
 
-/// C3: the second press while the card's keyboard is up.
+/// C3: the second press while the card's keyboard is up. Only a -6 a second or more after
+/// the field opened shows the one-field rule (inside a second the one-a-second rule answers).
 #[test]
 fn one_card_records_the_second_press() {
     let mut a = card_app();
     let i = idx(Kind::OneAtATime);
+    a.now_s = 1.0;
     checks::press(&mut a, i);
     assert!(a.checks.cards[i].open);
     unsafe { host::STUB_BEGIN = -6 };
+    a.now_s = 1.5;
     checks::press(&mut a, i);
     assert_eq!(a.checks.cards[i].second, Some(-6));
     assert!(a.checks.cards[i].open, "the open field is untouched");
-    assert!(card_text(&a.checks.cards[i]).as_str().contains("-6: one field per world"));
+    let t = card_text(&a.checks.cards[i]);
+    assert!(t.as_str().contains("2nd after 0.50 s: -6\nunder 1 s: inconclusive."), "{}", t.as_str());
+    a.now_s = 2.5;
+    checks::press(&mut a, i);
+    let t = card_text(&a.checks.cards[i]);
+    assert!(t.as_str().contains("2nd after 1.50 s: -6\n-6: one field per world\n(pass)"), "{}", t.as_str());
     unsafe { host::STUB_BEGIN = -11 };
     checks::press(&mut a, i);
     assert!(card_text(&a.checks.cards[i]).as_str().contains("-11: the keyboard held"));
+    unsafe { host::STUB_BEGIN = 0 };
+    a.now_s = 3.0;
+    checks::press(&mut a, i);
+    assert!(card_text(&a.checks.cards[i]).as_str().contains("FAIL: the host opened\na second field"), "{}", card_text(&a.checks.cards[i]).as_str());
+}
+
+/// The first row's navigate result is conclusive only for an Enter 2 s or more after the last press.
+#[test]
+fn navigate_after_enter_is_labelled_conclusive_only_when_it_can_be() {
+    assert_eq!(nav_text(Nav::Returned(-11, true), 0).as_str(), "After Enter, k_world_navigate\nreturned -11, conclusive");
+    let a = app();
+    *a = App::new();
+    unsafe {
+        host::STUB_BEGIN = 0;
+        host::STUB_READ = -7;
+    }
+    a.fields[0].node = 11;
+    a.fields[1].node = 12;
+    a.now_s = 1.0;
+    on_press(0, 11, 0, 0);
+    let (_, req, _) = a.session.unwrap();
+    a.now_s = 3.5; // the Enter, 2.5 s after the press
+    on_text_input(0, 11, req, CODE_SUBMITTED);
+    for _ in 0..24 {
+        k_tick(0.25);
+    }
+    assert_eq!(a.nav, Nav::Returned(-11, true));
+    k_shutdown();
 }
 
 /// C5 never keeps the text, and C7 never even copies it (out_cap 0).
@@ -496,6 +545,8 @@ fn every_card_line_fits_its_plaque() {
                         c.again = Some((r2, 9.9));
                         c.again_end = Some(r2);
                         c.second = Some(r2);
+                        c.second_gap = if r == -6 { 0.5 } else { 9.99 };
+                        c.stray_code = -11;
                         c.probes = [Some(r2); 4];
                         c.bytes = Some(512);
                         c.text.push("9999999999999999");

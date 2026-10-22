@@ -31,16 +31,18 @@
  *              re-arms text input only and stamps nothing; hover never stamps.
  *   material   Begin -1/-2/-7 (a mesh, a slot in range), argument -7, the 64 writes a
  *              frame -6 (reset counts but is never refused), -8 (no base colour; glow
- *              on an unlit material; opacity on a non-BLEND one; a picture without
- *              UV0), the 256 (node, slot) instances -5 (KDomMaterial.cpp).
+ *              on an unlit material; opacity on a non-BLEND one), the 256 (node, slot)
+ *              instances -5 (KDomMaterial.cpp). A picture on a mesh with no TEXCOORD_0
+ *              answers 0, as the client does (glTFRuntime always builds UV0).
  *   pictures   assets.images[] decoded at load, 1024 px a side, 24 MiB decoded in all
  *              (w x h x 4), 16 entries; k_texture_set_bundle -4 for anything else
  *              (KBundleImages.cpp).
  *   hover      OnHoverEnter after a 60 ms rest on a press target, OnHoverExit 60 ms
  *              after leaving it, per hand (param2 0 left, 1 right); 10 Enters a
  *              second with bursts of 10; an Exit at once when the menu opens and no
- *              Enter while it is up; only when the world subscribes a hover event
- *              (KWorldHoverSubsystem.h, RESOLVE_SPEC 10.10.4).
+ *              Enter while it is up; only when the world subscribes a hover event;
+ *              never activation (KWorldHoverSubsystem.h, RESOLVE_SPEC 10.10.4). The
+ *              option hoverStampsActivation models a defective host for the scenario.
  *   travel     at travel start every material override and picture is released and
  *              recorded; a refused or cancelled travel gives them back, a parameter
  *              the world wrote meanwhile keeps the newer value and a reset pair stays
@@ -122,7 +124,11 @@ export class Host {
    * @param level      the client's host API level (5: Build 1013; 6: the visual-pack cook)
    * @param images     { "<declared path>": Buffer } (assets.images[] bytes)
    */
-  constructor({ wasmPath, glbPath, manifest, level = 6, images = {} }) {
+  constructor({ wasmPath, glbPath, manifest, level = 6, images = {}, hoverStampsActivation = false }) {
+    // A DEFECTIVE host, for the scenario only: a hover Enter stamps activation as a press does.
+    // The real client never does (KWorldHoverSubsystem.h: "NEVER ACTIVATION"); the
+    // hover-then-travel check must read FAIL against this model, not pass.
+    this.hoverStampsActivation = hoverStampsActivation;
     this.manifest = manifest;
     this.level = level;
     this.maxTexts = level >= 6 ? 64 : 32;
@@ -413,7 +419,8 @@ export class Host {
         if (!freshPress && !liveRearm) return -11;
         if ((ti.session && ti.session.phase === "open") || H.time - ti.lastBegin < LIMITS.beginIntervalS) return -6;
         if (freshPress) ti.consumedPress = H.lastPress;
-        else ti.rearm = -1e9;
+        // FKWorldTextSession::Open clears the Enter re-arm whatever opened the field.
+        ti.rearm = -1e9;
         ti.lastBegin = H.time;
         const keyboard = masked ? "password" : ["text", "email", "number", "web"][layout];
         const init = il > 0 ? cleanTyped(H.str(ip, il), max) : "";
@@ -497,7 +504,10 @@ export class Host {
         if (H.matWrites >= LIMITS.materialWritesPerFrame) return -6;
         const path = H.str(p, l);
         if (!H.images.has(path)) return -4;
-        if (!slot.uv0) return -8;
+        // DB-045 says -8 without UV0, but glTFRuntime builds every static mesh with at least one
+        // UV channel (zeros when the glTF has no TEXCOORD_0), so the client's -8 branch cannot
+        // fire for a world mesh: the call goes on and answers 0 (review RV_KW_9_10, MED-10-2;
+        // a client finding).
         const [q, e] = instance(h, s);
         if (q) return q;
         e.texture = path;
@@ -673,6 +683,7 @@ export class Host {
   }
   deliverHover(name, target, hand) {
     this.events.push({ t: this.time, kind: name, node: this.nodes.get(target)?.name, hand });
+    if (this.hoverStampsActivation && name === "OnHoverEnter") this.lastPress = this.time;
     for (const s of this.subsFor(name, target)) this.call(s.fn, 0, target, 0, hand);
   }
   serviceHover(dt) {

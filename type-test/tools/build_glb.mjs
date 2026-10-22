@@ -248,7 +248,7 @@ function plaque(g, P, name, r, deg, y, w, h, d, maxLines, lines, bodyMat, barMat
 const WIDEST = {
   label: ["Press to type (plain)", "Press to type (password)"],
   title: ["Type test: host API level 5\nThis headset reports level -2147483648\nEnter on a pressed field opens the other"],
-  nav: ["After Enter, k_world_navigate\nreturned -2147483648"],
+  nav: ["After Enter, k_world_navigate\nreturned -2147483648, inconclusive"],
   result: ["You typed:\nWWWWWWWWWWWWWWWWWWWWWW\nWWWWWWWWWWWWWWWWWWWWWW\nWWWW", "Password received:\n128 characters"],
   status: ["open: yes (Enter or press), again -6\ntext: read error -2147483648\nended: taken by Kosmos", "open: retrying, begin -2147483648", "open: yes (Enter or press), begin 0\ntext: yes, 128 characters"],
 };

@@ -2,7 +2,7 @@
 
 A test room for host API level 5, world text input. The CEO approved it on 2026-10-21: "go ahead and do the type test, MickNerks, and we can test it. After we test it and it works, please destroy that world." On 2026-10-22 he ruled: "The remaining checks can be done during the level 6 headset session."
 
-**This world is meant to be destroyed once the level-5 checks pass.** It is unlisted. 1.0.0 was published from an untracked folder; this folder now holds its source (the first commit reproduces the published 1.0.0 byte for byte) and 1.1.0.
+**This world is meant to be destroyed once the level-5 checks pass.** It is unlisted. 1.0.0 was published from an untracked folder; this folder now holds its source (built from the first commit, every asset and the manifest match the published 1.0.0; only the bundle container differs, in its `validation.validated_at` build stamp) and 1.1.0.
 
 ## 1.1.0: the checks 1.0.0 could not show
 
@@ -10,10 +10,10 @@ kosmos-project #213 records the 1.0.0 run on Build 1013 and lists what it did no
 
 | Where | Card | What the CEO does | What a pass looks like on the card |
 |---|---|---|---|
-| ahead | first row (unchanged) | Press **Press to type (plain)**, type, press the keyboard's **Enter** key (not its close button, and do not point away) | the plain plaque shows the text and "ended: Enter"; **the password keyboard opens by itself** and its status reads "open: yes (Enter), begin 0". If the Enter came less than a second after the field opened, it reads "open: retrying, begin -6" for up to a second first (the one-a-second rule; the world retries for 3 s) |
-| left, nearest | **World closes it** | Press once, type a few letters, wait 3 s | the keyboard goes away by itself; "begin 0, end 0", "events after end: 0 (pass)", "read: N at end, -7 next" |
-| left, middle | **Open twice, fast** | Press, then press again within a second | "1st: begin 0, end 0", then "again after 0.x s: -6" and "-6: one a second (pass)". If the second press took over a second the card says "opened: over 1 s, retry": press twice again, faster |
-| left, far | **Press twice** | Press once (a keyboard opens), then press the card again with the keyboard up | "2nd, still open: -6" and "-6: one field per world (pass)". If it reads -11 instead, the keyboard held the world's input and the press did not count: record that (it is not a failure of the -6 rule, which the middle card also shows) |
+| ahead | first row (1.0.0's flow) | Press **Press to type (plain)**, type, press the keyboard's **Enter** key (not its close button, and do not point away) | the plain plaque shows the text and "ended: Enter"; **the password keyboard opens by itself** and its status reads "open: yes (Enter), begin 0". If the Enter came less than a second after the field opened, it reads "open: retrying, begin -6" for up to a second first (the one-a-second rule; the world retries for 3 s). The navigate line above the row reads "returned -11, conclusive" only when the Enter came 2 s or more after your last press (the call is made 6.5 s after the press, so it is then inside the Enter's own 5 s): **take at least 2 s before pressing Enter**. "inconclusive" means the -11 says nothing about the Enter |
+| left, nearest | **World closes it** | Press once, type a few letters, then **stop typing** and wait for the 3 s mark | the keyboard goes away by itself; "begin 0, end 0", "events after end: 0 (pass)", "read: N at end, -7 next". A stray event shows as "after end: N, code C (FAIL)"; if it is code 1 and you typed in the last moment before 3 s, it is likely a client delivery-order finding (a keystroke in the last frame delivered after the end), not a world defect: record the code |
+| left, middle | **Open twice, fast** | Press, then press again within a second | "1st: begin 0, end 0", then "again after 0.xx s: -6" and "-6: one a second (pass)". The pass words depend on the measured gap: a -6 at 1 s or more reads "-6: another field was open" (a different rule; close any other keyboard and retry); a 0 at 1 s or more reads "opened: over 1 s, retry" (press twice again, faster); **a 0 under 1 s reads "FAIL: host let it open"**: that is the host's failure, not yours |
+| left, far | **Press twice** | Press once (a keyboard opens), **wait more than a second**, then press the card again with the keyboard up | "2nd after 1.xx s: -6" and "-6: one field per world (pass)". Under a second the one-a-second rule alone answers -6, so the card says "under 1 s: inconclusive" (press again). A 0 reads "FAIL: the host opened a second field". If it reads -11, the keyboard held the world's input and the press did not count: record that |
 | right, nearest | **Size limits** | Press once; type about 20 more characters after the 500 already in the field; press Enter | "plain 513: -7, pw 129: -7", "pw start: -7, 600>512: -7", "512 field: begin 0", "read 512 bytes, max 512" |
 | right, middle | **Password, number pad** | Press; **look at the keyboard**; type 10 characters; Enter | the **password keyboard** shows, not a number pad (masked forces it, whatever the layout asks); "got 8 bytes (cap 8)" |
 | right, far | **Plain, number pad** | Press; look at the keyboard; type digits; Enter | a **number pad** shows (the contrast with the card before); "You typed: <digits>" |
@@ -24,24 +24,29 @@ Each plaque shows the return code of every call in plain words: 0 ok, -6 too soo
 
 ### The audit: typing goes nowhere else
 
-The world imports no `k_log`, no `k_state_*` and no `k_net_*` (the scenario asserts it), so anything that shows the marker in a log came from Kosmos, not the world. HS2 is the Quest 3S `340YC10GBQ1FYK`; use the other serial for HS3.
+The world imports no `k_log`, no `k_state_*` and no `k_net_*` (the scenario asserts it), so anything that shows the marker in a log came from Kosmos, not the world. **Never type a real password into any field of this world**: the plain fields are shown on plaques by design, and the markers below are made up. HS2 is the Quest 3S `340YC10GBQ1FYK`; use the other serial for HS3.
 
 ```powershell
 $adb = 'E:\Andriod\Sdk\platform-tools\adb.exe'; $s = '340YC10GBQ1FYK'
 & $adb -s $s logcat -G 16M
 & $adb -s $s logcat -c
+$pid0 = (& $adb -s $s shell pidof com.kosmos.client).Trim()
 # In the world: on the Audit card type QZXV7731 and press Enter.
 # Then on the first row's password button type PWQZXV7731 and press Enter.
+$pid1 = (& $adb -s $s shell pidof com.kosmos.client).Trim()
+"same app process throughout: $($pid0 -eq $pid1)"
 & $adb -s $s logcat -d -v threadtime > E:\wt\l5-audit-logcat.txt
 Select-String -Path E:\wt\l5-audit-logcat.txt -SimpleMatch -Pattern 'QZXV7731'
-& $adb -s $s shell "grep -c QZXV7731 /sdcard/Android/data/com.kosmos.client/files/UnrealGame/KosmosClient/KosmosClient/Saved/Logs/KosmosClient.log"
+# Every UE log file on the headset, the current one and every rotated -backup-<time>.log:
+$logs = '/sdcard/Android/data/com.kosmos.client/files/UnrealGame/KosmosClient/KosmosClient/Saved/Logs'
+& $adb -s $s shell "ls -l $logs/"
+& $adb -s $s shell "grep -c QZXV7731 $logs/*.log"
 # The positive control: the capture covers the typing (Kosmos lines from those minutes exist).
-$kpid = (& $adb -s $s shell pidof com.kosmos.client).Trim()
-(Select-String -Path E:\wt\l5-audit-logcat.txt -Pattern " $kpid ").Count
+(Select-String -Path E:\wt\l5-audit-logcat.txt -Pattern " $pid1 ").Count
 Select-String -Path E:\wt\l5-audit-logcat.txt -Pattern 'KTextInput|KDomUI|KActivation'
 ```
 
-**Pass:** `Select-String ... QZXV7731` prints nothing; the `grep -c` prints `0`; and the positive control counts lines from the Kosmos process (non-zero), so the capture was live while typing. The text-input lines themselves may not appear at this build's log verbosity (#213 found none on Build 1013); if any do, they name a request id and a byte count, never the text. The Audit card's own "received N bytes" shows the typing reached the world. A line from another process (the Quest's own keyboard, for example) is recorded with its process name and reported; it is not Kosmos's, but it is worth knowing. Telemetry and the group wire are not visible from the headset log: the client's `Kosmos.TextInput.NeverLogged` test covers the log, and the text-input code has no telemetry or sync call (KWorldTextInput.h's privacy rule).
+**Pass:** "same app process throughout: True" (no restart, so no log was rotated away mid-test); `Select-String ... QZXV7731` prints nothing; the `grep -c` prints `0` for **every** log file it lists (the current `KosmosClient.log` and any `KosmosClient-backup-*.log`); and the positive control counts lines from the Kosmos process (non-zero), so the capture was live while typing. If the process changed, the test is void: run it again. The text-input lines themselves may not appear at this build's log verbosity (#213 found none on Build 1013); if any do, they name a request id and a byte count, never the text. The Audit card's own "received N bytes" shows the typing reached the world. A line from another process (the Quest's own keyboard, for example) is recorded with its process name and reported; it is not Kosmos's, but it is worth knowing. Telemetry and the group wire are not visible from the headset log: the client's `Kosmos.TextInput.NeverLogged` test covers the log, and the text-input code has no telemetry or sync call (KWorldTextInput.h's privacy rule).
 
 ## Build and check
 

@@ -144,6 +144,11 @@ pub const CODE_TAKEN: i32 = -2;
 pub const DUMMY_URL: &str = "world://type-test-nowhere.micknerks";
 /// The navigate call waits until the last press is this old (the window is 5 s).
 pub const PRESS_SETTLE_S: f32 = 6.5;
+/// The first row's navigate result means something only if the Enter came this long after
+/// the last press: the call is at last press + 6.5 s, so it is then within 4.5 s of the Enter
+/// (inside the Enter's own window, had the Enter stamped one). 2.0 rather than 1.5 keeps a
+/// margin for world time, which can run slower than real time.
+pub const NAV_CONCLUSIVE_S: f32 = 2.0;
 /// How long the world keeps trying to open the next field after an Enter (the re-arm lasts 5 s).
 /// Kept well inside the host's 5 s re-arm, because this clock is clamped and can run slow.
 pub const CHAIN_TRY_S: f32 = 3.0;
@@ -365,7 +370,10 @@ pub enum Nav {
     NotYet,
     /// An Enter happened at this time; the call waits for the press window to close.
     Pending { enter_s: f32 },
-    Returned(i32),
+    /// The answer, and whether it says anything: the Enter came at least
+    /// NAV_CONCLUSIVE_S after the last press, so the call was inside the Enter's
+    /// own 5 s and outside every press's.
+    Returned(i32, bool),
 }
 
 pub struct App {
@@ -530,7 +538,8 @@ pub fn nav_text(nav: Nav, countdown: i32) -> Buf<128> {
     match nav {
         Nav::NotYet => b.push("not called yet"),
         Nav::Pending { .. } => b.push("calls in ").push_i32(countdown.max(0)).push(" s"),
-        Nav::Returned(c) => b.push("returned ").push_i32(c),
+        Nav::Returned(c, true) => b.push("returned ").push_i32(c).push(", conclusive"),
+        Nav::Returned(c, false) => b.push("returned ").push_i32(c).push(", inconclusive"),
     };
     b
 }
@@ -723,7 +732,10 @@ pub extern "C" fn k_tick(delta: f32) {
         let due = if a.last_press_s >= 0.0 { enter_s.max(a.last_press_s + PRESS_SETTLE_S) } else { enter_s };
         if a.now_s >= due {
             let r = unsafe { host::k_world_navigate(DUMMY_URL.as_ptr() as i32, DUMMY_URL.len() as i32) };
-            a.nav = Nav::Returned(r);
+            // Conclusive only when the Enter came NAV_CONCLUSIVE_S or more after the last press
+            // (the call is then within 4.5 s of the Enter); otherwise -11 is what any Enter gets.
+            let conclusive = a.last_press_s < 0.0 || enter_s - a.last_press_s >= NAV_CONCLUSIVE_S;
+            a.nav = Nav::Returned(r, conclusive);
             a.nav_calls += 1;
             a.nav_dirty = true;
         } else {

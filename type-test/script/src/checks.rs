@@ -118,6 +118,11 @@ pub struct Card {
     pub again_end: Option<i32>,
     // C3: the press while open.
     pub second: Option<i32>,
+    /// C3: when the open field began, and how long after it the second press came.
+    pub first_s: f32,
+    pub second_gap: f32,
+    /// C1 and C2: the code of the first stray event after k_ui_text_end.
+    pub stray_code: i32,
     // C4: the four refusals.
     pub probes: [Option<i32>; 4],
     pub dirty: bool,
@@ -146,6 +151,9 @@ impl Card {
             again: None,
             again_end: None,
             second: None,
+            first_s: 0.0,
+            second_gap: 0.0,
+            stray_code: 0,
             probes: [None; 4],
             dirty: true,
         }
@@ -337,6 +345,7 @@ pub fn press(a: &mut App, i: usize) {
                 let r = begin_raw(node, 0, SMALL_CAP, &[], req);
                 let c = &mut a.checks.cards[i];
                 c.second = Some(r);
+                c.second_gap = now - c.first_s;
                 if r == 0 {
                     // Not expected: the host let a second field open. Track it as the open one.
                     c.req = req;
@@ -347,6 +356,7 @@ pub fn press(a: &mut App, i: usize) {
                 let c = &mut a.checks.cards[i];
                 *c = Card { node: c.node, txt: c.txt, ..Card::new(kind) };
                 c.begin = Some(r);
+                c.first_s = now;
                 if r == 0 {
                     c.req = req;
                     c.open = true;
@@ -414,6 +424,9 @@ pub fn on_text_input(a: &mut App, request_id: i32, code: i32) -> bool {
         let c = &mut a.checks.cards[i];
         if c.ended_req != 0 && request_id == c.ended_req {
             // After k_ui_text_end the host owes no event; count any that comes.
+            if c.events_after_end == 0 {
+                c.stray_code = code;
+            }
             c.events_after_end += 1;
             c.dirty = true;
             return true;
@@ -467,11 +480,6 @@ pub fn on_text_input(a: &mut App, request_id: i32, code: i32) -> bool {
     false
 }
 
-/// Is a card's session open (so lib.rs's pair knows a press there will be refused)?
-pub fn any_open(a: &App) -> bool {
-    a.checks.cards.iter().any(|c| c.open)
-}
-
 pub fn tick(a: &mut App) {
     let now = a.now_s;
     for c in a.checks.cards.iter_mut() {
@@ -522,10 +530,20 @@ fn push_end(b: &mut Buf<128>, e: Ended) {
     };
 }
 
-/// One decimal place, for a seconds value 0..999.
+/// Two decimal places for 0..999 s, never shown as 1.00 or more when under a second
+/// (the pass words depend on which side of 1 s the gap is).
 fn push_secs(b: &mut Buf<128>, s: f32) {
-    let t = (s.max(0.0) * 10.0 + 0.5) as i32;
-    b.push_i32(t / 10).push(".").push_i32(t % 10).push(" s");
+    let mut t = (s.max(0.0) * 100.0 + 0.5) as i32;
+    if s < 1.0 {
+        t = t.min(99);
+    } else {
+        t = t.max(100);
+    }
+    b.push_i32(t / 100).push(".");
+    if t % 100 < 10 {
+        b.push("0");
+    }
+    b.push_i32(t % 100).push(" s");
 }
 
 pub fn card_text(c: &Card) -> Buf<128> {
@@ -548,8 +566,12 @@ pub fn card_text(c: &Card) -> Buf<128> {
                 }
             }
             (Some(_), Some(e)) => {
-                b.push("begin 0, end ").push_i32(e).push("\nevents after end: ").push_i32(c.events_after_end);
-                b.push(if c.events_after_end == 0 { " (pass)" } else { " (FAIL)" });
+                b.push("begin 0, end ").push_i32(e);
+                if c.events_after_end == 0 {
+                    b.push("\nevents after end: 0 (pass)");
+                } else {
+                    b.push("\nafter end: ").push_i32(c.events_after_end).push(", code ").push_i32(c.stray_code).push(" (FAIL)");
+                }
                 b.push("\nread: ");
                 match c.read_same {
                     Some(n) => b.push_i32(n),
@@ -584,14 +606,22 @@ pub fn card_text(c: &Card) -> Buf<128> {
                         if let Some(e2) = c.again_end {
                             b.push(", end ").push_i32(e2);
                         }
-                        b.push(match r2 {
-                            -6 => "\n-6: one a second (pass)",
-                            0 => "\nopened: over 1 s, retry",
+                        // The gap tells the two -6 rules apart: under a second, only the
+                        // one-a-second rule can answer; at a second or more, only an open field can.
+                        b.push(match (r2, gap < 1.0) {
+                            (-6, true) => "\n-6: one a second (pass)",
+                            (-6, false) => "\n-6: another field was open",
+                            (0, true) => "\nFAIL: host let it open",
+                            (0, false) => "\nopened: over 1 s, retry",
                             _ => "\nunexpected code",
                         });
                     }
                 }
-                b.push("\nevents after end: ").push_i32(c.events_after_end);
+                if c.events_after_end == 0 {
+                    b.push("\nevents after end: 0");
+                } else {
+                    b.push("\nafter end: ").push_i32(c.events_after_end).push(", code ").push_i32(c.stray_code).push(" (FAIL)");
+                }
             }
         },
         Kind::OneAtATime => match (c.begin, c.second) {
@@ -614,10 +644,16 @@ pub fn card_text(c: &Card) -> Buf<128> {
             }
             (Some(r), Some(r2)) => {
                 b.push("1st: begin ").push_i32(r);
-                b.push("\n2nd, still open: ").push_i32(r2);
-                b.push(match r2 {
-                    -6 => "\n-6: one field per world\n(pass)",
-                    -11 => "\n-11: the keyboard held\nthe press (record it)",
+                b.push("\n2nd after ");
+                push_secs(&mut b, c.second_gap);
+                b.push(": ").push_i32(r2);
+                // Under a second the one-a-second rule alone answers -6, so only a -6 at
+                // a second or more shows the one-field rule.
+                b.push(match (r2, c.second_gap >= 1.0) {
+                    (-6, true) => "\n-6: one field per world\n(pass)",
+                    (-6, false) => "\nunder 1 s: inconclusive.\nWait a second, press again",
+                    (-11, _) => "\n-11: the keyboard held\nthe press (record it)",
+                    (0, _) => "\nFAIL: the host opened\na second field",
                     _ => "\nunexpected code",
                 });
             }

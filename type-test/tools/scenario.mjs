@@ -62,7 +62,7 @@ function run(level) {
 
   // --- the first row (1.0.0's flow, unchanged): plain, Enter, the password field opens by itself.
   h.press("BtnPlain");
-  h.run(1.0); // a person takes more than a second to type; the re-arm begin would meet the 1 s rule otherwise (the world retries for 3 s)
+  h.run(1.6); // a person takes more than a second to type; the re-arm begin would meet the 1 s rule otherwise (the world retries for 3 s)
   h.type("hello there");
   h.run(0.5);
   h.enter();
@@ -78,7 +78,7 @@ function run(level) {
   h.enter();
   h.run(8.0);
   has(h, "TxtPassResult", "11 characters");
-  has(h, "TxtNav", "returned -11");
+  has(h, "TxtNav", "returned -11, conclusive");
 
   // --- C1: the world closes its own field.
   h.press("BtnEnd");
@@ -99,6 +99,7 @@ function run(level) {
   h.press("BtnTwice");
   h.tick();
   has(h, "TxtTwice", "-6: one a second (pass)");
+  has(h, "TxtTwice", "again after 0.");
   h.run(1.5);
 
   // --- C3: one field per world.
@@ -108,7 +109,11 @@ function run(level) {
   h.run(0.5);
   h.press("BtnOne");
   h.tick();
-  has(h, "TxtOne", "2nd, still open: -6");
+  has(h, "TxtOne", "under 1 s: inconclusive.");
+  h.run(0.8);
+  h.press("BtnOne");
+  h.tick();
+  has(h, "TxtOne", "-6: one field per world");
   // ...and the first row's button meets the same open session.
   h.run(1.2);
   h.press("BtnPassword");
