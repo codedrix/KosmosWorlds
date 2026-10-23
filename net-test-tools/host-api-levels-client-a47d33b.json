@@ -1,0 +1,667 @@
+{
+  "$schema": "https://kosmosvr.com/schemas/host-api-levels-1.json",
+  "schema_version": 1,
+  "host": "kosmos-quest",
+  "current_level": 4,
+  "generated_from": {
+    "repo": "codedrix/kosmos-client",
+    "sha": null,
+    "cook_id": null,
+    "generated_utc": null
+  },
+  "deployed_hint": {
+    "level": 2,
+    "as_of_utc": "2026-09-18T00:00:00Z",
+    "ledger_row": "C-20260918-89f2858"
+  },
+  "levels": {
+    "0": {
+      "label": "61-function era (pre-KOS-289 main)",
+      "count": 61
+    },
+    "1": {
+      "label": "72-function surface (KOS-289 scene query + KOS-445 items)",
+      "count": 72
+    },
+    "2": {
+      "label": "Wave 2 cook (k_api_version, k_has_fn, k_ui_prompt)",
+      "count": 75
+    },
+    "3": {
+      "label": "post-P2 cook (k_log, k_haptic_pulse, k_node_create, k_node_clone, k_node_destroy)",
+      "count": 80
+    },
+    "4": {
+      "label": "network cook (k_net_fetch, k_net_read, k_net_status)",
+      "count": 83
+    }
+  },
+  "events": {
+    "0": [
+      "OnInteract",
+      "OnGrab",
+      "OnRelease",
+      "OnTriggerEnter",
+      "OnTriggerExit"
+    ],
+    "1": [
+      "OnButtonA",
+      "OnButtonB",
+      "OnItemGrantResult"
+    ],
+    "2": [
+      "OnPromptResult"
+    ],
+    "3": [],
+    "4": [
+      "OnNetResult"
+    ]
+  },
+  "functions": {
+    "k_node_find": {
+      "sig": "(ii)i",
+      "category": "scene",
+      "capability": "scene_read",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_node_find_all": {
+      "sig": "(iiii)i",
+      "category": "scene",
+      "capability": "scene_read",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_node_get_name": {
+      "sig": "(iii)i",
+      "category": "scene",
+      "capability": "scene_read",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_node_get_parent": {
+      "sig": "(i)i",
+      "category": "scene",
+      "capability": "scene_read",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_node_get_child_count": {
+      "sig": "(i)i",
+      "category": "scene",
+      "capability": "scene_read",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_node_get_child": {
+      "sig": "(ii)i",
+      "category": "scene",
+      "capability": "scene_read",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_node_get_extra_i32": {
+      "sig": "(iii)i",
+      "category": "scene",
+      "capability": "scene_read",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_node_get_extra_f32": {
+      "sig": "(iii)f",
+      "category": "scene",
+      "capability": "scene_read",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_node_get_extra_string": {
+      "sig": "(iiiii)i",
+      "category": "scene",
+      "capability": "scene_read",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_node_has_extra": {
+      "sig": "(iii)i",
+      "category": "scene",
+      "capability": "scene_read",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_node_set_visible": {
+      "sig": "(ii)i",
+      "category": "scene",
+      "capability": "scene_write",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_node_is_visible": {
+      "sig": "(i)i",
+      "category": "scene",
+      "capability": "scene_read",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_node_create": {
+      "sig": "(iii)i",
+      "category": "scene",
+      "capability": "scene_write",
+      "introduced_at": 3,
+      "implemented_at": 3,
+      "note": "an empty group node; local only, never synced; a handle each and at most 128 created objects and 16 creates per frame per world"
+    },
+    "k_node_clone": {
+      "sig": "(iiii)i",
+      "category": "scene",
+      "capability": "scene_write",
+      "introduced_at": 3,
+      "implemented_at": 3,
+      "note": "a copy of a mesh node sharing its mesh; local only, never synced; counts toward the 128 created objects and 200,000 cloned LOD0 triangles per world"
+    },
+    "k_node_destroy": {
+      "sig": "(i)i",
+      "category": "scene",
+      "capability": "scene_write",
+      "introduced_at": 3,
+      "implemented_at": 3,
+      "note": "created nodes only, with every created node under them"
+    },
+    "k_transform_get_position": {
+      "sig": "(iiii)i",
+      "category": "transform",
+      "capability": "scene_read",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_transform_set_position": {
+      "sig": "(ifff)i",
+      "category": "transform",
+      "capability": "transform",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_transform_get_rotation": {
+      "sig": "(iiii)i",
+      "category": "transform",
+      "capability": "scene_read",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_transform_set_rotation": {
+      "sig": "(ifff)i",
+      "category": "transform",
+      "capability": "transform",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_transform_get_scale": {
+      "sig": "(iiii)i",
+      "category": "transform",
+      "capability": "scene_read",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_transform_set_scale": {
+      "sig": "(ifff)i",
+      "category": "transform",
+      "capability": "transform",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_transform_set_rotation_quat": {
+      "sig": "(iffff)i",
+      "category": "transform",
+      "capability": "transform",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_transform_get_local_position": {
+      "sig": "(iiii)i",
+      "category": "transform",
+      "capability": "scene_read",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_transform_set_local_position": {
+      "sig": "(ifff)i",
+      "category": "transform",
+      "capability": "transform",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_event_subscribe": {
+      "sig": "(iiii)i",
+      "category": "events",
+      "capability": "events",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_event_unsubscribe": {
+      "sig": "(i)i",
+      "category": "events",
+      "capability": "events",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_event_subscribe_global": {
+      "sig": "(iii)i",
+      "category": "events",
+      "capability": "events",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_timer_set": {
+      "sig": "(ii)i",
+      "category": "timer",
+      "capability": "timer",
+      "introduced_at": 0,
+      "implemented_at": 0,
+      "note": "registers and returns, but callbacks never fire on device (KOS-353)"
+    },
+    "k_timer_set_interval": {
+      "sig": "(ii)i",
+      "category": "timer",
+      "capability": "timer",
+      "introduced_at": 0,
+      "implemented_at": 0,
+      "note": "registers and returns, but callbacks never fire on device (KOS-353)"
+    },
+    "k_timer_cancel": {
+      "sig": "(i)i",
+      "category": "timer",
+      "capability": "timer",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_time_now": {
+      "sig": "()f",
+      "category": "timer",
+      "capability": null,
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_time_delta": {
+      "sig": "()f",
+      "category": "timer",
+      "capability": null,
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_audio_play": {
+      "sig": "(iii)i",
+      "category": "audio",
+      "capability": "audio",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_audio_play_ex": {
+      "sig": "(iiiffi)i",
+      "category": "audio",
+      "capability": "audio",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_audio_stop": {
+      "sig": "(i)i",
+      "category": "audio",
+      "capability": "audio",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_audio_stop_all": {
+      "sig": "()i",
+      "category": "audio",
+      "capability": "audio",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_anim_play": {
+      "sig": "(iii)i",
+      "category": "animation",
+      "capability": "animation",
+      "introduced_at": 0,
+      "implemented_at": null,
+      "note": "ERR_NOT_SUPPORTED (-8) on the reference client"
+    },
+    "k_anim_play_ex": {
+      "sig": "(iiifi)i",
+      "category": "animation",
+      "capability": "animation",
+      "introduced_at": 0,
+      "implemented_at": null,
+      "note": "ERR_NOT_SUPPORTED (-8) on the reference client"
+    },
+    "k_anim_stop": {
+      "sig": "(i)i",
+      "category": "animation",
+      "capability": "animation",
+      "introduced_at": 0,
+      "implemented_at": null,
+      "note": "ERR_NOT_SUPPORTED (-8) on the reference client"
+    },
+    "k_anim_pause": {
+      "sig": "(i)i",
+      "category": "animation",
+      "capability": "animation",
+      "introduced_at": 0,
+      "implemented_at": null,
+      "note": "ERR_NOT_SUPPORTED (-8) on the reference client"
+    },
+    "k_anim_resume": {
+      "sig": "(i)i",
+      "category": "animation",
+      "capability": "animation",
+      "introduced_at": 0,
+      "implemented_at": null,
+      "note": "ERR_NOT_SUPPORTED (-8) on the reference client"
+    },
+    "k_anim_is_playing": {
+      "sig": "(i)i",
+      "category": "animation",
+      "capability": "animation",
+      "introduced_at": 0,
+      "implemented_at": null,
+      "note": "returns 0 on the reference client"
+    },
+    "k_state_set_i32": {
+      "sig": "(iii)i",
+      "category": "state",
+      "capability": "state",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_state_get_i32": {
+      "sig": "(ii)i",
+      "category": "state",
+      "capability": "state",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_state_set_f32": {
+      "sig": "(iif)i",
+      "category": "state",
+      "capability": "state",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_state_get_f32": {
+      "sig": "(ii)f",
+      "category": "state",
+      "capability": "state",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_state_set_string": {
+      "sig": "(iiii)i",
+      "category": "state",
+      "capability": "state",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_state_get_string": {
+      "sig": "(iiii)i",
+      "category": "state",
+      "capability": "state",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_state_on_changed": {
+      "sig": "(iii)i",
+      "category": "state",
+      "capability": "state",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_state_claim_authority": {
+      "sig": "(ii)i",
+      "category": "state",
+      "capability": "state",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_ui_show_world_text": {
+      "sig": "(iiif)i",
+      "category": "ui",
+      "capability": "ui_basic",
+      "introduced_at": 0,
+      "implemented_at": 2,
+      "note": "real since level 2 (NEW-09 WP-C); ERR_NOT_SUPPORTED (-8) on a level-0/1 client"
+    },
+    "k_ui_hide_world_text": {
+      "sig": "(i)i",
+      "category": "ui",
+      "capability": "ui_basic",
+      "introduced_at": 0,
+      "implemented_at": 2,
+      "note": "real since level 2 (NEW-09 WP-C); ERR_NOT_SUPPORTED (-8) on a level-0/1 client"
+    },
+    "k_ui_show_notification": {
+      "sig": "(iii)i",
+      "category": "ui",
+      "capability": "ui_basic",
+      "introduced_at": 0,
+      "implemented_at": 2,
+      "note": "real since level 2 (NEW-09 WP-C); ERR_NOT_SUPPORTED (-8) on a level-0/1 client"
+    },
+    "k_ui_prompt": {
+      "sig": "(iiiii)i",
+      "category": "ui",
+      "capability": "ui_basic",
+      "introduced_at": 2,
+      "implemented_at": 2,
+      "note": "system-drawn sheet; activation-gated; answer via the OnPromptResult global event"
+    },
+    "k_player_get_local": {
+      "sig": "()i",
+      "category": "player",
+      "capability": null,
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_player_get_count": {
+      "sig": "()i",
+      "category": "player",
+      "capability": "player_read",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_player_get_all": {
+      "sig": "(ii)i",
+      "category": "player",
+      "capability": "player_read",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_player_get_head_position": {
+      "sig": "(iiii)i",
+      "category": "player",
+      "capability": "player_read",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_player_get_head_rotation": {
+      "sig": "(iiii)i",
+      "category": "player",
+      "capability": "player_read",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_player_get_hand_position": {
+      "sig": "(iiiii)i",
+      "category": "player",
+      "capability": "player_read",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_player_teleport": {
+      "sig": "(ifff)i",
+      "category": "player",
+      "capability": "player_write",
+      "introduced_at": 0,
+      "implemented_at": 0,
+      "note": "ERR_NOT_SUPPORTED (-8) in immersive-ar sessions (MR pawn profile)"
+    },
+    "k_haptic_pulse": {
+      "sig": "(ifi)i",
+      "category": "player",
+      "capability": "player_write",
+      "introduced_at": 3,
+      "implemented_at": 3,
+      "note": "the local visitor's controllers only, never synced; at most 20 pulses per hand per second and 5 s of vibration per hand in 10 s"
+    },
+    "k_physics_raycast": {
+      "sig": "(fffffffiiii)i",
+      "category": "physics",
+      "capability": "physics_query",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_physics_set_collision": {
+      "sig": "(ii)i",
+      "category": "physics",
+      "capability": "physics_config",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_physics_set_gravity": {
+      "sig": "(ii)i",
+      "category": "physics",
+      "capability": "physics_config",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_world_navigate": {
+      "sig": "(ii)i",
+      "category": "world",
+      "capability": "world_navigate",
+      "introduced_at": 0,
+      "implemented_at": 0
+    },
+    "k_scene_is_ready": {
+      "sig": "()i",
+      "category": "spatial",
+      "capability": "scene_query",
+      "introduced_at": 1,
+      "implemented_at": 1
+    },
+    "k_scene_get_plane_count": {
+      "sig": "()i",
+      "category": "spatial",
+      "capability": "scene_query",
+      "introduced_at": 1,
+      "implemented_at": 1
+    },
+    "k_scene_get_plane_pose": {
+      "sig": "(iiiiiii)i",
+      "category": "spatial",
+      "capability": "scene_query",
+      "introduced_at": 1,
+      "implemented_at": 1
+    },
+    "k_scene_get_plane_extent": {
+      "sig": "(iii)i",
+      "category": "spatial",
+      "capability": "scene_query",
+      "introduced_at": 1,
+      "implemented_at": 1
+    },
+    "k_scene_get_plane_label": {
+      "sig": "(iii)i",
+      "category": "spatial",
+      "capability": "scene_query",
+      "introduced_at": 1,
+      "implemented_at": 1
+    },
+    "k_scene_get_volume_count": {
+      "sig": "()i",
+      "category": "spatial",
+      "capability": "scene_query",
+      "introduced_at": 1,
+      "implemented_at": 1
+    },
+    "k_scene_get_volume_pose": {
+      "sig": "(iiiii)i",
+      "category": "spatial",
+      "capability": "scene_query",
+      "introduced_at": 1,
+      "implemented_at": 1
+    },
+    "k_scene_get_volume_size": {
+      "sig": "(iiii)i",
+      "category": "spatial",
+      "capability": "scene_query",
+      "introduced_at": 1,
+      "implemented_at": 1
+    },
+    "k_scene_get_volume_label": {
+      "sig": "(iii)i",
+      "category": "spatial",
+      "capability": "scene_query",
+      "introduced_at": 1,
+      "implemented_at": 1
+    },
+    "k_item_grant": {
+      "sig": "(ii)i",
+      "category": "items",
+      "capability": "inventory",
+      "introduced_at": 1,
+      "implemented_at": 1,
+      "note": "async result via the OnItemGrantResult global event"
+    },
+    "k_item_owned": {
+      "sig": "(ii)i",
+      "category": "items",
+      "capability": "inventory",
+      "introduced_at": 1,
+      "implemented_at": 1
+    },
+    "k_api_version": {
+      "sig": "()i",
+      "category": "meta",
+      "capability": null,
+      "introduced_at": 2,
+      "implemented_at": 2,
+      "note": "returns KOSMOS_HOST_API_LEVEL; no capability, no side effects"
+    },
+    "k_has_fn": {
+      "sig": "(ii)i",
+      "category": "meta",
+      "capability": null,
+      "introduced_at": 2,
+      "implemented_at": 2,
+      "note": "answers linkable, not implemented; name bounded at 64 bytes"
+    },
+    "k_log": {
+      "sig": "(iii)i",
+      "category": "log",
+      "capability": null,
+      "introduced_at": 3,
+      "implemented_at": 3,
+      "note": "the creator console: never leaves the device; lines of up to 1,024 bytes, at most 100 lines and 32 KB per second per world"
+    },
+    "k_net_fetch": {
+      "sig": "(iiiiiii)i",
+      "category": "net",
+      "capability": "network",
+      "introduced_at": 4,
+      "implemented_at": 4,
+      "note": "HTTPS GET/POST to an origin the world declared and the server opted into; result via the OnNetResult global event; at most 4 in flight, 1 a second with bursts of 10"
+    },
+    "k_net_read": {
+      "sig": "(iii)i",
+      "category": "net",
+      "capability": "network",
+      "introduced_at": 4,
+      "implemented_at": 4,
+      "note": "out_cap 0 peeks the length; a body is readable until the first tick after its OnNetResult"
+    },
+    "k_net_status": {
+      "sig": "()i",
+      "category": "net",
+      "capability": "network",
+      "introduced_at": 4,
+      "implemented_at": 4,
+      "note": "1 network is available to this world now, 0 it is not"
+    }
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "kosmos_version": "1.0",
+  "world": {
+    "id": "net-check",
+    "name": "Network Check",
+    "author": "micknerks",
+    "description": "A test world for worlds that call servers. Each button makes one request to a test server and the board shows the answer, what was expected, and whether it matched.",
+    "version": "1.0.1",
+    "spawn_point": {
+      "x": 0,
+      "y": 0,
+      "z": 1.1
+    },
+    "sky": "night"
+  },
+  "capabilities": [
+    "scene_read",
+    "events",
+    "ui_basic",
+    "network"
+  ],
+  "requires": {
+    "host_api": 4
+  },
+  "network": {
+    "connect": [
+      "https://kosmos-net-test-a.micknerks.workers.dev"
+    ],
+    "purpose": "Test requests to the Kosmos network test server: an echo, a score board, and error cases.",
+    "privacy_url": "https://kosmos-net-test-a.micknerks.workers.dev/privacy",
+    "required": false
+  },
+  "assets": {
+    "gltf": "world.glb",
+    "wasm": "world.wasm"
+  }
+}
