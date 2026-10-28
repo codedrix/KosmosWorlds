@@ -163,6 +163,26 @@ test("oversize, hostile and empty titles are cut, cleaned or dropped before the 
   assert.deepEqual(head(r.s), ["KOSMOS DESK", "6 waiting on you - just now"]);
 });
 
+test("disguised links, numbers and keys are caught after the text is made plain ASCII", () => {
+  const wide = (s: string) => [...s].map((c) => (c >= "!" && c <= "~" ? String.fromCharCode(c.charCodeAt(0) + 0xfee0) : c)).join("");
+  const fakeAws = ["AK", "IA", "Q".repeat(16)].join("");
+  const cases: Array<[string, RegExp]> = [
+    ["Merge PR #​243 now", /#|243/],
+    [`Merge ${wide("#243")} now`, /#|243/],
+    [`Open ${wide("https://evil.x/a")} now`, /evil|https|:\/\//],
+    ["Merge PR 243 and KOS-1015", /243|1015/],
+    ["See github.com/codedrix/x/pull/243 today", /github|243|\//],
+    [`Key ${wide(fakeAws)}`, new RegExp(fakeAws)],
+  ];
+  for (const [input, bad] of cases) {
+    const out = core.cleanField(input, 200);
+    assert.ok(!bad.test(out), `${JSON.stringify(input)} -> ${JSON.stringify(out)}`);
+    assert.ok(/^[\x20-\x7e]*$/.test(out), `plain ASCII: ${out}`);
+  }
+  // Ordinary words with numbers stay: only PR, issue and ticket numbers go.
+  assert.equal(core.cleanField("Publish Lobby 1.5.0 (unlisted)", 40), "Publish Lobby 1.5.0 (unlisted)");
+});
+
 test("more than 8 cards: the first 8 show and the heading counts the rest", async () => {
   write({ updatedAt: iso(NOW - 3 * 60_000), cards: Array.from({ length: 11 }, (_, i) => card(`c${i}`, `Decision number ${String.fromCharCode(65 + i)}`)) });
   const r = await board();

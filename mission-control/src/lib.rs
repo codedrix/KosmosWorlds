@@ -130,6 +130,9 @@ mod host {
     pub static mut ROLL: [f32; MAX_H] = [0.0; MAX_H];
     pub static mut VIS: [i8; MAX_H] = [-1; MAX_H];
     pub static mut TEXT_ON: [bool; MAX_H] = [false; MAX_H];
+    /// The host refuses every new label (its 32-label pool full) while this is set.
+    pub static mut TEXT_FULL: bool = false;
+    pub static mut TEXT_SHOWS: i32 = 0;
 
     pub fn reset_host() {
         unsafe {
@@ -149,6 +152,8 @@ mod host {
             ROLL = [0.0; MAX_H];
             VIS = [-1; MAX_H];
             TEXT_ON = [false; MAX_H];
+            TEXT_FULL = false;
+            TEXT_SHOWS = 0;
         }
     }
     fn c() {
@@ -171,7 +176,15 @@ mod host {
     pub unsafe fn k_transform_set_position(n: i32, x: f32, y: f32, z: f32) -> i32 { c(); POS[hi(n)] = [x, y, z]; 0 }
     pub unsafe fn k_transform_set_scale(n: i32, x: f32, _y: f32, _z: f32) -> i32 { c(); SCALE[hi(n)] = x; 0 }
     pub unsafe fn k_transform_set_rotation(n: i32, _p: f32, y: f32, r: f32) -> i32 { c(); YAW[hi(n)] = y; ROLL[hi(n)] = r; 0 }
-    pub unsafe fn k_ui_show_world_text(n: i32, _p: i32, _l: i32, _o: f32) -> i32 { c(); TEXT_ON[hi(n)] = true; 0 }
+    pub unsafe fn k_ui_show_world_text(n: i32, _p: i32, _l: i32, _o: f32) -> i32 {
+        c();
+        TEXT_SHOWS += 1;
+        if TEXT_FULL {
+            return -1;
+        }
+        TEXT_ON[hi(n)] = true;
+        0
+    }
     pub unsafe fn k_ui_hide_world_text(n: i32) -> i32 { c(); TEXT_ON[hi(n)] = false; 0 }
     pub unsafe fn k_ui_prompt(_p: i32, _l: i32, _o: i32, _c: i32, _r: i32) -> i32 { c(); PROMPTS += 1; 0 }
     pub unsafe fn k_event_subscribe(_p: i32, _l: i32, _n: i32, _c: i32) -> i32 { c(); 1 }
@@ -628,7 +641,7 @@ const N_DESK_TEXT: usize = DESK_TEXT.len();
 const N_DESK: usize = N_DESK_TEXT + DESK_WORLD.len();
 const PATH_DESK: &str = "/v1/faces/desk/board";
 const REQ_DESK: i32 = 4;
-/// The hub rewrites the Desk's file every 5 minutes; half a minute is fresh enough.
+/// The hub rewrites the Desk's file at least every 15 minutes; half a minute is fresh enough.
 const DESK_POLL_S: f32 = 30.0;
 const DESK_ASKING: &str = "KOSMOS DESK\nAsking the PC...";
 const DESK_OFFLINE: &str = "KOSMOS DESK\nDesk offline";
@@ -653,6 +666,10 @@ static mut DESK_HASH: [u32; N_DESK_TEXT] = [0; N_DESK_TEXT];
 static mut DESK_SHIFT: [f32; N_DESK_TEXT] = [0.0; N_DESK_TEXT];
 static mut DESK_IN_FLIGHT: bool = false;
 static mut DESK_NEXT_AT: f32 = 0.0;
+/// After the host refuses a label (its pool full), the board waits this long before asking again,
+/// instead of asking every frame.
+const DESK_TEXT_RETRY_S: f32 = 1.0;
+static mut DESK_TEXT_RETRY_AT: f32 = 0.0;
 
 fn mode() -> Mode {
     unsafe { MODE }
@@ -2516,7 +2533,14 @@ fn desk_sync() {
             if on && n > 0 {
                 desk_put(j, true);
                 let text = unsafe { core::str::from_utf8(&DESK_STORE[j][..n]).unwrap_or(" ") };
-                unsafe { DESK_HASH[j] = words(h, text, DESK_HASH[j]); }
+                unsafe {
+                    if DESK_HASH[j] != 0 || NOW_S >= DESK_TEXT_RETRY_AT {
+                        DESK_HASH[j] = words(h, text, DESK_HASH[j]);
+                        if DESK_HASH[j] == 0 {
+                            DESK_TEXT_RETRY_AT = NOW_S + DESK_TEXT_RETRY_S;
+                        }
+                    }
+                }
             } else {
                 if unsafe { DESK_HASH[j] } != 1 {
                     unsafe {

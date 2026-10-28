@@ -16,7 +16,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Snapshot } from "../../wire.js";
-import { cleanUntrusted, clipBytes, clipWidth, estimateWidthM, WORLD_TEXT_MAX_BYTES } from "../../sanitize.js";
+import { cleanUntrusted, clipBytes, clipWidth, estimateWidthM, toWallAscii, WORLD_TEXT_MAX_BYTES } from "../../sanitize.js";
 import { DESK_CARD_NODES, DESK_HEAD_NODE, DESK_W, MAX_CARDS } from "./layout.js";
 
 /** The file the hub writes, unless KOSMOS_DESK_FILE names another (outside %APPDATA% on purpose). */
@@ -81,9 +81,14 @@ export async function readDeskFile(file: string): Promise<{ ok: true; text: stri
 /** One text field: plain ASCII on one line, no links, no PR numbers, no key shapes, at most `max` characters. */
 export function cleanField(v: unknown, max: number): string {
   if (typeof v !== "string") return "";
-  let s = v.slice(0, 400);
+  // Plain ASCII first, so full-width and zero-width tricks ("＃243", "PR #​243") are
+  // already "#243" when the patterns below look for them.
+  let s = toWallAscii(v.slice(0, 400));
   s = s.replace(/\b[a-z][a-z0-9+.-]*:\/\/\S*/gi, " ").replace(/\bwww\.\S+/gi, " ");
-  s = s.replace(/(?:\b(?:PR|pull|issue)\s*)?#\d+\b/gi, " ");
+  s = s.replace(/\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}\/\S*/gi, " "); // github.com/x/pull/1
+  s = s.replace(/\b(?:PRs?|pull|issues?)\s*#?\s*\d+\b/gi, " ").replace(/#\s*\d+\b/g, " ");
+  s = s.replace(/\bKOS-\d+\b/gi, " ");
+  // Redact on the ASCII text (a full-width key shape is a plain one by now), then clean again.
   s = cleanUntrusted(s);
   s = s.replace(/[\x00-\x1f\x7f]/g, " ").replace(/\s+/g, " ").trim();
   if (s.length > max) s = s.slice(0, max - 3).trimEnd() + "...";

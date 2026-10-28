@@ -1577,3 +1577,18 @@ fn the_desk_asks_every_30_seconds_and_never_after_close() {
     apply_desk(desk_full().as_bytes());
     assert!(!board_shown() && desk_labels_on() == 0);
 }
+
+#[test]
+fn a_refused_desk_label_is_asked_again_once_a_second_not_every_frame() {
+    sign_in_to_cubes();
+    unsafe { host::TEXT_FULL = true; }
+    apply_desk(desk_full().as_bytes());
+    let before = unsafe { host::TEXT_SHOWS };
+    run(0.5);
+    let shows = unsafe { host::TEXT_SHOWS } - before;
+    assert!(shows <= 1, "the host was asked {shows} times in half a second");
+    unsafe { host::TEXT_FULL = false; }
+    run(1.2);
+    assert_eq!(desk_labels_on(), 9, "once the pool has room, every label shows");
+    close_panel();
+}

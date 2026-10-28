@@ -134,11 +134,10 @@ so it can't open a second session or end the CEO's.
 
 - Request: `AB1` then `tok <token>`. Without the live token: 401 `E signed_out` and no card. With the
   kill switch on: 503 `E stopped`.
-- Answer (200): `V 1`, then `T TxDeskHead KOSMOS DESK
-<count and freshness, or Desk offline>`, then for
+- Answer (200): `V 1`, then `T TxDeskHead KOSMOS DESK\n<count and freshness, or Desk offline>`, then for
   each of the 8 rows `TxDeskA`..`TxDeskH` either `O <node> <mm>` + `T <node> <title - session, day>`
   (left-aligned on the board) or `X <node>`. No other node is ever named.
-- The data: the hub session's snapshot file, `E:Kosmos_Deskdesk.json` (or `KOSMOS_DESK_FILE`),
+- The data: the hub session's snapshot file, `E:\Kosmos_Desk\desk.json` (or `KOSMOS_DESK_FILE`),
   read on every request and sanitized again. Its schema, and what makes the board say "Desk offline"
   (missing, malformed, over 16 KiB, from the future, older than 15 minutes): `src/faces/desk/SCHEMA.md`.
   `npm run desk-check -- <file>` prints the board a file would make.
