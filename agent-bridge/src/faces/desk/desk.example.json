@@ -1,0 +1,9 @@
+{
+  "updatedAt": "2026-10-28T16:05:00Z",
+  "cards": [
+    { "key": "merge-portal-legal", "title": "Merge the portal legal links fix", "session": "hub", "day": "2026-10-28" },
+    { "key": "deploy-registry-friends", "title": "Approve registry deploy: friends list", "session": "registry", "day": "2026-10-28" },
+    { "key": "cook-build-1012", "title": "Go or no-go on the Thursday test cook", "session": "client", "day": "2026-10-27" },
+    { "key": "publish-lobby-150", "title": "Publish Lobby 1.5.0 (unlisted)", "session": "desk-board", "day": "2026-10-26" }
+  ]
+}

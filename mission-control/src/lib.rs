@@ -117,6 +117,8 @@ mod host {
     pub static mut REFUSE: i32 = 0;
     pub static mut ATTEMPTS: i32 = 0;
     pub static mut LAST_FETCH_ID: i32 = 0;
+    /// Fetches the host took, by request id, for the small ids (view 1 .. desk 4).
+    pub static mut BY_ID: [i32; 8] = [0; 8];
     pub static mut PROMPTS: i32 = 0;
     pub static mut AUDIO_PLAYS: i32 = 0;
     pub static mut CHIMES: i32 = 0;
@@ -128,6 +130,11 @@ mod host {
     pub static mut ROLL: [f32; MAX_H] = [0.0; MAX_H];
     pub static mut VIS: [i8; MAX_H] = [-1; MAX_H];
     pub static mut TEXT_ON: [bool; MAX_H] = [false; MAX_H];
+    /// The host refuses every new label (its 32-label pool full) while this is set.
+    pub static mut TEXT_FULL: bool = false;
+    pub static mut TEXT_SHOWS: i32 = 0;
+    /// The host refuses this one handle (0: none), whatever the pool holds.
+    pub static mut TEXT_REFUSE_H: i32 = 0;
 
     pub fn reset_host() {
         unsafe {
@@ -136,6 +143,7 @@ mod host {
             REFUSE = 0;
             ATTEMPTS = 0;
             LAST_FETCH_ID = 0;
+            BY_ID = [0; 8];
             PROMPTS = 0;
             CHIMES = 0;
             HAPTICS = 0;
@@ -146,6 +154,9 @@ mod host {
             ROLL = [0.0; MAX_H];
             VIS = [-1; MAX_H];
             TEXT_ON = [false; MAX_H];
+            TEXT_FULL = false;
+            TEXT_SHOWS = 0;
+            TEXT_REFUSE_H = 0;
         }
     }
     fn c() {
@@ -168,7 +179,15 @@ mod host {
     pub unsafe fn k_transform_set_position(n: i32, x: f32, y: f32, z: f32) -> i32 { c(); POS[hi(n)] = [x, y, z]; 0 }
     pub unsafe fn k_transform_set_scale(n: i32, x: f32, _y: f32, _z: f32) -> i32 { c(); SCALE[hi(n)] = x; 0 }
     pub unsafe fn k_transform_set_rotation(n: i32, _p: f32, y: f32, r: f32) -> i32 { c(); YAW[hi(n)] = y; ROLL[hi(n)] = r; 0 }
-    pub unsafe fn k_ui_show_world_text(n: i32, _p: i32, _l: i32, _o: f32) -> i32 { c(); TEXT_ON[hi(n)] = true; 0 }
+    pub unsafe fn k_ui_show_world_text(n: i32, _p: i32, _l: i32, _o: f32) -> i32 {
+        c();
+        TEXT_SHOWS += 1;
+        if TEXT_FULL || (TEXT_REFUSE_H != 0 && n == TEXT_REFUSE_H) {
+            return -1;
+        }
+        TEXT_ON[hi(n)] = true;
+        0
+    }
     pub unsafe fn k_ui_hide_world_text(n: i32) -> i32 { c(); TEXT_ON[hi(n)] = false; 0 }
     pub unsafe fn k_ui_prompt(_p: i32, _l: i32, _o: i32, _c: i32, _r: i32) -> i32 { c(); PROMPTS += 1; 0 }
     pub unsafe fn k_event_subscribe(_p: i32, _l: i32, _n: i32, _c: i32) -> i32 { c(); 1 }
@@ -187,6 +206,9 @@ mod host {
         }
         FETCHES += 1;
         LAST_FETCH_ID = r;
+        if (0..8).contains(&r) {
+            BY_ID[r as usize] += 1;
+        }
         0
     }
     pub unsafe fn k_net_read(_r: i32, _o: i32, _c: i32) -> i32 { c(); -7 }
@@ -598,6 +620,60 @@ static mut READ_BUF: [u8; READ_BUF_BYTES] = [0; READ_BUF_BYTES];
 static mut REQ_BUF: [u8; 1024] = [0; 1024];
 static mut URL_BUF: [u8; 256] = [0; 256];
 
+// ---------------------------------------------------------------------------
+// The Kosmos Desk board (read-only; agent-bridge src/faces/desk)
+// ---------------------------------------------------------------------------
+//
+// A separate panel to the owner's LEFT, 2.5 m out at 72 degrees, facing the eye: the cards
+// waiting on the CEO in his Kosmos Desk, from the bridge's `desk` face. Its nodes are a table of
+// their own (nodes.json `desk_text`, `desk_world`), so Mission Control's node indices, groups
+// and contract are unchanged. It shows ONLY while the owner is signed in, after the seal's
+// animation, with the arc folded and still (cubes mode); never during the seal, never for a
+// watcher, never while the arc is open or moving. That keeps the world-text pool within its 32:
+// cubes mode shows 5 of Mission Control's labels plus the board's 9; the arc shows up to 29 and
+// the board none, and every board label is hidden in the same call that starts the unfold.
+//
+// The board asks `desk/board` every DESK_POLL_S with the token the sign-in already holds (no
+// second session, no press, no typed text), and a reply may only set the board's own labels
+// (`T`, `X`, `O`): any other record, and any other node, is ignored. No answer, or any status
+// but 200, draws "Desk offline".
+
+pub const DESK_TEXT: [&str; 9] = ["TxDeskHead", "TxDeskA", "TxDeskB", "TxDeskC", "TxDeskD", "TxDeskE", "TxDeskF", "TxDeskG", "TxDeskH"];
+pub const DESK_WORLD: [&str; 1] = ["McDeskBoard"];
+const N_DESK_TEXT: usize = DESK_TEXT.len();
+const N_DESK: usize = N_DESK_TEXT + DESK_WORLD.len();
+const PATH_DESK: &str = "/v1/faces/desk/board";
+const REQ_DESK: i32 = 4;
+/// The hub rewrites the Desk's file at least every 15 minutes; half a minute is fresh enough.
+const DESK_POLL_S: f32 = 30.0;
+const DESK_ASKING: &str = "KOSMOS DESK\nAsking the PC...";
+const DESK_OFFLINE: &str = "KOSMOS DESK\nDesk offline";
+/// The board's right as the owner sees it (world axes, like RIGHT): it faces the eye from 72
+/// degrees to the left, so its right is the hall's right turned 72 degrees (make_desk_glb.mjs
+/// builds the board at the same yaw; a host test pins the pair).
+const DESK_RIGHT: [f32; 3] = [-0.951_056_5, 0.0, -0.309_017];
+/// An `O` shift on the board, clamped to its half-width.
+const DESK_SHIFT_MAX_M: f32 = 0.8;
+
+static mut DESK_H: [i32; N_DESK] = [0; N_DESK];
+static mut DESK_BASE: [[f32; 3]; N_DESK] = [[0.0; 3]; N_DESK];
+static mut DESK_BASE_KNOWN: [bool; N_DESK] = [false; N_DESK];
+/// Where each node was last put (None = never moved: still where it was authored, parked).
+static mut DESK_AT: [Option<[f32; 3]>; N_DESK] = [None; N_DESK];
+/// The board mesh: -1 unknown, 0 hidden, 1 shown.
+static mut DESK_VIS: [i8; N_DESK] = [-1; N_DESK];
+static mut DESK_STORE: [[u8; HOST_TEXT_MAX_BYTES]; N_DESK_TEXT] = [[0; HOST_TEXT_MAX_BYTES]; N_DESK_TEXT];
+static mut DESK_LEN: [u8; N_DESK_TEXT] = [0; N_DESK_TEXT];
+/// As TEXT_HASH: 0 unknown, 1 known hidden, else the FNV of the words shown.
+static mut DESK_HASH: [u32; N_DESK_TEXT] = [0; N_DESK_TEXT];
+static mut DESK_SHIFT: [f32; N_DESK_TEXT] = [0.0; N_DESK_TEXT];
+static mut DESK_IN_FLIGHT: bool = false;
+static mut DESK_NEXT_AT: f32 = 0.0;
+/// After the host refuses a label (its pool full), the board waits this long before asking again,
+/// instead of asking every frame.
+const DESK_TEXT_RETRY_S: f32 = 1.0;
+static mut DESK_TEXT_RETRY_AT: f32 = 0.0;
+
 fn mode() -> Mode {
     unsafe { MODE }
 }
@@ -652,6 +728,7 @@ pub extern "C" fn k_init() {
         }
     }
     init_hues();
+    desk_init();
     let ev = "OnInteract";
     for i in 0..N_ALL {
         let h = unsafe { HANDLES[i] };
@@ -765,6 +842,10 @@ pub extern "C" fn k_tick(delta: f32) {
             _ => {}
         }
     }
+    if desk_on() && unsafe { !DESK_IN_FLIGHT && NOW_S >= DESK_NEXT_AT && LAST_NET == 1 } {
+        send_desk();
+    }
+    desk_sync();
 }
 
 #[no_mangle]
@@ -941,6 +1022,7 @@ fn open_panel(m: Mode) {
         RAIL_SWITCH = false;
         TWEENS = [NO_TWEEN; N_GROUPS];
     }
+    desk_reset();
     turn_for_watcher(m == Mode::Watcher);
     sync_all();
     refresh_network(true);
@@ -978,7 +1060,8 @@ fn close_panel() {
         }
         TEXT_LEN = [0; N_TEXT];
     }
-    sync_all();
+    sync_all(); // the board hides with everything else (desk_on is false from here)
+    desk_reset();
     turn_for_watcher(false);
     // Park every node where it was authored, at its own size.
     for i in 0..N_ALL {
@@ -1071,6 +1154,7 @@ fn tween_done(g: u8) {
             if !busy {
                 unsafe { STAGE = Stage::Signed; }
                 update_arc();
+                desk_sync(); // after the seal: the board comes up with the ledge (unless the arc opens)
             }
         }
         (Stage::Signed, G_ARC) => {
@@ -1638,6 +1722,8 @@ fn sync_all() {
     for k in 0..N_HUE {
         paint_slot(k, unsafe { HUE_STATE[k] });
     }
+    // Last, so a fold that just ended has hidden the arc's labels before the board's show.
+    desk_sync();
 }
 
 // ---------------------------------------------------------------------------
@@ -1787,6 +1873,26 @@ fn send_press(i: usize, text: &[u8]) {
 /// OnNetResult: param1 = request id, param2 = HTTP status | 0 no answer | -2 refused | -5 too large.
 #[no_mangle]
 pub extern "C" fn on_net_result(_event_type: i32, _node: i32, request_id: i32, status: i32) {
+    if request_id == REQ_DESK {
+        // The board's own answer: it never touches Mission Control's state or its status line.
+        unsafe { DESK_IN_FLIGHT = false; }
+        if !signed_in() {
+            return;
+        }
+        let ptr = core::ptr::addr_of_mut!(READ_BUF) as *mut u8;
+        let len = if status == 200 { unsafe { host::k_net_read(request_id, 0, 0) } } else { 0 };
+        let got = if len > 0 && len as usize <= READ_BUF_BYTES {
+            unsafe { host::k_net_read(request_id, ptr as usize as i32, READ_BUF_BYTES as i32) }
+        } else {
+            0
+        };
+        if got <= 0 {
+            desk_offline();
+        } else {
+            apply_desk(unsafe { core::slice::from_raw_parts(ptr, got as usize) });
+        }
+        return;
+    }
     if request_id == REQ_VIEW {
         unsafe { POLL_IN_FLIGHT = false; }
     }
@@ -2103,15 +2209,22 @@ fn buzz() {
 // The two functions DB-045 (the visual pack) replaces: `show` places words, `paint` colours
 // ---------------------------------------------------------------------------
 
-/// THE ONE text-placement function: world text on anchor `i` (deduplicated, clipped to the
-/// host's 128 bytes). DB-045 replaces this body; nothing else places words.
+/// World text on Mission Control's anchor `i` (through `words`).
 fn show(i: usize, text: &str) {
-    if i >= N_TEXT || mode() == Mode::Closed || mode() == Mode::Closing {
+    if i >= N_TEXT {
         return;
     }
     let h = unsafe { HANDLES[i] };
-    if h == 0 {
-        return;
+    unsafe { TEXT_HASH[i] = words(h, text, TEXT_HASH[i]); }
+}
+
+/// THE ONE text-placement function: world text on the anchor with handle `h` (deduplicated
+/// against `last`, the FNV of what it shows; clipped to the host's 128 bytes). Returns the new
+/// `last`. Mission Control's labels (`show`) and the Desk board's (`desk_sync`) both come here.
+/// DB-045 replaces this body; nothing else places words.
+fn words(h: i32, text: &str, last: u32) -> u32 {
+    if h == 0 || mode() == Mode::Closed || mode() == Mode::Closing {
+        return last;
     }
     let mut end = text.len().min(HOST_TEXT_MAX_BYTES);
     while end > 0 && !text.is_char_boundary(end) {
@@ -2119,11 +2232,11 @@ fn show(i: usize, text: &str) {
     }
     let text = if end == 0 { " " } else { &text[..end] };
     let hash = fnv(text.as_bytes());
-    if unsafe { TEXT_HASH[i] } == hash {
-        return;
+    if last == hash {
+        return last;
     }
     let rc = unsafe { host::k_ui_show_world_text(h, text.as_ptr() as i32, text.len() as i32, 0.0) };
-    unsafe { TEXT_HASH[i] = if rc == 0 { hash } else { 0 }; }
+    if rc == 0 { hash } else { 0 }
 }
 
 fn hide_text(i: usize) {
@@ -2264,6 +2377,230 @@ fn fnv(b: &[u8]) -> u32 {
         h + 2
     } else {
         h
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The Kosmos Desk board (see its state above)
+// ---------------------------------------------------------------------------
+
+/// Finds the board's nodes (after Mission Control's, so their handles keep their order), reads
+/// where they are authored (parked) and hides the panel. The plaques are never shown themselves.
+fn desk_init() {
+    for j in 0..N_DESK {
+        let name = desk_name(j);
+        let h = unsafe { host::k_node_find(name.as_ptr() as i32, name.len() as i32) };
+        unsafe {
+            DESK_H[j] = h;
+            DESK_BASE_KNOWN[j] = false;
+            DESK_AT[j] = None;
+            DESK_VIS[j] = -1;
+        }
+        if h != 0 {
+            if let Some(p) = host::position_of(h) {
+                unsafe {
+                    DESK_BASE[j] = p;
+                    DESK_BASE_KNOWN[j] = true;
+                }
+            }
+            unsafe {
+                host::k_node_set_visible(h, 0);
+                DESK_VIS[j] = 0;
+            }
+        }
+    }
+    unsafe { DESK_HASH = [1; N_DESK_TEXT]; } // nothing shows yet: known hidden
+    desk_reset();
+}
+
+fn desk_name(j: usize) -> &'static str {
+    if j < N_DESK_TEXT { DESK_TEXT[j] } else { DESK_WORLD[j - N_DESK_TEXT] }
+}
+
+/// A board label the bridge may set: the board's text nodes only.
+fn desk_text_node(name: &[u8]) -> Option<usize> {
+    (0..N_DESK_TEXT).find(|&j| DESK_TEXT[j].as_bytes() == name)
+}
+
+/// Back to "Asking the PC...", no cards, no shifts, the next ask due at once.
+fn desk_reset() {
+    unsafe {
+        DESK_LEN = [0; N_DESK_TEXT];
+        DESK_SHIFT = [0.0; N_DESK_TEXT];
+        DESK_IN_FLIGHT = false;
+        DESK_NEXT_AT = NOW_S;
+    }
+    desk_store(0, DESK_ASKING);
+}
+
+/// The board shows: signed in, after the seal, cubes mode (the arc folded and not moving).
+fn desk_on() -> bool {
+    signed_in() && stage() == Stage::Signed && unsafe { !ARC_SHOWN && !TWEENS[G_ARC as usize].active && !TWEENS[G_LEDGE as usize].active }
+}
+
+fn desk_store(j: usize, s: &str) {
+    if j >= N_DESK_TEXT {
+        return;
+    }
+    let mut end = s.len().min(HOST_TEXT_MAX_BYTES);
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    unsafe {
+        DESK_STORE[j][..end].copy_from_slice(&s.as_bytes()[..end]);
+        DESK_LEN[j] = end as u8;
+    }
+}
+
+/// No answer, or not a 200: the heading says so and no card stays up.
+fn desk_offline() {
+    for j in 1..N_DESK_TEXT {
+        desk_store(j, "");
+    }
+    desk_store(0, DESK_OFFLINE);
+    desk_sync();
+}
+
+/// Applies the `desk` face's answer. Only `T`, `X` and `O` on the board's own labels count:
+/// a `K`, `M`, `E`, `U`, `H` or any node of Mission Control's is ignored, so the board can never
+/// sign anyone in or out, open the arc, or write on another panel.
+pub fn apply_desk(body: &[u8]) {
+    let mut lines = body.split(|&b| b == b'\n');
+    if lines.next() != Some(b"AB1".as_slice()) {
+        desk_offline();
+        return;
+    }
+    for line in lines {
+        if line.len() < 3 || line[1] != b' ' {
+            continue;
+        }
+        let (name, arg) = split_once(&line[2..]);
+        let Some(j) = desk_text_node(name) else { continue };
+        match line[0] {
+            b'T' => {
+                let mut t = TextBuf::new();
+                unescape_into(arg, &mut t);
+                desk_store(j, t.as_str());
+            }
+            b'X' => desk_store(j, ""),
+            b'O' => unsafe { DESK_SHIFT[j] = clamp(parse_i32(arg) as f32 / 1000.0, -DESK_SHIFT_MAX_M, DESK_SHIFT_MAX_M) },
+            _ => {}
+        }
+    }
+    desk_sync();
+}
+
+/// Where board node `j` goes: raised (with the rest of the owner's panel, by DELTA) and shifted
+/// along the board, or where it was authored.
+fn desk_target(j: usize, raised: bool) -> [f32; 3] {
+    let b = unsafe { DESK_BASE[j] };
+    if !raised {
+        return b;
+    }
+    let d = unsafe { DELTA };
+    let s = if j < N_DESK_TEXT { unsafe { DESK_SHIFT[j] } } else { 0.0 };
+    [b[0] + d[0] + DESK_RIGHT[0] * s, b[1] + d[1] + DESK_RIGHT[1] * s, b[2] + d[2] + DESK_RIGHT[2] * s]
+}
+
+/// Moves board node `j` only when its place changed (no host call otherwise).
+fn desk_put(j: usize, raised: bool) {
+    let h = unsafe { DESK_H[j] };
+    if h == 0 || unsafe { !DESK_BASE_KNOWN[j] } {
+        return;
+    }
+    let p = desk_target(j, raised);
+    let at = unsafe { DESK_AT[j] };
+    let same = match at {
+        Some(a) => (0..3).all(|k| (a[k] - p[k]).abs() < 1e-4),
+        None => !raised, // never moved: still parked where it was authored
+    };
+    if !same {
+        unsafe {
+            host::k_transform_set_position(h, p[0], p[1], p[2]);
+            DESK_AT[j] = Some(p);
+        }
+    }
+}
+
+/// The board's two-state visibility, deduplicated so a frame with no change makes no host call.
+/// Hidden, every board node is parked again (a hidden panel still stands where it was).
+fn desk_sync() {
+    let on = desk_on();
+    // Decided once per pass, so one label the host keeps refusing never holds back the others.
+    let retry = unsafe { NOW_S >= DESK_TEXT_RETRY_AT };
+    let mut refused = false;
+    for j in 0..N_DESK {
+        let h = unsafe { DESK_H[j] };
+        if h == 0 {
+            continue;
+        }
+        if j < N_DESK_TEXT {
+            let n = unsafe { DESK_LEN[j] } as usize;
+            if on && n > 0 {
+                desk_put(j, true);
+                let text = unsafe { core::str::from_utf8(&DESK_STORE[j][..n]).unwrap_or(" ") };
+                unsafe {
+                    if DESK_HASH[j] != 0 || retry {
+                        DESK_HASH[j] = words(h, text, DESK_HASH[j]);
+                        refused |= DESK_HASH[j] == 0;
+                    }
+                }
+            } else {
+                if unsafe { DESK_HASH[j] } != 1 {
+                    unsafe {
+                        host::k_ui_hide_world_text(h);
+                        DESK_HASH[j] = 1;
+                    }
+                }
+                desk_put(j, false);
+            }
+        } else {
+            if on {
+                desk_put(j, true);
+            }
+            let want: i8 = if on { 1 } else { 0 };
+            if unsafe { DESK_VIS[j] } != want {
+                unsafe {
+                    host::k_node_set_visible(h, on as i32);
+                    DESK_VIS[j] = want;
+                }
+            }
+            if !on {
+                desk_put(j, false);
+            }
+        }
+    }
+    if refused {
+        unsafe { DESK_TEXT_RETRY_AT = NOW_S + DESK_TEXT_RETRY_S; }
+    }
+}
+
+/// `AB1`, the token, nothing else: no version, no press, no typed text.
+fn build_desk_request() -> usize {
+    let buf = unsafe { &mut *core::ptr::addr_of_mut!(REQ_BUF) };
+    let mut w = Writer { buf, n: 0 };
+    w.push(b"AB1\n");
+    let tl = unsafe { TOKEN_LEN };
+    w.push(b"tok ");
+    let token = unsafe { &*core::ptr::addr_of!(TOKEN) };
+    w.push(&token[..tl]);
+    w.push(b"\n");
+    w.n
+}
+
+fn send_desk() {
+    if !signed_in() {
+        return; // the board is the owner's only: never a watcher's, never before the seal
+    }
+    let len = build_desk_request();
+    let rc = fetch(PATH_DESK, len, REQ_DESK);
+    unsafe {
+        if rc == 0 {
+            DESK_IN_FLIGHT = true;
+            DESK_NEXT_AT = NOW_S + DESK_POLL_S;
+        } else {
+            DESK_NEXT_AT = NOW_S + RETRY_GAP_S;
+        }
     }
 }
 

@@ -84,6 +84,10 @@ This file is the one contract between the bridge (`agent-bridge/`) and the world
 - `hue`: base nodes the face colours with `H <node> <state>`. Each lists its states; each state
   is a pre-built variant node named `<base><State>` (for example `CubeANeed`), listed in `world`.
 - `world`: nodes only the world touches. The face never names them.
+- `desk_text`, `desk_world` (Lobby 1.5.0, KOS-1015): the Kosmos Desk board, a separate face
+  (`agent-bridge/src/faces/desk/`, `API.md`) that names only these. Mission Control never names
+  them. The world shows them in cubes mode only, never with the arc, so the most ever shown at
+  once stays at 29 (the arc) and cubes mode shows 14 (5 + 9).
 
 Groups (the world decides them by name; the bridge needn't know):
 - **seal:** SealRing*, TxSeal, TxSealHint, BtnSealType, McSealCancel;
