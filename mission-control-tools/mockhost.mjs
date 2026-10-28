@@ -20,6 +20,9 @@
 //                hall; never the ledge, the puck or the seal; its presses send nothing; it
 //                never buzzes;
 //   the owner:   Close parks everything; the watcher's next update is refused.
+// And the Kosmos Desk board (the desk face, read from a desk.json written here): it shows after the
+// seal in cubes mode only, hides while the arc is open, never reaches the watcher, and no headset
+// ever shows more than 32 world-text labels at once.
 //
 // It checks the program against the bridge. It does NOT check the headset: rendering, the
 // real typing sheet and real haptics are the device checkpoint's job.
@@ -42,6 +45,7 @@ const { Bridge } = await load("bridge.js");
 const { FakeAdapter } = await load("adapters/fake.js");
 const { createServer } = await load("server.js");
 const { MissionControlFace } = await load("faces/mission-control/index.js");
+const { createDeskFace } = await load("faces/desk/index.js");
 const { hashPassphrase, defaultConfig } = await load("config.js");
 // The PAIR_APPROVE watcher lives in the bridge CLI's serve loop (main.ts); run the same poll here.
 const { pollApproveFile } = await load("pairing.js");
@@ -53,13 +57,19 @@ const config = { ...defaultConfig(), projects: [{ name: "kosmos-registry", path:
 const bridge = new Bridge(config, new FakeAdapter(30));
 const face = new MissionControlFace();
 face.longPollMs = 400;
-const server = createServer(bridge, new Map([[face.name, face]]), { port: 0, log: () => {} });
+// The hub's desk.json: the example's cards, stamped now so the board is not stale.
+const deskFile = path.join(home, "desk.json");
+const example = JSON.parse(fs.readFileSync(path.join(repo, "agent-bridge", "src", "faces", "desk", "desk.example.json"), "utf8"));
+fs.writeFileSync(deskFile, JSON.stringify({ ...example, updatedAt: new Date().toISOString() }));
+const desk = createDeskFace({ file: () => deskFile });
+const server = createServer(bridge, new Map([[face.name, face], [desk.name, desk]]), { port: 0, log: () => {} });
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
 const approveTimer = setInterval(() => pollApproveFile(bridge.pairing, () => {}), 250);
 const port = server.address().port;
 
 const nodes = JSON.parse(fs.readFileSync(path.join(repo, "mission-control", "nodes.json"), "utf8"));
-const names = [...nodes.text, ...nodes.buttons, ...nodes.show, ...nodes.world];
+const names = [...nodes.text, ...nodes.buttons, ...nodes.show, ...nodes.world, ...nodes.desk_text, ...nodes.desk_world];
+const DESK_TEXT = nodes.desk_text;
 const wasm = fs.readFileSync(path.join(repo, "mission-control", "world.wasm"));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const PARKED_Y = 3.0 - 200;
@@ -79,6 +89,7 @@ async function headset(label) {
     globals: new Map(),
     log: { haptic: [], audio: [], music: [], klog: [], prompts: [], fetches: [] },
     net: { pending: 0, done: [], bodies: new Map() },
+    maxText: 0,
   };
   const memory = new WebAssembly.Memory({ initial: 17, maximum: 256 });
   const bytes = (p, l) => new Uint8Array(memory.buffer, p, l);
@@ -98,7 +109,12 @@ async function headset(label) {
     k_transform_set_scale: (h, x) => (hs.scale.set(nameOf.get(h) ?? h, x), 0),
     k_transform_get_rotation: (h, p, y, r) => (f32(p, 0), f32(y, 180), f32(r, 0), 0),
     k_transform_set_rotation: (h, p, y, r) => (hs.rotation.set(nameOf.get(h) ?? h, [p, y, r]), 0),
-    k_ui_show_world_text: (h, p, l) => (l > 128 ? -7 : (hs.text.set(nameOf.get(h), str(p, l)), 0)),
+    k_ui_show_world_text: (h, p, l) => {
+      if (l > 128) return -7;
+      hs.text.set(nameOf.get(h), str(p, l));
+      hs.maxText = Math.max(hs.maxText, hs.text.size);
+      return 0;
+    },
     k_ui_hide_world_text: (h) => (hs.text.delete(nameOf.get(h)), 0),
     k_ui_prompt: (qp, ql, out, cap, id) => (hs.log.prompts.push({ q: str(qp, ql), out, cap, id }), 0),
     k_event_subscribe: (_p, _l, h, fn) => (hs.subs.set(h, fn), 1),
@@ -159,6 +175,7 @@ async function headset(label) {
   };
   hs.shown = (n) => hs.visible.get(n) === true;
   hs.paths = () => hs.log.fetches.map((f) => f.path);
+  hs.deskWords = () => DESK_TEXT.filter((n) => hs.text.has(n));
   instance.exports.k_init();
   return hs;
 }
@@ -205,6 +222,13 @@ assert.ok(!owner.log.fetches.some((f) => /\npair /.test(f.body) && /\ntok /.test
 await until([owner], () => owner.paths().at(-1) === "/v1/faces/mission-control/view", "polling view with the token");
 console.log("3. paired at the PC: the ring locked, the ledge and the puck grew in");
 
+// The Kosmos Desk board, beside Mission Control: the same token, read-only, in cubes mode.
+await until([owner], () => /4 waiting on you/.test(owner.text.get("TxDeskHead") ?? "") && owner.shown("McDeskBoard"), "the desk board");
+assert.deepEqual(owner.deskWords(), ["TxDeskHead", "TxDeskA", "TxDeskB", "TxDeskC", "TxDeskD"], "the heading and four cards, nothing else");
+const deskAsks = owner.log.fetches.filter((f) => f.path === "/v1/faces/desk/board");
+assert.ok(deskAsks.length >= 1 && deskAsks.every((f) => /^AB1\ntok [^\n]+\n$/.test(f.body)), "the desk asks with the token only");
+console.log("3b. the Kosmos Desk board:", JSON.stringify(owner.text.get("TxDeskHead")), "| first card:", JSON.stringify(owner.text.get("TxDeskA")));
+
 // CubePlus unfolds the arc from itself.
 const plusAt = owner.position.get("CubePlus");
 owner.press("CubePlus");
@@ -213,7 +237,9 @@ assert.ok((owner.scale.get("McCenterFrame") ?? 1) < 0.5, "it starts small");
 assert.ok(near(owner.position.get("McCenterFrame"), plusAt) || owner.scale.get("McCenterFrame") > 0.02, "it starts at the cube");
 await until([owner], () => owner.scale.get("McCenterFrame") === 1 && owner.text.has("TxProject"), "the unfold to end, words shown");
 assert.ok(!owner.shown("CubePlus"), "the picked cube became the arc");
-console.log("4. CubePlus unfolded the arc; project:", owner.text.get("TxProject"));
+assert.deepEqual(owner.deskWords(), [], "the desk's words hide while the arc is open");
+assert.ok(!owner.shown("McDeskBoard"), "the desk board hides while the arc is open");
+console.log("4. CubePlus unfolded the arc; project:", owner.text.get("TxProject"), "| desk board hidden");
 
 // A job raises an approval: the puck goes amber with its label; two pulses, one chime.
 owner.press("BtnTests");
@@ -230,7 +256,8 @@ await until([owner], () => ARC.every((n) => !owner.shown(n)) && owner.shown("Cub
 owner.press("BtnPuckApprove");
 await until([owner], () => !owner.shown("PuckNeed"), "the approval to clear");
 assert.ok(owner.shown("McClose"), "Close is on the ledge while folded (contract 8.7)");
-console.log("6. folded; approved on the puck without the arc; Close on the ledge");
+await until([owner], () => owner.shown("McDeskBoard") && owner.text.has("TxDeskA"), "the desk board back after the fold");
+console.log("6. folded; approved on the puck without the arc; Close on the ledge; desk board back");
 
 // A job cube unfolds the arc on that job; Group watch on.
 await until([owner], () => ["CubeA", "CubeB", "CubeC", "CubeD"].some((c) => owner.shown(c)), "a job cube");
@@ -259,6 +286,8 @@ watcher.press("BtnTests");
 watcher.tick();
 assert.equal(watcher.log.fetches.length, before, "a watcher's press sends nothing");
 assert.equal(watcher.log.haptic.length, 0, "a watcher never buzzes");
+assert.deepEqual(watcher.deskWords(), [], "a watcher never sees the desk's words");
+assert.ok(!watcher.shown("McDeskBoard"), "a watcher never sees the desk board");
 console.log("8. watcher: the arc only, turned; status", JSON.stringify(watcher.text.get("TxStatus")));
 
 // Close from the FOLDED state (the default after pairing): the closing stage's sign-out must reach
@@ -279,9 +308,17 @@ await until([watcher], () => /Nobody is sharing|owner has left/i.test(watcher.te
 const stopped = watcher.log.fetches.length;
 for (let i = 0; i < 80; i++) watcher.tick();
 assert.equal(watcher.log.fetches.length, stopped, "a refused watcher stops polling");
+assert.deepEqual(owner.deskWords(), [], "Close hides the desk's words");
+assert.ok(!owner.shown("McDeskBoard"), "Close hides the desk board");
+assert.equal(owner.position.get("McDeskBoard")?.[1] ?? PARKED_Y, PARKED_Y, "Close parks the desk board");
+const asked = owner.log.fetches.length;
+for (let i = 0; i < 700; i++) owner.tick();
+assert.equal(owner.log.fetches.length, asked, "after Close the desk never asks again (35 s of frames)");
 console.log("9. owner closed (signed out, parked); watcher told:", JSON.stringify(watcher.text.get("TxStatus")));
 
 for (const h of [owner, watcher]) for (const [n, t] of h.text) assert.ok(Buffer.byteLength(t) <= 128, `${h.label} ${n} over 128 bytes`);
+for (const h of [owner, watcher]) assert.ok(h.maxText <= 32, `${h.label} showed ${h.maxText} world-text labels at once (the host allows 32)`);
+console.log(`world text at once, at most: owner ${owner.maxText}, watcher ${watcher.maxText} (the host allows 32)`);
 console.log("PASS: two copies of the built Lobby program drove the real bridge end to end (v2).");
 clearInterval(approveTimer);
 server.close();

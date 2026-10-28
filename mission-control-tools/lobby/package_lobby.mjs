@@ -1,4 +1,4 @@
-// package_lobby.mjs -- builds the Lobby CANDIDATE package (1.4.0: Mission Control v2 + the clarity pass).
+// package_lobby.mjs -- builds the Lobby CANDIDATE package (1.5.0: Mission Control v2, the clarity pass, the Kosmos Desk board).
 //
 // @kosmos-system Content (KosmosWorlds) -- Mission Control (DB-044)
 // @kosmos-owner  Content lane
@@ -8,14 +8,15 @@
 // Starts from the LIVE Lobby package (unpacked from its 1.1.1 bundle, content_hash
 // sha256:b1dd1df5...) and:
 //   1. merges mission-control/mc_assembly.glb into scene.glb (merge_glb.mjs: every original
-//      byte of the live scene kept, and checked);
+//      byte of the live scene kept, and checked), then mission-control/desk_assembly.glb (the
+//      Kosmos Desk board, built by make_desk_glb.mjs and checked current first) the same way;
 //   2. replaces module.wasm with mission-control/world.wasm (the Lobby's music, ported
 //      exactly, plus Mission Control);
 //   3. adds audio/chime.wav;
 //   4. applies mission-control/lobby-manifest.patch.json (capabilities, host API level 4,
-//      the network block, the version: 1.4.0 since the clarity pass); visibility is unchanged (the package sets none).
-// It still starts from the live 1.1.1 package: 1.4.0 is 1.1.1 plus Mission Control v2 and the clarity
-// pass, built fresh exactly as 1.3.0 was (it does not start from 1.2.0, which carried v1).
+//      the network block, the version: 1.5.0 since the Kosmos Desk board); visibility is unchanged (the package sets none).
+// It still starts from the live 1.1.1 package: 1.5.0 is 1.1.1 plus Mission Control v2, the clarity
+// pass and the desk board, built fresh exactly as 1.3.0 and 1.4.0 were (never from 1.2.0, which carried v1).
 // It publishes nothing: publishing the Lobby is the CEO's (Class C).
 import { execFileSync } from "node:child_process";
 import crypto from "node:crypto";
@@ -37,7 +38,12 @@ if (liveManifest.world.version !== "1.1.1") throw new Error(`expected the live 1
 fs.rmSync(out, { recursive: true, force: true });
 fs.cpSync(live, out, { recursive: true });
 
-execFileSync(process.execPath, [path.join(here, "merge_glb.mjs"), path.join(live, "scene.glb"), path.join(mc, "mc_assembly.glb"), path.join(out, "scene.glb"), path.join(out, "..", "merge_report.json")], { stdio: "inherit" });
+// The desk board's GLB is generated; refuse a committed copy that is not what the generator builds.
+execFileSync(process.execPath, [path.join(here, "make_desk_glb.mjs"), "--check"], { stdio: "inherit" });
+const withMc = path.join(out, "..", "scene_mc.glb");
+execFileSync(process.execPath, [path.join(here, "merge_glb.mjs"), path.join(live, "scene.glb"), path.join(mc, "mc_assembly.glb"), withMc, path.join(out, "..", "merge_report.json")], { stdio: "inherit" });
+execFileSync(process.execPath, [path.join(here, "merge_glb.mjs"), withMc, path.join(mc, "desk_assembly.glb"), path.join(out, "scene.glb"), path.join(out, "..", "merge_report_desk.json")], { stdio: "inherit" });
+fs.rmSync(withMc);
 // Rebuild the program from the checked-out source first, so the shipped bytes are never a
 // stale committed binary (Gate 2 security review, LOW-5). The build is reproducible across
 // folders; the hash printed below is the one to record in the publish evidence.

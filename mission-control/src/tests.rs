@@ -95,6 +95,13 @@ fn scale(name: &str) -> f32 {
 fn fetches() -> i32 {
     unsafe { host::FETCHES }
 }
+/// Mission Control's own calls: every fetch but the Desk board's.
+fn mc_fetches() -> i32 {
+    unsafe { host::FETCHES - host::BY_ID[REQ_DESK as usize] }
+}
+fn desk_fetches() -> i32 {
+    unsafe { host::BY_ID[REQ_DESK as usize] }
+}
 fn body() -> String {
     // The last request written (REQ_BUF up to its first zero past the end is not tracked, so
     // rebuild it the way the program does for a poll).
@@ -325,8 +332,10 @@ fn paired_locks_then_the_ledge_and_puck_grow_in() {
     assert!(text_on("TxCubeA") && text_on("TxCubeB"));
     assert!((scale("CubeA") - 1.0).abs() < 1e-6 && close3(pos("CubeA"), placed(idx("CubeA"))));
     assert!(!vis("McCenterFrame"), "cubes: the arc is folded");
-    // Polls now go to view, with the token (one went out during the animation).
-    assert_eq!(unsafe { LAST_PATH }, PATH_VIEW);
+    // Polls now go to view, with the token (one went out during the animation), and the Desk
+    // board asked once, as the ledge landed.
+    assert!(unsafe { host::BY_ID[REQ_VIEW as usize] } > 0);
+    assert_eq!(desk_fetches(), 1);
     on_net_result(0, 0, REQ_VIEW, 200);
     let n = fetches();
     run(1.2);
@@ -676,13 +685,13 @@ fn a_face_button_is_not_pressed_while_its_group_moves() {
     run(0.6 + 0.35 + 0.1);
     assert_eq!(stage(), Stage::Grow);
     assert!(vis("BtnPuckApprove") && !text_on("TxPuck"), "the button grows, its words wait");
-    let n = fetches();
+    let n = mc_fetches();
     press("BtnPuckApprove");
-    assert_eq!(fetches(), n, "no press while the puck grows");
+    assert_eq!(mc_fetches(), n, "no press while the puck grows");
     run(0.4);
     assert!(text_on("TxPuck"));
     press("BtnPuckApprove");
-    assert_eq!(fetches(), n + 1, "pressed once its words show");
+    assert_eq!(mc_fetches(), n + 1, "pressed once its words show");
     // The same for the arc's Approve during the unfold, and during the fold.
     snap(&full_arc_snapshot());
     let n = fetches();
@@ -1301,4 +1310,270 @@ fn the_owner_at_the_watch_post_is_told_what_it_is_for() {
     press("McWatchJoin");
     assert_eq!(stored_text("TxSealHint"), WATCH_POST_OWNER);
     close_panel();
+}
+
+// ---------------------------------------------------------------------------
+// The Kosmos Desk board (read-only, beside the throne)
+// ---------------------------------------------------------------------------
+
+fn dj(name: &str) -> usize {
+    (0..N_DESK).find(|&j| desk_name(j) == name).expect(name)
+}
+fn dh(name: &str) -> i32 {
+    unsafe { DESK_H[dj(name)] }
+}
+fn desk_label_on(name: &str) -> bool {
+    unsafe { host::TEXT_ON[dh(name) as usize] }
+}
+fn board_shown() -> bool {
+    unsafe { host::VIS[dh("McDeskBoard") as usize] == 1 }
+}
+fn desk_pos(name: &str) -> [f32; 3] {
+    unsafe { host::POS[dh(name) as usize] }
+}
+fn desk_labels_on() -> usize {
+    DESK_TEXT.iter().filter(|n| desk_label_on(n)).count()
+}
+/// Every world-text label the host is showing now, Mission Control's and the board's.
+fn labels_on() -> usize {
+    unsafe { host::TEXT_ON.iter().filter(|&&b| b).count() }
+}
+fn desk_stored(name: &str) -> String {
+    let j = dj(name);
+    unsafe { String::from_utf8(DESK_STORE[j][..DESK_LEN[j] as usize].to_vec()).unwrap() }
+}
+/// The face's answer with a full board: the heading and all 8 cards, left-aligned.
+fn desk_full() -> String {
+    let mut s = String::from("AB1\nV 1\nT TxDeskHead KOSMOS DESK\\n8 of 11 waiting on you - 3 min ago\n");
+    for c in "ABCDEFGH".chars() {
+        s += &format!("O TxDesk{c} -200\nT TxDesk{c} Decision {c} - hub, today\n");
+    }
+    s
+}
+/// Signed in with every cube label and the puck's label up: Mission Control's most in cubes mode.
+fn sign_in_with_full_ledge() {
+    sign_in_to_cubes();
+    snap("AB1\nV 8\nM cubes\nT TxCubeC kosmos-web\nT TxCubeD client\nT TxPuck registry: run npm test\n");
+    assert!(text_on("TxCubeA") && text_on("TxCubeD") && text_on("TxPuck"));
+}
+
+#[test]
+fn desk_node_names_match_nodes_json() {
+    let src = include_str!("../nodes.json");
+    let v = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    assert_eq!(json_array(src, "desk_text"), v(&DESK_TEXT));
+    assert_eq!(json_array(src, "desk_world"), v(&DESK_WORLD));
+    for n in DESK_TEXT.iter().chain(&DESK_WORLD) {
+        assert!(node_index(n.as_bytes()).is_none(), "{n} is the board's, not Mission Control's");
+        assert!(!n.ends_with(|c: char| c.is_ascii_digit()), "{n}");
+    }
+    reset();
+    for j in 0..N_DESK {
+        assert_eq!(unsafe { DESK_H[j] }, (N_ALL + j + 1) as i32, "found after Mission Control's nodes, in order");
+        assert!(unsafe { host::VIS[DESK_H[j] as usize] } == 0, "hidden at load");
+    }
+}
+
+#[test]
+fn the_desk_board_shows_signed_in_in_cubes_mode_only() {
+    reset();
+    run(2.0);
+    assert_eq!(desk_fetches(), 0, "closed: nothing");
+    press("McSeal");
+    snap(&pair_records());
+    run(1.0);
+    assert_eq!(desk_fetches(), 0, "the seal is up: no board");
+    assert!(!board_shown() && desk_labels_on() == 0);
+    snap(PAIRED);
+    run(0.6 + 0.35 + 0.2);
+    assert_eq!(stage(), Stage::Grow);
+    assert!(!board_shown() && desk_fetches() == 0, "not while the ledge grows in");
+    run(0.25);
+    assert_eq!(stage(), Stage::Signed);
+    assert!(board_shown(), "after the seal, with the ledge");
+    assert!(desk_label_on("TxDeskHead") && desk_stored("TxDeskHead") == DESK_ASKING);
+    assert_eq!(desk_fetches(), 1);
+    let n = build_desk_request();
+    let sent = unsafe { String::from_utf8(REQ_BUF[..n].to_vec()).unwrap() };
+    assert_eq!(sent, "AB1\ntok tok123\n", "the sign-in's own token, nothing else: no press, no version, no text");
+    let base = unsafe { DESK_BASE[dj("McDeskBoard")] };
+    assert!(close3(desk_pos("McDeskBoard"), [base[0], base[1] + PARK_DROP_M, base[2]]), "raised with the owner's panel");
+
+    on_net_result(0, 0, REQ_DESK, 200);
+    apply_desk(desk_full().as_bytes());
+    assert_eq!(desk_labels_on(), 9);
+    let b = unsafe { DESK_BASE[dj("TxDeskA")] };
+    let want = [b[0] + DESK_RIGHT[0] * -0.2, b[1] + PARK_DROP_M, b[2] + DESK_RIGHT[2] * -0.2];
+    assert!(close3(desk_pos("TxDeskA"), want), "a card is shifted along the board by its O record");
+
+    // A cube unfolds the arc: the whole board goes in that same call, and is parked.
+    press("CubeA");
+    reply(&full_arc_snapshot());
+    assert!(unsafe { ARC_SHOWN });
+    assert!(!board_shown() && desk_labels_on() == 0, "the board hides the moment the arc unfolds");
+    assert!(close3(desk_pos("McDeskBoard"), base), "and parks");
+    run(60.0);
+    assert_eq!(desk_fetches(), 1, "no asking while the arc is open");
+    assert!(!board_shown() && desk_labels_on() == 0);
+
+    // Fold: still hidden while it folds; back (with the cards it had) when it lands, and it asks.
+    snap("AB1\nV 10\nM cubes\n");
+    run(0.2);
+    assert!(!board_shown() && desk_labels_on() == 0, "not while the arc folds");
+    run(0.3);
+    assert!(board_shown() && desk_labels_on() == 9);
+    assert_eq!(desk_fetches(), 2, "the board was due, so it asks as it comes back");
+    close_panel();
+}
+
+#[test]
+fn the_world_text_budget_holds_in_every_mode_frame_by_frame() {
+    const HOST_MAX: usize = 32;
+    let mut worst = 0;
+    let mut check = |what: &str, with_board: bool| {
+        let n = labels_on();
+        worst = worst.max(n);
+        assert!(n <= HOST_MAX, "{what}: {n} labels");
+        if !with_board {
+            assert_eq!(desk_labels_on(), 0, "{what}: the board shows nothing");
+        }
+    };
+    // The seal.
+    reset();
+    press("McSeal");
+    snap(&pair_records());
+    for _ in 0..90 {
+        k_tick(DT);
+        check("seal", false);
+    }
+    assert_eq!(labels_on(), 2, "the seal's code and hint");
+    // Cubes, the board full.
+    sign_in_with_full_ledge();
+    apply_desk(desk_full().as_bytes());
+    check("cubes", true);
+    assert_eq!(labels_on(), 4 + 1 + 9, "four cube labels, the puck's, the board's nine");
+    // The arc, frame by frame through the unfold, with a late board answer landing mid-way.
+    press("CubeA");
+    reply(&full_arc_snapshot());
+    for k in 0..45 {
+        k_tick(DT);
+        if k == 20 {
+            apply_desk(desk_full().as_bytes());
+        }
+        check("unfold", false);
+    }
+    let arc = labels_on();
+    assert!(arc > 20 && arc <= 29, "the arc's labels and the puck's: {arc}");
+    // A board answer while the arc is open changes nothing on screen.
+    apply_desk(desk_full().as_bytes());
+    on_net_result(0, 0, REQ_DESK, 0);
+    check("arc", false);
+    assert_eq!(labels_on(), arc);
+    // The fold, frame by frame, back to cubes with the board.
+    snap("AB1\nV 11\nM cubes\n");
+    for _ in 0..45 {
+        k_tick(DT);
+        check("fold", true);
+        if desk_labels_on() > 0 {
+            assert!(!unsafe { ARC_SHOWN || TWEENS[G_ARC as usize].active }, "never the board and the arc together");
+        }
+    }
+    assert!(board_shown() && desk_labels_on() >= 1);
+    close_panel();
+    check("closed", false);
+    assert_eq!(labels_on(), 0);
+    // A watcher: the arc only, never the board, never a board call.
+    reset();
+    press("McWatchJoin");
+    unsafe { PROMPT_ANSWER[..6].copy_from_slice(b"296951"); }
+    on_prompt_result(0, 0, REQ_PROMPT_WATCH, 6);
+    snap(&full_arc_snapshot());
+    apply_desk(desk_full().as_bytes());
+    for _ in 0..(60.0 / DT) as usize {
+        k_tick(DT);
+    }
+    check("watcher", false);
+    assert!(!board_shown());
+    assert_eq!(desk_fetches(), 0, "a watcher never asks for the board");
+    assert!(worst <= HOST_MAX);
+    close_panel();
+}
+
+#[test]
+fn a_desk_answer_can_only_write_the_boards_own_labels() {
+    sign_in_to_cubes();
+    let status = stored_text("TxStatus");
+    apply_desk(
+        b"AB1\nK evil\nM arc\nM lock\nE signed_out\nU McSeal 0\nU McLedge 0\nT TxStatus hacked\nT TxCubeA hacked\nH CubeA need\nZ 99\nI 0123456789abcdef0123456789abcdef\nP TxDeskA Type here\nU McDeskBoard 0\nT McDeskBoard x\nT TxDeskA Real card - hub, today\nO TxDeskB 99999\nT TxDeskB Shifted - hub, today\n",
+    );
+    assert_eq!(mode(), Mode::Owner);
+    assert_eq!(stage(), Stage::Signed);
+    assert_eq!(unsafe { &TOKEN[..TOKEN_LEN] }, b"tok123", "the board can't sign anyone in or out");
+    assert!(unsafe { !M_ARC && !ARC_SHOWN }, "nor open the arc");
+    assert_eq!(stored_text("TxStatus"), status);
+    assert_eq!(stored_text("TxCubeA"), "registry", "nor write on Mission Control's labels");
+    assert!(vis("McLedge") && vis("CubeACalm") && !vis("CubeANeed"));
+    assert_eq!(unsafe { host::HAPTICS }, 0);
+    assert_eq!(unsafe { PROMPT_NODE }, [NONE; MAX_PROMPTS]);
+    assert!(board_shown(), "U on the board is ignored too: the world alone decides it");
+    assert!(desk_label_on("TxDeskA") && desk_stored("TxDeskA") == "Real card - hub, today");
+    assert!((unsafe { DESK_SHIFT[dj("TxDeskB")] } - DESK_SHIFT_MAX_M).abs() < 1e-6, "a shift is clamped to the board");
+    close_panel();
+}
+
+#[test]
+fn no_answer_draws_desk_offline_and_leaves_mission_control_alone() {
+    for status in [0, -2, -5, 401, 404, 502, 503, 200] {
+        sign_in_to_cubes();
+        apply_desk(desk_full().as_bytes());
+        let mc_status = stored_text("TxStatus");
+        // (The host stand-in can't read a body, so even a 200 here has nothing to apply.)
+        on_net_result(0, 0, REQ_DESK, status);
+        assert_eq!(desk_stored("TxDeskHead"), DESK_OFFLINE, "status {status}");
+        assert!(desk_label_on("TxDeskHead") && desk_labels_on() == 1, "status {status}: no card stays up");
+        assert_eq!(stored_text("TxStatus"), mc_status, "status {status}: Mission Control's status line untouched");
+        assert_eq!(mode(), Mode::Owner);
+        close_panel();
+    }
+    sign_in_to_cubes();
+    apply_desk(b"HTTP/1.1 200 OK\nT TxDeskA nope\n");
+    assert_eq!(desk_stored("TxDeskHead"), DESK_OFFLINE, "not AB1: offline");
+    assert_eq!(desk_labels_on(), 1);
+    close_panel();
+}
+
+#[test]
+fn the_desk_asks_every_30_seconds_and_never_after_close() {
+    sign_in_to_cubes();
+    assert_eq!(desk_fetches(), 1);
+    run(10.0);
+    assert_eq!(desk_fetches(), 1, "one in flight at a time");
+    on_net_result(0, 0, REQ_DESK, 404);
+    run(18.0);
+    assert_eq!(desk_fetches(), 1);
+    run(3.0);
+    assert_eq!(desk_fetches(), 2, "every 30 s");
+    on_net_result(0, 0, REQ_DESK, 404);
+    unsafe { host::REFUSE = 1; }
+    run(30.5);
+    assert_eq!(desk_fetches(), 2, "the host refused it (too fast)");
+    run(3.1);
+    assert_eq!(desk_fetches(), 3, "retried after the usual gap");
+    on_net_result(0, 0, REQ_DESK, 404);
+    apply_desk(desk_full().as_bytes());
+    assert!(board_shown());
+    close_panel();
+    run(6.0);
+    assert_eq!(mode(), Mode::Closed);
+    let base = unsafe { DESK_BASE[dj("McDeskBoard")] };
+    assert!(!board_shown() && desk_labels_on() == 0 && close3(desk_pos("McDeskBoard"), base), "closed: hidden and parked");
+    assert_eq!(desk_stored("TxDeskHead"), DESK_ASKING, "and forgotten");
+    assert_eq!(desk_stored("TxDeskA"), "");
+    let n = desk_fetches();
+    run(90.0);
+    assert_eq!(desk_fetches(), n, "closed: no call");
+    // A late answer after Close is dropped.
+    on_net_result(0, 0, REQ_DESK, 200);
+    apply_desk(desk_full().as_bytes());
+    assert!(!board_shown() && desk_labels_on() == 0);
 }

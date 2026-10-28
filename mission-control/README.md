@@ -16,12 +16,14 @@ package.
   this candidate: NET_007 (the relay's opt-in file is not fetched offline; the registry checks it at
   register) and WASM_007 (level 4 against the vendored deployed hint of 2). The art pass's three
   PNGs carry no hidden data (IHDR, IDAT, IEND only), so they raise no SEC_004. It runs end to end
-  against the v2.1 bridge in `mockhost.mjs` and was reviewed in lit renders. **Not published**: the
-  CEO sees the renders first, and publishing the Lobby is Class C. The candidate is **Lobby 1.4.0**:
-  1.3.0 (Mission Control v2, published unlisted) plus the **clarity pass** (`CLARITY_PASS.md`, the
-  CEO's headset test of 2026-10-21/22; see "The clarity pass" below), built fresh from the live
-  1.1.1 package exactly as 1.3.0 was (1.2.0 carried v1). Capabilities, the network block and the
-  host API level are as in 1.3.0.
+  against the v2.1 bridge in `mockhost.mjs` and was reviewed in lit renders. **Lobby 1.4.0**, which is
+  1.3.0 (Mission Control v2) plus the **clarity pass** (`CLARITY_PASS.md`, the CEO's headset test of
+  2026-10-21/22; see "The clarity pass" below), was published unlisted on 2026-10-22
+  (`sha256:c55c0ce6...`). The candidate is now **Lobby 1.5.0**: 1.4.0 plus the **Kosmos Desk board**
+  (KOS-1015; see "The Kosmos Desk board" below). It is built fresh from the live 1.1.1 package, as
+  every v2 build is (1.2.0 carried v1), and validates offline with publisher 0.8.1 (84 rules:
+  PASSED, the same warnings). **Not published**: publishing the Lobby is Class C. Capabilities, the
+  network block and the host API level are as in 1.3.0.
 - **Host API level:** **4** (`k_net_*`, `OnNetResult`); also level 3 (`k_haptic_pulse`, `k_log`)
   and level 2 (`k_ui_prompt`). Nothing new is asked of the client.
 - **Capabilities added to the Lobby's `audio`:** `scene_read`, `scene_write`, `transform`, `events`,
@@ -159,19 +161,54 @@ degrees and set on the seat (STAND 14.8, 0, 1.46). Seat and arms measured from t
 From the eye, the cubes and their labels sit below the chrome bar, and the ask plate's bottom stays
 above the bar.
 
+## The Kosmos Desk board (Lobby 1.5.0, KOS-1015)
+
+A read-only board of the cards waiting on the owner, so he can see them without taking the headset
+off. The hub session writes `E:Kosmos_Deskdesk.json` on the PC (the schema:
+`agent-bridge/src/faces/desk/SCHEMA.md`); the bridge's **desk face** reads it on every request,
+sanitizes it again and answers `POST /v1/faces/desk/board` with AB1 text records (`API.md`, "The
+Kosmos Desk face"). Nothing on the board can be pressed, and there is no approve op: approving merges
+from the headset is a later phase with its own safety design.
+
+- **Where:** its own panel, 2.5 m out at 72 degrees to the owner's LEFT (open dais there), facing the
+  eye; 1.66 m x 1.33 m, z 0.95 to 2.28 above the seat. One opaque smoke panel with the cyan bars top
+  and bottom and a hairline under the heading. Not the right panel, not part of the arc.
+- **Words:** `TxDeskHead` (KOSMOS DESK over "4 waiting on you - 3 min ago", "8 of 11 ...", "Nothing
+  is waiting on you" or "Desk offline") and one card a line, `TxDeskA`..`TxDeskH` ("title -
+  session, day"), each shifted along the board (`O`) so the lines read left-aligned.
+- **When (`src/lib.rs`, `desk_on`):** signed in, after the seal's grow-in, in cubes mode only. It
+  hides the moment the arc starts to unfold and shows again once a fold has finished; a watcher
+  never gets it and never asks for it; Close hides and parks it.
+- **Asking:** with Mission Control's own token (`AB1
+tok <token>
+`, nothing else), every 30 s while
+  shown; never a sign-in of its own. A missing, stale (no update for 15 min), future-dated,
+  malformed or unreachable answer draws "Desk offline", and Mission Control is untouched.
+- **The world-text budget (32 at once):** seal 2, cubes 14 (Mission Control's 5 plus the board's
+  9), arc at most 29 with the board hidden, watcher 24, closed 0. A host test checks it frame by
+  frame through the unfold and the fold (`the_world_text_budget_holds_in_every_mode_frame_by_frame`),
+  `agent-bridge/test/layout.test.ts` checks the sums, and `mockhost.mjs` counts the most labels a
+  headset ever shows at once (18 in its run).
+- **Renders:** `review/desk_eye.jpg` (the head turned left to the board), `desk_ahead.jpg` (the
+  owner's eye straight ahead: the board at the left edge, the ledge below), `desk_full.jpg` (eight
+  of eleven cards) and `desk_offline.jpg`, all from `blender/desk_review.py` inside the packaged
+  scene. Renders, not pixels: the device checkpoint is the real check.
+
 ## Files
 
 | Path | What it is |
 |---|---|
 | `V2_CONTRACT.md`, `nodes.json` | the contract and the node list (both owned by the bridge lane; a host test pins the node list) |
-| `src/lib.rs`, `src/tests.rs`, `Cargo.toml`, `build.rs` | the Lobby's program (the music plus Mission Control) and its 35 host tests |
+| `src/lib.rs`, `src/tests.rs`, `Cargo.toml`, `build.rs` | the Lobby's program (the music, Mission Control and the Kosmos Desk board) and its 41 host tests |
 | `world.wasm` | the built program; it becomes the Lobby's `module.wasm`; it rebuilds byte-identical from a fresh checkout |
 | `mc_assembly.glb` | every node (parked), merged into the Lobby's `scene.glb`; carries three embedded PNGs (the floor ring, 2048 x 1024; two halos, 128 x 128), which `lobby/merge_glb.mjs` appends with their images, sampler and textures (every original Lobby index still checked identical; any extension whose indices it would not re-number is refused; `lobby/merge_glb.test.mjs` runs 19 crafted orbs against it) |
+| `desk_assembly.glb` | the Kosmos Desk board's 10 nodes (parked), merged after `mc_assembly.glb`; generated by `lobby/make_desk_glb.mjs` (deterministic; `--check` refuses a stale copy, and `package_lobby.mjs` runs it), checked by `lobby/make_desk_glb.test.mjs` |
 | `lobby-manifest.patch.json` | what the package changes in the Lobby's manifest |
 | `bridge-origin.txt` | the origin compiled into the program |
 | `audio/chime.wav` | the approval chime |
 | `blender/build_panel.py` | builds every node, exports `mc_assembly.glb`, renders the review inside the live Lobby |
-| `review/*.snapshot` | the bridge's real snapshots (`agent-bridge/scripts/capture-review-snapshots.mjs`) |
+| `blender/desk_review.py` | the desk board's lit renders, inside the PACKAGED 1.5.0 scene |
+| `review/*.snapshot` | the bridge's real snapshots (`agent-bridge/scripts/capture-review-snapshots.mjs`; the desk's, `review/desk*.snapshot`, from `capture-desk-snapshots.mjs`) |
 | `review/*.jpg` | the v2.1 lit renders with the art pass, and `art_sheet.jpg` beside the CEO's references (the v1 ones were removed) |
 | `review/synthetic/*.snapshot` | contract-shaped stand-ins, from `make_synthetic_snapshots.mjs` |
 
@@ -189,9 +226,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File mission-control-tools\build_
 powershell -NoProfile -ExecutionPolicy Bypass -File mission-control-tools\build_wasm.ps1
 node mission-control-tools/mockhost.mjs                         (AGENT_BRIDGE_DIST=<dist/src> for another checkout)
 node mission-control-tools/lobby/merge_glb.test.mjs
+node mission-control-tools/lobby/make_desk_glb.mjs [--check]    (after write-nodes-json; then make_desk_glb.test.mjs)
+node agent-bridge/scripts/capture-desk-snapshots.mjs           (bridge lane: review/desk*.snapshot)
 node mission-control-tools/make_clarity_sheet.mjs --old <1.3.0 renders of the new views>
 node mission-control-tools/lobby/package_lobby.mjs <live lobby 1.1.1 package> <out>
 node <publisher 0.8.1 or later>/packages/cli/dist/index.js validate <out> --offline
+node <publisher 0.8.1 or later>/packages/cli/dist/index.js bundle <out> --no-lod --no-quantize --offline -o <lobby_1.5.0.worldbundle>
+blender -b --python-exit-code 1 --python mission-control/blender/desk_review.py   (DESK_SCENE_GLB=<out>/scene.glb)
 ```
 
 `build_panel.py` reads `review/*.snapshot` (the real ones) unless `MC_SNAPSHOTS` names another
@@ -384,6 +425,10 @@ this world against the 1.3.0 bridge (`cee4f69`) and the 1.3.0 world against this
 7. Both controllers buzz and the chime plays on a new approval; never for a watcher.
 8. Share with group on two headsets: the watcher's arc faces the hall; the watcher can't press.
 9. The Lobby itself is unchanged: music, the coastal video, the Omni Demo orb.
+10. The Kosmos Desk board (1.5.0): after the seal, turning the head left shows it with the cards
+    left-aligned and readable from the throne; it vanishes as the arc unfolds and returns after a
+    fold; no label anywhere goes missing in cubes or arc mode (the 32-label pool); a watcher never
+    sees it; with the bridge stopped or no desk.json it reads "Desk offline".
 
 ## Known limitations
 
