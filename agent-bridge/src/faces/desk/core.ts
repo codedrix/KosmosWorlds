@@ -86,7 +86,8 @@ export function cleanField(v: unknown, max: number): string {
   let s = toWallAscii(v.slice(0, 400));
   s = s.replace(/\b[a-z][a-z0-9+.-]*:\/\/\S*/gi, " ").replace(/\bwww\.\S+/gi, " ");
   s = s.replace(/\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}\/\S*/gi, " "); // github.com/x/pull/1
-  s = s.replace(/\b(?:PRs?|pull|issues?)\s*#?\s*\d+\b/gi, " ").replace(/#\s*\d+\b/g, " ");
+  // "PR 243", "issue #12", "#243"; not counts ("2 PRs 3 days old") or "C# 12".
+  s = s.replace(/\b(?:PR|issue)\s*#?\s*\d+\b/gi, " ").replace(/#\d+\b/g, " ");
   s = s.replace(/\bKOS-\d+\b/gi, " ");
   // Redact on the ASCII text (a full-width key shape is a plain one by now), then clean again.
   s = cleanUntrusted(s);

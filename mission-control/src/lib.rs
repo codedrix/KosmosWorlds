@@ -133,6 +133,8 @@ mod host {
     /// The host refuses every new label (its 32-label pool full) while this is set.
     pub static mut TEXT_FULL: bool = false;
     pub static mut TEXT_SHOWS: i32 = 0;
+    /// The host refuses this one handle (0: none), whatever the pool holds.
+    pub static mut TEXT_REFUSE_H: i32 = 0;
 
     pub fn reset_host() {
         unsafe {
@@ -154,6 +156,7 @@ mod host {
             TEXT_ON = [false; MAX_H];
             TEXT_FULL = false;
             TEXT_SHOWS = 0;
+            TEXT_REFUSE_H = 0;
         }
     }
     fn c() {
@@ -179,7 +182,7 @@ mod host {
     pub unsafe fn k_ui_show_world_text(n: i32, _p: i32, _l: i32, _o: f32) -> i32 {
         c();
         TEXT_SHOWS += 1;
-        if TEXT_FULL {
+        if TEXT_FULL || (TEXT_REFUSE_H != 0 && n == TEXT_REFUSE_H) {
             return -1;
         }
         TEXT_ON[hi(n)] = true;
@@ -2523,6 +2526,9 @@ fn desk_put(j: usize, raised: bool) {
 /// Hidden, every board node is parked again (a hidden panel still stands where it was).
 fn desk_sync() {
     let on = desk_on();
+    // Decided once per pass, so one label the host keeps refusing never holds back the others.
+    let retry = unsafe { NOW_S >= DESK_TEXT_RETRY_AT };
+    let mut refused = false;
     for j in 0..N_DESK {
         let h = unsafe { DESK_H[j] };
         if h == 0 {
@@ -2534,11 +2540,9 @@ fn desk_sync() {
                 desk_put(j, true);
                 let text = unsafe { core::str::from_utf8(&DESK_STORE[j][..n]).unwrap_or(" ") };
                 unsafe {
-                    if DESK_HASH[j] != 0 || NOW_S >= DESK_TEXT_RETRY_AT {
+                    if DESK_HASH[j] != 0 || retry {
                         DESK_HASH[j] = words(h, text, DESK_HASH[j]);
-                        if DESK_HASH[j] == 0 {
-                            DESK_TEXT_RETRY_AT = NOW_S + DESK_TEXT_RETRY_S;
-                        }
+                        refused |= DESK_HASH[j] == 0;
                     }
                 }
             } else {
@@ -2565,6 +2569,9 @@ fn desk_sync() {
                 desk_put(j, false);
             }
         }
+    }
+    if refused {
+        unsafe { DESK_TEXT_RETRY_AT = NOW_S + DESK_TEXT_RETRY_S; }
     }
 }
 

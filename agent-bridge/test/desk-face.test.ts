@@ -181,6 +181,8 @@ test("disguised links, numbers and keys are caught after the text is made plain 
   }
   // Ordinary words with numbers stay: only PR, issue and ticket numbers go.
   assert.equal(core.cleanField("Publish Lobby 1.5.0 (unlisted)", 40), "Publish Lobby 1.5.0 (unlisted)");
+  assert.equal(core.cleanField("Review 2 PRs 3 days old", 40), "Review 2 PRs 3 days old");
+  assert.equal(core.cleanField("Upgrade to C# 12", 40), "Upgrade to C# 12");
 });
 
 test("more than 8 cards: the first 8 show and the heading counts the rest", async () => {

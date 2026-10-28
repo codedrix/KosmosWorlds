@@ -45,7 +45,7 @@ The face trusts nothing in the file. Before anything reaches the headset it:
 - refuses a file over 16 KiB unread, and reads only the first 64 cards;
 - cuts `title` to 40 characters and `session` to 24, makes them plain ASCII on one line, removes
   control characters, links (`https://...`, `www....`, `host.tld/path`) and PR, issue or ticket
-  numbers (`#123`, `PR 123`, `KOS-123`), after first turning full-width and zero-width look-alikes
+  numbers it recognises (`#123`, `PR 123`, `issue 12`, `KOS-123`), after first turning full-width and zero-width look-alikes
   into plain ASCII, and replaces key
   shapes with `[redacted]` (the bridge's `cleanUntrusted`);
 - drops a card with no usable `key` or `title`, and ignores a `day` that is not a real date;

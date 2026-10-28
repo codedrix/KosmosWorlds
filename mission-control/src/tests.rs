@@ -1592,3 +1592,21 @@ fn a_refused_desk_label_is_asked_again_once_a_second_not_every_frame() {
     assert_eq!(desk_labels_on(), 9, "once the pool has room, every label shows");
     close_panel();
 }
+
+#[test]
+fn one_label_the_host_keeps_refusing_never_holds_back_the_others() {
+    sign_in_to_cubes();
+    unsafe { host::TEXT_FULL = true; }
+    apply_desk(desk_full().as_bytes());
+    run(0.5);
+    // Room again, but the host refuses the heading for a reason of its own.
+    unsafe {
+        host::TEXT_FULL = false;
+        host::TEXT_REFUSE_H = dh("TxDeskHead");
+    }
+    run(2.5);
+    assert_eq!(unsafe { DESK_HASH[dj("TxDeskHead")] }, 0, "the heading is still refused");
+    let cards = DESK_TEXT[1..].iter().filter(|n| desk_label_on(n)).count();
+    assert_eq!(cards, 8, "the eight cards show although the heading never does");
+    close_panel();
+}

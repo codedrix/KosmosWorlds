@@ -44,7 +44,7 @@ const PRIVACY = [
   "world://lobby.micknerks (the Kosmos Desk board, beside Mission Control)",
   "- Shown only to the signed-in owner: up to 8 short titles of decisions waiting on the owner,",
   "  each with the name of the agent session asking and the day. Read-only: nothing on it can be",
-  "  pressed. The words come from a file on the owner's computer, with web links and PR or ticket numbers removed.",
+  "  pressed. The words come from a file on the owner's computer, with the web links and PR or ticket numbers it recognises taken out.",
   "",
   "world://more-room.micknerks and world://more-room-mr.micknerks (More Room)",
   "- The owner signs in with the same passphrase.",
