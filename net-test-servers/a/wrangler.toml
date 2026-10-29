@@ -1,0 +1,23 @@
+# kosmos-net-test-a -- Server A (opted in) for the network device test, KOS-983.
+# A test Worker on workers.dev, outside every production zone. CEO-delegated deploy
+# (NETWORK_BUILD_PLAN lead addendum, 2026-10-10). Deploy: `npx wrangler deploy` from here.
+name = "kosmos-net-test-a"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+workers_dev = true
+preview_urls = false
+
+[vars]
+# Where /cross-redirect points: Server B, which never opted in.
+SERVER_B_ORIGIN = "https://kosmos-net-test-b.micknerks.workers.dev"
+
+[observability]
+enabled = true
+
+[[durable_objects.bindings]]
+name = "TEST_LOG"
+class_name = "TestLog"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["TestLog"]
